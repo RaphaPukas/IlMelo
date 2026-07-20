@@ -5,6 +5,7 @@ import {
   Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical,
   FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle,
   MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
+  BedDouble, Building2, Users, Wallet,
 } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
@@ -1330,6 +1331,852 @@ function CarrozzineModule({ onHome }) {
   );
 }
 /* =========================================================================
+   STRUTTURA — camere, reparti, tecnici, interventi, manutenzioni, costi
+   ========================================================================= */
+const STR_COLORS = {
+  bg: '#F3EEE4',
+  surface: '#FFFFFF',
+  ink: '#2A241E',
+  muted: '#79715F',
+  line: '#E4DCC9',
+  primary: '#6E4A2E',
+  primaryDeep: '#432C1A',
+  amber: '#BE8A2E',
+  danger: '#B23A2E',
+  ok: '#3C7A5C',
+  info: '#2C5C82',
+};
+
+const STR_NUCLEO_COLORS = {
+  'Ala Nord': { bg: '#E4DEF0', fg: '#4C3B75', dot: '#9A87C9' },
+  'Ala Sud': { bg: '#F6E7C4', fg: '#7A5A18', dot: '#C99B3E' },
+  'Bianco': { bg: '#F1F0EC', fg: '#4A4A46', dot: '#C7C4B8' },
+  'Blu': { bg: '#D2DEEF', fg: '#1E3D66', dot: '#3363A8' },
+  'Grigio': { bg: '#DEDEDE', fg: '#3A3A3A', dot: '#6B6B6B' },
+  'Rosso': { bg: '#F9D9D6', fg: '#8A2A20', dot: '#D8392C' },
+  'Giallo': { bg: '#FBEBBE', fg: '#7A5A00', dot: '#EFB81C' },
+  'Verde': { bg: '#CFE9D1', fg: '#215A2A', dot: '#3EA24C' },
+};
+
+const STR_STATO_CAMERA_STYLE = {
+  'Attiva': { bg: '#DCEEE3', fg: '#1F6B45' },
+  'In Manutenzione': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'Fuori Servizio': { bg: '#F7DCD9', fg: '#A3352A' },
+};
+const STR_STATI_CAMERA = Object.keys(STR_STATO_CAMERA_STYLE);
+const STR_TIPI_CAMERA = ['Singola', 'Doppia'];
+
+const STR_CATEGORIE_REPARTO = ['Assistenziale', 'Amministrativo', 'Servizi'];
+const STR_TIPI_TECNICO = ['Interno', 'Esterno'];
+
+const STR_PRIORITA_STYLE = {
+  'Bassa': { bg: '#DCEEE3', fg: '#1F6B45' },
+  'Media': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'Alta': { bg: '#F7DCD9', fg: '#A3352A' },
+  'Urgente': { bg: '#F7DCD9', fg: '#A3352A' },
+};
+const STR_PRIORITA_LIST = Object.keys(STR_PRIORITA_STYLE);
+
+const STR_STATO_INTERVENTO_STYLE = {
+  'Aperto': { bg: '#F7DCD9', fg: '#A3352A' },
+  'In corso': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'Chiuso': { bg: '#DCEEE3', fg: '#1F6B45' },
+  'Annullato': { bg: '#E8E5DC', fg: '#79715F' },
+};
+const STR_STATI_INTERVENTO = Object.keys(STR_STATO_INTERVENTO_STYLE);
+
+const STR_TIPI_MANUTENZIONE = ['Ordinaria', 'Straordinaria', 'Preventiva', 'Correttiva', 'Verifica Normativa'];
+const STR_FREQUENZE = ['Settimanale', 'Mensile', 'Trimestrale', 'Semestrale', 'Annuale', 'Una Tantum'];
+
+const STR_ALERT_STYLE = {
+  'SCADUTO': { bg: '#F7DCD9', fg: '#A3352A' },
+  'IN SCADENZA': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'OK': { bg: '#DCEEE3', fg: '#1F6B45' },
+};
+
+const STR_TIPI_COSTO = ['Preventivo', 'Fattura', 'Costo Effettivo'];
+const STR_STATO_PAGAMENTO_STYLE = {
+  'Da pagare': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'Pagato': { bg: '#DCEEE3', fg: '#1F6B45' },
+  'Parzialmente pagato': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'In contestazione': { bg: '#F7DCD9', fg: '#A3352A' },
+};
+const STR_STATI_PAGAMENTO = Object.keys(STR_STATO_PAGAMENTO_STYLE);
+
+const STR_NAV_ITEMS = [
+  ['camere', BedDouble, 'Camere'],
+  ['interventi', ClipboardList, 'Interventi'],
+  ['scadenze', CalendarClock, 'Scadenze'],
+  ['costi', Wallet, 'Costi'],
+  ['riepilogo', BarChart3, 'Riepilogo'],
+];
+
+/* ---------- helpers ---------- */
+const strAlertStatus = (days) => { if (days == null) return 'OK'; if (days < 0) return 'SCADUTO'; if (days <= 7) return 'IN SCADENZA'; return 'OK'; };
+
+/* ---------- small UI atoms (tema Struttura) ---------- */
+function STR_Field({ label, children }) {
+  return (
+    <label style={{ display: 'block', marginBottom: 14 }}>
+      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: STR_COLORS.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+const strInputStyle = {
+  width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10,
+  border: `1.5px solid ${STR_COLORS.line}`, fontSize: 15, fontFamily: 'Inter, sans-serif',
+  background: '#FCFBF7', color: STR_COLORS.ink, outline: 'none',
+};
+function STR_FAB({ onClick, label }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        position: 'fixed', right: 18, bottom: 84, background: STR_COLORS.amber, color: '#2A1B00',
+        border: 'none', borderRadius: 999, height: 52, padding: '0 20px 0 16px',
+        display: 'flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 14.5,
+        boxShadow: '0 6px 16px rgba(190,138,46,0.4)', zIndex: 20,
+      }}
+    >
+      <Plus size={20} strokeWidth={2.6} /> {label}
+    </button>
+  );
+}
+function STR_NucleoTag({ nucleo }) {
+  if (!nucleo) return null;
+  const s = STR_NUCLEO_COLORS[nucleo] || { bg: '#EEE', fg: STR_COLORS.muted, dot: '#999' };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: s.bg, color: s.fg, fontSize: 11, fontWeight: 700, padding: '3px 9px 3px 7px', borderRadius: 999 }}>
+      <span style={{ width: 7, height: 7, borderRadius: 999, background: s.dot, flexShrink: 0 }} />
+      {nucleo}
+    </span>
+  );
+}
+function STR_Row({ label, value, bold }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: bold ? 700 : 500, fontSize: bold ? 14 : 13 }}>
+      <span style={{ color: bold ? STR_COLORS.ink : STR_COLORS.muted }}>{label}</span><span>{value}</span>
+    </div>
+  );
+}
+
+/* ---------- dati di esempio (dal registro reale della struttura) ---------- */
+const S_CAMERE = [{"codice": "001", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "002", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "003", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "004", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "005", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "006", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "007", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "008", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "009", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "010", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "011", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "012", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "013", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "014", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "015", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "016", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "017", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "018", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "019", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "020", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "021", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "022", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "023", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "024", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "025", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "026", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "027", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "028", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "029", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "030", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "101", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "102", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "103", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "104", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "105", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "106", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "107", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "108", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "109", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "110", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "111", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "112", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "113", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "114", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "115", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "116", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "117", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "118", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "119", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "120", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "121", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "122", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "123", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "124", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "125", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "126", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "127", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "128", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "129", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "130", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "201", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "202", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "203", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "204", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "205", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "206", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "207", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "208", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "209", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "210", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "211", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "212", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "213", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "214", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "215", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "216", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "217", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "218", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "219", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "220", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "221", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "222", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "223", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "224", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "225", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "226", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "227", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "228", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "229", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "230", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}];
+const S_REPARTI = [{"codice": "Z01", "nome": "Cucina", "categoria": "Servizi", "responsabile": "Responsabile Cucina", "note": ""}, {"codice": "Z02", "nome": "Sala da Pranzo", "categoria": "Servizi", "responsabile": "Responsabile Cucina", "note": ""}, {"codice": "Z03", "nome": "Uffici Amministrativi", "categoria": "Amministrativo", "responsabile": "Responsabile Amministrativo", "note": ""}, {"codice": "Z04", "nome": "Ufficio Direzione", "categoria": "Amministrativo", "responsabile": "Direttore di Struttura", "note": ""}, {"codice": "Z05", "nome": "Ufficio Coord. Infermieristico", "categoria": "Amministrativo", "responsabile": "Coordinatore Infermieristico", "note": ""}, {"codice": "Z06", "nome": "Lavanderia", "categoria": "Servizi", "responsabile": "Responsabile Lavanderia", "note": ""}, {"codice": "Z07", "nome": "Guardaroba", "categoria": "Servizi", "responsabile": "Responsabile Lavanderia", "note": ""}, {"codice": "Z08", "nome": "Bagno Comune Piano Terra", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z09", "nome": "Bagno Comune Primo Piano", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z10", "nome": "Bagno Comune Secondo Piano", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z11", "nome": "Parco Giochi", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z12", "nome": "Giardino animali", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z13", "nome": "Giardino d'Inverno", "categoria": "Assistenziale", "responsabile": "Animatore/Educatore", "note": ""}, {"codice": "Z14", "nome": "Palestra / Fisioterapia", "categoria": "Assistenziale", "responsabile": "Responsabile Fisioterapia", "note": ""}, {"codice": "Z15", "nome": "Cappella", "categoria": "Servizi", "responsabile": "Responsabile Struttura", "note": ""}, {"codice": "Z16", "nome": "Ingresso / Reception", "categoria": "Amministrativo", "responsabile": "Responsabile Reception", "note": ""}, {"codice": "Z17", "nome": "Ascensore Nord", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z18", "nome": "Ascensore Sud", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z19", "nome": "Ascensore Secondario", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z20", "nome": "Scala di Sicurezza Nord", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}, {"codice": "Z21", "nome": "Scala di Sicurezza Sud", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}, {"codice": "Z22", "nome": "Magazzino Generale", "categoria": "Servizi", "responsabile": "Simone Cabrelle", "note": ""}, {"codice": "Z23", "nome": "Centrale Termica", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z24", "nome": "Locale Tecnico Impianti Elettrici", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z25", "nome": "Parcheggio", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}];
+const S_TECNICI = [{"id": "T01", "nome": "Biagio", "tipo": "Interno", "specializzazione": "Manutentore Generico", "telefono": "329 000 0001", "email": "m.rossi@struttura-esempio.it", "note": ""}, {"id": "T02", "nome": "Simone Napolitano", "tipo": "Interno", "specializzazione": "Idraulico", "telefono": "329 000 0002", "email": "g.verdi@struttura-esempio.it", "note": ""}, {"id": "T03", "nome": "Raffaele", "tipo": "Interno", "specializzazione": "Manutentore Generico", "telefono": "329 000 0003", "email": "l.bianchi@struttura-esempio.it", "note": ""}, {"id": "T04", "nome": "ElettroService Snc", "tipo": "Esterno", "specializzazione": "Impianti Elettrici", "telefono": "0332 000 100", "email": "info@elettroservice-esempio.it", "note": ""}, {"id": "T05", "nome": "Idro Pronto Srl", "tipo": "Esterno", "specializzazione": "Impianti Idraulici", "telefono": "0332 000 101", "email": "info@idropronto-esempio.it", "note": ""}, {"id": "T06", "nome": "ClimaTech Impianti", "tipo": "Esterno", "specializzazione": "Climatizzazione / HVAC", "telefono": "0332 000 102", "email": "info@climatech-esempio.it", "note": ""}, {"id": "T07", "nome": "Ascensori Sicuri Srl", "tipo": "Esterno", "specializzazione": "Manutenzione Ascensori", "telefono": "0332 000 103", "email": "info@ascensorisicuri-esempio.it", "note": ""}, {"id": "T08", "nome": "AntincendioPiu Srl", "tipo": "Esterno", "specializzazione": "Sistemi Antincendio", "telefono": "0332 000 104", "email": "info@antincendiopiu-esempio.it", "note": ""}, {"id": "T09", "nome": "Falegnameria Colombo", "tipo": "Esterno", "specializzazione": "Falegnameria", "telefono": "0332 000 105", "email": "info@falegnameriacolombo-esempio.it", "note": ""}, {"id": "T10", "nome": "Verde Giardini Sas", "tipo": "Esterno", "specializzazione": "Manutenzione Giardino", "telefono": "0332 000 106", "email": "info@verdegiardini-esempio.it", "note": ""}, {"id": "T11", "nome": "Pulizie Splendor Srl", "tipo": "Esterno", "specializzazione": "Pulizie e Sanificazione", "telefono": "0332 000 107", "email": "info@puliziesplendor-esempio.it", "note": ""}, {"id": "T12", "nome": "DisinfestaService", "tipo": "Esterno", "specializzazione": "Disinfestazione / Derattizzazione", "telefono": "0332 000 108", "email": "info@disinfestaservice-esempio.it", "note": ""}, {"id": "T13", "nome": "InfoTech Solutions", "tipo": "Esterno", "specializzazione": "Assistenza Informatica", "telefono": "0332 000 109", "email": "info@infotech-esempio.it", "note": ""}, {"id": "T14", "nome": "Sicurtech Impianti", "tipo": "Esterno", "specializzazione": "Sicurezza / Videosorveglianza", "telefono": "0332 000 110", "email": "info@sicurtech-esempio.it", "note": ""}, {"id": "T15", "nome": "Edil Ripristino Srl", "tipo": "Esterno", "specializzazione": "Opere Edili / Muratura", "telefono": "0332 000 111", "email": "info@edilripristino-esempio.it", "note": ""}];
+const S_INTERVENTI = [{"id": "SI001", "dataSegnalazione": "2026-04-03", "cameraZona": "003", "descrizione": "Perdita rubinetto bagno camera", "priorita": "Media", "tecnico": "Biagio", "stato": "Chiuso", "dataChiusura": "2026-04-04", "costo": 45.0, "note": ""}, {"id": "SI002", "dataSegnalazione": "2026-04-10", "cameraZona": "Cucina", "descrizione": "Guasto abbattitore di temperatura", "priorita": "Alta", "tecnico": "ClimaTech Impianti", "stato": "Chiuso", "dataChiusura": "2026-04-12", "costo": 320.0, "note": ""}, {"id": "SI003", "dataSegnalazione": "2026-04-15", "cameraZona": "112", "descrizione": "Presa elettrica non funzionante", "priorita": "Media", "tecnico": "Simone Napolitano", "stato": "Chiuso", "dataChiusura": "2026-04-15", "costo": 0.0, "note": ""}, {"id": "SI004", "dataSegnalazione": "2026-04-22", "cameraZona": "Giardino", "descrizione": "Irrigazione automatica bloccata", "priorita": "Bassa", "tecnico": "Verde Giardini Sas", "stato": "Chiuso", "dataChiusura": "2026-04-28", "costo": 150.0, "note": ""}];
+const S_MANUTENZIONI = [{"id": "MP001", "cameraZona": "Ascensore Principale", "tipoManutenzione": "Verifica Normativa", "frequenza": "Mensile", "ultimaEsecuzione": "2026-06-19", "prossimaScadenza": "2026-07-10", "tecnico": "Ascensori Sicuri Srl", "note": ""}, {"id": "MP002", "cameraZona": "Struttura (tutti i piani)", "tipoManutenzione": "Verifica Normativa", "frequenza": "Trimestrale", "ultimaEsecuzione": "2026-04-20", "prossimaScadenza": "2026-07-20", "tecnico": "AntincendioPiu Srl", "note": ""}, {"id": "MP003", "cameraZona": "Cucina", "tipoManutenzione": "Verifica Normativa", "frequenza": "Semestrale", "ultimaEsecuzione": "2026-02-05", "prossimaScadenza": "2026-08-05", "tecnico": "AntincendioPiu Srl", "note": ""}];
+const S_COSTI = [{"id": "C001", "idIntervento": "SI001", "tipo": "Fattura", "descrizione": "Rifacimento Bagno", "fornitore": "Giuseppe Verdi", "numeroDocumento": "FT-2026-041", "data": "2026-04-04", "importo": 45.0, "statoPagamento": "Pagato", "note": ""}, {"id": "C002", "idIntervento": "SI002", "tipo": "Fattura", "descrizione": "Riparazione abbattitore cucina", "fornitore": "ClimaTech Impianti", "numeroDocumento": "FT-2026-088", "data": "2026-04-12", "importo": 320.0, "statoPagamento": "Pagato", "note": ""}];
+
+/* ---------- Camere ---------- */
+function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
+  const [q, setQ] = useState('');
+  const [filtro, setFiltro] = useState(null);
+  let filtered = camere.filter(c => `${c.codice} ${c.piano} ${c.nucleo}`.toLowerCase().includes(q.toLowerCase()));
+  if (filtro) filtered = filtered.filter(c => c.stato === filtro);
+
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Camere" subtitle={`${camere.length} in struttura`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: 14 }}>
+        <input placeholder="Cerca camera, piano, nucleo…" style={{ ...strInputStyle, marginBottom: 10 }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+          {STR_STATI_CAMERA.map(s => (
+            <button key={s} onClick={() => setFiltro(filtro === s ? null : s)}
+              style={{ border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                background: filtro === s ? STR_COLORS.primary : STR_STATO_CAMERA_STYLE[s].bg,
+                color: filtro === s ? '#fff' : STR_STATO_CAMERA_STYLE[s].fg }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        {filtered.length === 0 && <Empty theme={STR_COLORS} icon={BedDouble} text="Nessuna camera trovata." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {filtered.map(c => (
+            <Card theme={STR_COLORS} key={c.codice} onClick={() => onOpen(c)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Camera {c.codice}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{c.piano} · {c.tipo}</div>
+                  <STR_NucleoTag nucleo={c.nucleo} />
+                </div>
+                <Pill style={STR_STATO_CAMERA_STYLE[c.stato] || {}}>{c.stato}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Camera" />
+    </>
+  );
+}
+
+function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) {
+  const own = interventi.filter(i => i.cameraZona === camera.codice).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={`Camera ${camera.codice}`} subtitle={camera.piano} onBack={onBack} />
+      <div style={{ padding: 14 }}>
+        <Card theme={STR_COLORS} style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <STR_NucleoTag nucleo={camera.nucleo} />
+            <Pill style={STR_STATO_CAMERA_STYLE[camera.stato] || {}}>{camera.stato}</Pill>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <InfoRow theme={STR_COLORS} icon={Building2} label="Piano" value={camera.piano} />
+            <InfoRow theme={STR_COLORS} icon={BedDouble} label="Tipo" value={camera.tipo} />
+          </div>
+          {camera.note && <div style={{ marginTop: 10, fontSize: 13, color: STR_COLORS.muted }}>{camera.note}</div>}
+          <button onClick={() => onEdit(camera)} style={{ width: '100%', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, color: STR_COLORS.ink, borderRadius: 10, padding: '10px', fontWeight: 700, fontSize: 13.5, marginTop: 12 }}>
+            Modifica camera
+          </button>
+        </Card>
+
+        <SectionLabel theme={STR_COLORS}>Interventi in questa camera · {own.length}</SectionLabel>
+        {own.length === 0 && <Empty theme={STR_COLORS} icon={ClipboardList} text="Nessun intervento registrato per questa camera." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {own.map(i => (
+            <Card theme={STR_COLORS} key={i.id} onClick={() => onOpenIntervento(i)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
+                  <div style={{ fontSize: 11.5, color: STR_COLORS.muted }}>{fmtDate(i.dataSegnalazione)}{i.tecnico ? ' · ' + i.tecnico : ''}</div>
+                </div>
+                <Pill style={STR_STATO_INTERVENTO_STYLE[i.stato] || {}}>{i.stato}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || { codice: '', piano: piani[0] || 'Piano Terra', nucleo: nuclei[0] || '', tipo: 'Singola', stato: 'Attiva', note: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica camera' : 'Nuova camera'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Codice camera *"><input style={strInputStyle} value={f.codice} onChange={set('codice')} disabled={!!initial} /></STR_Field>
+        <STR_Field label="Piano"><input list="str-piani" style={strInputStyle} value={f.piano} onChange={set('piano')} />
+          <datalist id="str-piani">{piani.map(p => <option key={p} value={p} />)}</datalist>
+        </STR_Field>
+        <STR_Field label="Nucleo"><input list="str-nuclei" style={strInputStyle} value={f.nucleo} onChange={set('nucleo')} />
+          <datalist id="str-nuclei">{nuclei.map(n => <option key={n} value={n} />)}</datalist>
+        </STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_CAMERA.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+          <STR_Field label="Stato"><select style={selectStyle(STR_STATO_CAMERA_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_CAMERA.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        </div>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+          Salva camera
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina camera
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Interventi ---------- */
+function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
+  const [filtro, setFiltro] = useState(null);
+  const sorted = [...interventi].filter(i => !filtro || i.stato === filtro).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Interventi" subtitle={`${interventi.length} segnalazioni`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+          {STR_STATI_INTERVENTO.map(s => (
+            <button key={s} onClick={() => setFiltro(filtro === s ? null : s)}
+              style={{ border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                background: filtro === s ? STR_COLORS.primary : STR_STATO_INTERVENTO_STYLE[s].bg,
+                color: filtro === s ? '#fff' : STR_STATO_INTERVENTO_STYLE[s].fg }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        {sorted.length === 0 && <Empty theme={STR_COLORS} icon={ClipboardList} text="Nessun intervento ancora. Aggiungine uno." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {sorted.map(i => (
+            <Card theme={STR_COLORS} key={i.id} onClick={() => onOpen(i)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}</div>
+                  <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                  <Pill style={STR_STATO_INTERVENTO_STYLE[i.stato] || {}}>{i.stato}</Pill>
+                  {i.costo > 0 && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 6 }}>{fmtEuro(i.costo)}</div>}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Intervento" />
+    </>
+  );
+}
+
+function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || {
+    dataSegnalazione: todayISO(), cameraZona: luoghi[0] || '', descrizione: '', priorita: 'Media',
+    tecnico: tecnici[0] || '', stato: 'Aperto', dataChiusura: '', costo: '', note: '',
+  });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica intervento' : 'Nuovo intervento'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Camera / Zona *">
+          <input list="str-luoghi" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
+          <datalist id="str-luoghi">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
+        </STR_Field>
+        <STR_Field label="Data segnalazione"><input type="date" style={strInputStyle} value={f.dataSegnalazione} onChange={set('dataSegnalazione')} /></STR_Field>
+        <STR_Field label="Descrizione problema"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Cosa è successo" /></STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Priorità"><select style={selectStyle(STR_PRIORITA_STYLE[f.priorita] || {})} value={f.priorita} onChange={set('priorita')}>{STR_PRIORITA_LIST.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+          <STR_Field label="Stato"><select style={selectStyle(STR_STATO_INTERVENTO_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_INTERVENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        </div>
+        <STR_Field label="Tecnico / Ditta assegnato">
+          <input list="str-tecnici" style={strInputStyle} value={f.tecnico} onChange={set('tecnico')} />
+          <datalist id="str-tecnici">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
+        </STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Data chiusura"><input type="date" style={strInputStyle} value={f.dataChiusura || ''} onChange={set('dataChiusura')} /></STR_Field>
+          <STR_Field label="Costo (€)"><input type="number" step="0.01" style={strInputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></STR_Field>
+        </div>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button
+          onClick={() => onSave({ ...f, id: f.id || uid(), costo: f.costo ? Number(f.costo) : 0 })}
+          style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
+        >
+          Salva intervento
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina intervento
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Scadenze (manutenzioni programmate) ---------- */
+function ScadenzeStrScreen({ manutenzioni, onOpen, onAdd, onMenu, onHome }) {
+  const rows = useMemo(() => {
+    return manutenzioni.map(m => ({ ...m, days: daysUntil(m.prossimaScadenza) })).sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999));
+  }, [manutenzioni]);
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Scadenze" subtitle={`${manutenzioni.length} manutenzioni programmate`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: 14 }}>
+        {rows.length === 0 && <Empty theme={STR_COLORS} icon={CalendarClock} text="Nessuna manutenzione programmata." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {rows.map(m => {
+            const stato = strAlertStatus(m.days);
+            return (
+              <Card theme={STR_COLORS} key={m.id} onClick={() => onOpen(m)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{m.cameraZona}</div>
+                    <div style={{ fontSize: 12.5, color: STR_COLORS.muted, marginBottom: 6 }}>{m.tipoManutenzione} · {m.frequenza}</div>
+                    <div style={{ fontSize: 11.5, color: STR_COLORS.muted }}>{m.tecnico}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <Pill style={STR_ALERT_STYLE[stato]}>{m.days < 0 ? `${Math.abs(m.days)} gg fa` : stato === 'OK' ? `tra ${m.days} gg` : `tra ${m.days} gg`}</Pill>
+                    <div style={{ fontSize: 12, color: STR_COLORS.muted, marginTop: 6 }}>{fmtDate(m.prossimaScadenza)}</div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Scadenza" />
+    </>
+  );
+}
+
+function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || {
+    cameraZona: luoghi[0] || '', tipoManutenzione: STR_TIPI_MANUTENZIONE[0], frequenza: STR_FREQUENZE[1],
+    ultimaEsecuzione: todayISO(), prossimaScadenza: todayISO(), tecnico: tecnici[0] || '', note: '',
+  });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica scadenza' : 'Nuova scadenza'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Camera / Zona *">
+          <input list="str-luoghi2" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
+          <datalist id="str-luoghi2">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
+        </STR_Field>
+        <STR_Field label="Tipo manutenzione"><select style={strInputStyle} value={f.tipoManutenzione} onChange={set('tipoManutenzione')}>{STR_TIPI_MANUTENZIONE.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Frequenza"><select style={strInputStyle} value={f.frequenza} onChange={set('frequenza')}>{STR_FREQUENZE.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Ultima esecuzione"><input type="date" style={strInputStyle} value={f.ultimaEsecuzione} onChange={set('ultimaEsecuzione')} /></STR_Field>
+          <STR_Field label="Prossima scadenza"><input type="date" style={strInputStyle} value={f.prossimaScadenza} onChange={set('prossimaScadenza')} /></STR_Field>
+        </div>
+        <STR_Field label="Tecnico assegnato">
+          <input list="str-tecnici2" style={strInputStyle} value={f.tecnico} onChange={set('tecnico')} />
+          <datalist id="str-tecnici2">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
+        </STR_Field>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button onClick={() => onSave({ ...f, id: f.id || uid() })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+          Salva scadenza
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina scadenza
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Costi ---------- */
+function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome }) {
+  const [filtro, setFiltro] = useState(null);
+  const sorted = [...costi].filter(c => !filtro || c.statoPagamento === filtro).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const totale = costi.reduce((s, c) => s + (Number(c.importo) || 0), 0);
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Costi" subtitle={`${costi.length} voci · ${fmtEuro(totale)}`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+          {STR_STATI_PAGAMENTO.map(s => (
+            <button key={s} onClick={() => setFiltro(filtro === s ? null : s)}
+              style={{ border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                background: filtro === s ? STR_COLORS.primary : STR_STATO_PAGAMENTO_STYLE[s].bg,
+                color: filtro === s ? '#fff' : STR_STATO_PAGAMENTO_STYLE[s].fg }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        {sorted.length === 0 && <Empty theme={STR_COLORS} icon={Wallet} text="Nessun costo registrato." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {sorted.map(c => (
+            <Card theme={STR_COLORS} key={c.id} onClick={() => onOpen(c)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{c.descrizione || c.tipo}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted }}>{c.fornitore}{c.fornitore ? ' · ' : ''}{fmtDate(c.data)}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{fmtEuro(c.importo)}</div>
+                  <div style={{ marginTop: 6 }}><Pill style={STR_STATO_PAGAMENTO_STYLE[c.statoPagamento] || {}}>{c.statoPagamento}</Pill></div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Costo" />
+    </>
+  );
+}
+
+function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || {
+    idIntervento: '', tipo: 'Preventivo', descrizione: '', fornitore: tecnici[0] || '',
+    numeroDocumento: '', data: todayISO(), importo: '', statoPagamento: 'Da pagare', note: '',
+  });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica costo' : 'Nuovo costo'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Descrizione"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} /></STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_COSTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+          <STR_Field label="Importo (€)"><input type="number" step="0.01" style={strInputStyle} value={f.importo} onChange={set('importo')} placeholder="0.00" /></STR_Field>
+        </div>
+        <STR_Field label="Fornitore / Ditta">
+          <input list="str-fornitori" style={strInputStyle} value={f.fornitore} onChange={set('fornitore')} />
+          <datalist id="str-fornitori">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
+        </STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Numero documento"><input style={strInputStyle} value={f.numeroDocumento} onChange={set('numeroDocumento')} /></STR_Field>
+          <STR_Field label="Data"><input type="date" style={strInputStyle} value={f.data} onChange={set('data')} /></STR_Field>
+        </div>
+        <STR_Field label="ID intervento collegato">
+          <input list="str-interventi-ids" style={strInputStyle} value={f.idIntervento} onChange={set('idIntervento')} placeholder="facoltativo" />
+          <datalist id="str-interventi-ids">{interventiIds.map(t => <option key={t} value={t} />)}</datalist>
+        </STR_Field>
+        <STR_Field label="Stato pagamento"><select style={selectStyle(STR_STATO_PAGAMENTO_STYLE[f.statoPagamento] || {})} value={f.statoPagamento} onChange={set('statoPagamento')}>{STR_STATI_PAGAMENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button onClick={() => onSave({ ...f, id: f.id || uid(), importo: f.importo ? Number(f.importo) : 0 })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+          Salva costo
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina costo
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Reparti (anagrafica, raggiungibile dal Riepilogo) ---------- */
+function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Reparti e Zone" subtitle={`${reparti.length} in anagrafica`} onBack={onBack} />
+      <div style={{ padding: 14 }}>
+        {reparti.length === 0 && <Empty theme={STR_COLORS} icon={Building2} text="Nessun reparto registrato." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {reparti.map(r => (
+            <Card theme={STR_COLORS} key={r.codice} onClick={() => onOpen(r)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.nome}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted }}>{r.responsabile}</div>
+                </div>
+                <Pill style={{ bg: STR_COLORS.bg, fg: STR_COLORS.primary }}>{r.categoria}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Reparto" />
+    </>
+  );
+}
+
+function RepartoForm({ initial, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', responsabile: '', note: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica reparto' : 'Nuovo reparto'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Nome reparto / zona *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
+        <STR_Field label="Categoria"><select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>{STR_CATEGORIE_REPARTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Responsabile"><input style={strInputStyle} value={f.responsabile} onChange={set('responsabile')} /></STR_Field>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+          Salva reparto
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina reparto
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Tecnici e ditte (anagrafica, raggiungibile dal Riepilogo) ---------- */
+function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack }) {
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Tecnici e Ditte" subtitle={`${tecnici.length} in anagrafica`} onBack={onBack} />
+      <div style={{ padding: 14 }}>
+        {tecnici.length === 0 && <Empty theme={STR_COLORS} icon={Users} text="Nessun tecnico registrato." />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {tecnici.map(t => (
+            <Card theme={STR_COLORS} key={t.id} onClick={() => onOpen(t)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{t.nome}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted }}>{t.specializzazione}{t.telefono ? ' · ' + t.telefono : ''}</div>
+                </div>
+                <Pill style={t.tipo === 'Interno' ? { bg: '#DCEEE3', fg: '#1F6B45' } : { bg: STR_COLORS.bg, fg: STR_COLORS.primary }}>{t.tipo}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <STR_FAB onClick={onAdd} label="Tecnico" />
+    </>
+  );
+}
+
+function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
+  const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', telefono: '', email: '', note: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title={initial ? 'Modifica tecnico' : 'Nuovo tecnico'} onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <STR_Field label="Nome / Ragione sociale *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
+        <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_TECNICO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Specializzazione"><input style={strInputStyle} value={f.specializzazione} onChange={set('specializzazione')} /></STR_Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <STR_Field label="Telefono"><input style={strInputStyle} value={f.telefono} onChange={set('telefono')} /></STR_Field>
+          <STR_Field label="Email"><input style={strInputStyle} value={f.email} onChange={set('email')} /></STR_Field>
+        </div>
+        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
+
+        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+          Salva tecnico
+        </button>
+        {initial && (
+          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            Elimina tecnico
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Riepilogo (dashboard) ---------- */
+function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenReparti, onOpenTecnici }) {
+  const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
+  const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
+  const aperti = interventi.filter(i => i.stato === 'Aperto').length;
+  const inCorso = interventi.filter(i => i.stato === 'In corso').length;
+  const withAlert = manutenzioni.map(m => strAlertStatus(daysUntil(m.prossimaScadenza)));
+  const scadute = withAlert.filter(s => s === 'SCADUTO').length;
+  const inScadenza = withAlert.filter(s => s === 'IN SCADENZA').length;
+  const costoTotale = costi.reduce((s, c) => s + (Number(c.importo) || 0), 0);
+
+  const perTipoCosto = useMemo(() => {
+    const map = {};
+    STR_TIPI_COSTO.forEach(t => { map[t] = 0; });
+    costi.forEach(c => { map[c.tipo] = (map[c.tipo] || 0) + (Number(c.importo) || 0); });
+    return Object.entries(map);
+  }, [costi]);
+  const maxCosto = Math.max(1, ...perTipoCosto.map(([, v]) => v));
+
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Riepilogo" subtitle="Struttura · camere e interventi" onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
+          <StatCard theme={STR_COLORS} label="Camere totali" value={camere.length} accent={STR_COLORS.primary} />
+          <StatCard theme={STR_COLORS} label="Fuori servizio" value={fuoriServizio} accent={fuoriServizio ? STR_COLORS.danger : STR_COLORS.ok} />
+          <StatCard theme={STR_COLORS} label="In manutenzione" value={inManutenzioneCamere} accent={inManutenzioneCamere ? STR_COLORS.amber : STR_COLORS.ok} />
+          <StatCard theme={STR_COLORS} label="Interventi aperti" value={aperti + inCorso} accent={(aperti + inCorso) ? STR_COLORS.danger : STR_COLORS.ok} />
+          <StatCard theme={STR_COLORS} label="Scadenze scadute" value={scadute} accent={scadute ? STR_COLORS.danger : STR_COLORS.ok} />
+          <StatCard theme={STR_COLORS} label="In scadenza (7gg)" value={inScadenza} accent={inScadenza ? STR_COLORS.amber : STR_COLORS.ok} />
+        </div>
+        <div style={{ marginBottom: 6 }}>
+          <StatCard theme={STR_COLORS} label="Costo totale registrato" value={fmtEuro(costoTotale)} accent={STR_COLORS.primary} />
+        </div>
+
+        <SectionLabel theme={STR_COLORS}>Costi per tipo</SectionLabel>
+        <Card theme={STR_COLORS}>
+          {perTipoCosto.map(([tipo, v], i) => (
+            <div key={tipo} style={{ marginTop: i ? 10 : 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
+                <span>{tipo}</span><span style={{ color: STR_COLORS.muted }}>{fmtEuro(v)}</span>
+              </div>
+              <div style={{ height: 7, background: '#EEEAE0', borderRadius: 999 }}>
+                <div style={{ height: '100%', width: `${(v / maxCosto) * 100}%`, background: STR_COLORS.amber, borderRadius: 999 }} />
+              </div>
+            </div>
+          ))}
+        </Card>
+
+        <SectionLabel theme={STR_COLORS}>Anagrafiche</SectionLabel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <Card theme={STR_COLORS} onClick={onOpenReparti}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Building2 size={17} color={STR_COLORS.primary} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Reparti e Zone</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{reparti.length} →</span>
+            </div>
+          </Card>
+          <Card theme={STR_COLORS} onClick={onOpenTecnici}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Users size={17} color={STR_COLORS.primary} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici e Ditte</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.length} →</span>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ---------- Root ---------- */
+function StrutturaModule({ onHome }) {
+  const [ready, setReady] = useState(false);
+  const [camere, setCamere] = useState([]);
+  const [reparti, setReparti] = useState([]);
+  const [tecnici, setTecnici] = useState([]);
+  const [interventi, setInterventi] = useState([]);
+  const [manutenzioni, setManutenzioni] = useState([]);
+  const [costi, setCosti] = useState([]);
+  const [tab, setTab] = useState('camere');
+  const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici'
+  const [view, setView] = useState({ name: 'list' });
+  const [toast, setToast] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const load = async (key, seed) => { try { const v = JSON.parse((await storage.get(key)).value); return v && v.length ? v : seed; } catch { return seed; } };
+      const [c, r, t, i, m, co] = await Promise.all([
+        load('struttura-camere', S_CAMERE), load('struttura-reparti', S_REPARTI), load('struttura-tecnici', S_TECNICI),
+        load('struttura-interventi', S_INTERVENTI), load('struttura-manutenzioni', S_MANUTENZIONI), load('struttura-costi', S_COSTI),
+      ]);
+      setCamere(c); setReparti(r); setTecnici(t); setInterventi(i); setManutenzioni(m); setCosti(co);
+      setReady(true);
+    })();
+  }, []);
+
+  useEffect(() => { if (ready) storage.set('struttura-camere', JSON.stringify(camere)).catch(() => {}); }, [camere, ready]);
+  useEffect(() => { if (ready) storage.set('struttura-reparti', JSON.stringify(reparti)).catch(() => {}); }, [reparti, ready]);
+  useEffect(() => { if (ready) storage.set('struttura-tecnici', JSON.stringify(tecnici)).catch(() => {}); }, [tecnici, ready]);
+  useEffect(() => { if (ready) storage.set('struttura-interventi', JSON.stringify(interventi)).catch(() => {}); }, [interventi, ready]);
+  useEffect(() => { if (ready) storage.set('struttura-manutenzioni', JSON.stringify(manutenzioni)).catch(() => {}); }, [manutenzioni, ready]);
+  useEffect(() => { if (ready) storage.set('struttura-costi', JSON.stringify(costi)).catch(() => {}); }, [costi, ready]);
+  useEffect(() => { setView({ name: 'list' }); }, [tab, subScreen]);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
+
+  const saveCamera = (c) => { setCamere(prev => prev.some(x => x.codice === c.codice) ? prev.map(x => x.codice === c.codice ? c : x) : [...prev, c]); flash('Camera salvata'); setView({ name: 'detail', id: c.codice }); };
+  const deleteCamera = (c) => { setCamere(prev => prev.filter(x => x.codice !== c.codice)); flash('Camera eliminata'); setView({ name: 'list' }); };
+  const saveReparto = (r) => { setReparti(prev => prev.some(x => x.codice === r.codice) ? prev.map(x => x.codice === r.codice ? r : x) : [...prev, r]); flash('Reparto salvato'); setView({ name: 'list' }); };
+  const deleteReparto = (r) => { setReparti(prev => prev.filter(x => x.codice !== r.codice)); flash('Reparto eliminato'); setView({ name: 'list' }); };
+  const saveTecnico = (t) => { setTecnici(prev => prev.some(x => x.id === t.id) ? prev.map(x => x.id === t.id ? t : x) : [...prev, t]); flash('Tecnico salvato'); setView({ name: 'list' }); };
+  const deleteTecnico = (t) => { setTecnici(prev => prev.filter(x => x.id !== t.id)); flash('Tecnico eliminato'); setView({ name: 'list' }); };
+  const saveIntervento = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); setView({ name: 'list' }); };
+  const deleteIntervento = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); setView({ name: 'list' }); };
+  const saveManutenzione = (m) => { setManutenzioni(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]); flash('Scadenza salvata'); setView({ name: 'list' }); };
+  const deleteManutenzione = (m) => { setManutenzioni(prev => prev.filter(x => x.id !== m.id)); flash('Scadenza eliminata'); setView({ name: 'list' }); };
+  const saveCosto = (c) => { setCosti(prev => prev.some(x => x.id === c.id) ? prev.map(x => x.id === c.id ? c : x) : [...prev, c]); flash('Costo salvato'); setView({ name: 'list' }); };
+  const deleteCosto = (c) => { setCosti(prev => prev.filter(x => x.id !== c.id)); flash('Costo eliminato'); setView({ name: 'list' }); };
+  // Intervento aperto dal dettaglio di una camera: torna al dettaglio invece che alla lista
+  const saveInterventoDaCamera = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); setView({ name: 'detail', id: view.cameraId }); };
+  const deleteInterventoDaCamera = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); setView({ name: 'detail', id: view.cameraId }); };
+
+  const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
+  const tecniciNomi = useMemo(() => tecnici.map(t => t.nome), [tecnici]);
+  const piani = useMemo(() => [...new Set(camere.map(c => c.piano).filter(Boolean))], [camere]);
+  const nuclei = useMemo(() => [...new Set(camere.map(c => c.nucleo).filter(Boolean))], [camere]);
+  const interventiIds = useMemo(() => interventi.map(i => i.id), [interventi]);
+
+  const exportToExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    const wsCamere = XLSX.utils.json_to_sheet(camere.map(c => ({ 'Codice Camera': c.codice, 'Piano': c.piano, 'Nucleo': c.nucleo, 'Tipo': c.tipo, 'Stato': c.stato, 'Note': c.note })));
+    wsCamere['!cols'] = [14, 16, 14, 12, 16, 26].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsCamere, 'Camere');
+
+    const wsReparti = XLSX.utils.json_to_sheet(reparti.map(r => ({ 'Codice': r.codice, 'Nome': r.nome, 'Categoria': r.categoria, 'Responsabile': r.responsabile, 'Note': r.note })));
+    wsReparti['!cols'] = [10, 30, 16, 26, 26].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsReparti, 'Reparti_Zone');
+
+    const wsTecnici = XLSX.utils.json_to_sheet(tecnici.map(t => ({ 'ID': t.id, 'Nome': t.nome, 'Tipo': t.tipo, 'Specializzazione': t.specializzazione, 'Telefono': t.telefono, 'Email': t.email, 'Note': t.note })));
+    wsTecnici['!cols'] = [8, 26, 10, 26, 15, 26, 20].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsTecnici, 'Tecnici_Ditte');
+
+    const dt = (iso) => (iso ? new Date(iso + 'T00:00:00') : '');
+    const wsInterventi = XLSX.utils.json_to_sheet(interventi.map(i => ({
+      'ID': i.id, 'Data Segnalazione': dt(i.dataSegnalazione), 'Camera/Zona': i.cameraZona, 'Descrizione': i.descrizione,
+      'Priorita': i.priorita, 'Tecnico': i.tecnico, 'Stato': i.stato, 'Data Chiusura': dt(i.dataChiusura), 'Costo (EUR)': i.costo || 0, 'Note': i.note,
+    })), { cellDates: true });
+    wsInterventi['!cols'] = [8, 16, 14, 32, 10, 20, 12, 16, 12, 24].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsInterventi, 'Storico_Interventi');
+
+    const wsManut = XLSX.utils.json_to_sheet(manutenzioni.map(m => ({
+      'ID': m.id, 'Camera/Zona': m.cameraZona, 'Tipo': m.tipoManutenzione, 'Frequenza': m.frequenza,
+      'Ultima Esecuzione': dt(m.ultimaEsecuzione), 'Prossima Scadenza': dt(m.prossimaScadenza),
+      'Giorni alla Scadenza': daysUntil(m.prossimaScadenza), 'Stato Allerta': strAlertStatus(daysUntil(m.prossimaScadenza)), 'Tecnico': m.tecnico, 'Note': m.note,
+    })), { cellDates: true });
+    wsManut['!cols'] = [8, 22, 18, 14, 16, 16, 16, 14, 20, 24].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsManut, 'Manutenzioni_Programmate');
+
+    const wsCosti = XLSX.utils.json_to_sheet(costi.map(c => ({
+      'ID': c.id, 'ID Intervento': c.idIntervento, 'Tipo': c.tipo, 'Descrizione': c.descrizione, 'Fornitore': c.fornitore,
+      'Numero Documento': c.numeroDocumento, 'Data': dt(c.data), 'Importo (EUR)': c.importo || 0, 'Stato Pagamento': c.statoPagamento, 'Note': c.note,
+    })), { cellDates: true });
+    wsCosti['!cols'] = [8, 14, 14, 28, 20, 16, 14, 12, 16, 20].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, wsCosti, 'Costi');
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `registro_manutenzione_rsa_${stamp}.xlsx`);
+    setShowMenu(false);
+    flash('File Excel scaricato');
+  };
+
+  if (!ready) {
+    return <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: STR_COLORS.muted }}>Caricamento…</div>;
+  }
+
+  const onMenu = () => setShowMenu(true);
+  let content;
+
+  if (subScreen === 'reparti') {
+    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => setView({ name: 'list' })} onDelete={deleteReparto} />;
+    else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+  } else if (subScreen === 'tecnici') {
+    if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => setView({ name: 'list' })} onDelete={deleteTecnico} />;
+    else content = <TecniciStrScreen tecnici={tecnici} onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+  } else if (tab === 'camere') {
+    if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => setView({ name: 'list' })} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
+    else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={saveCamera} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={saveCamera} onCancel={() => setView({ name: 'detail', id: view.c.codice })} onDelete={deleteCamera} />;
+    else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => setView({ name: 'detail', id: view.cameraId })} onDelete={deleteInterventoDaCamera} />;
+    else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+  } else if (tab === 'interventi') {
+    if (view.name === 'add') content = <InterventoForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => setView({ name: 'list' })} onDelete={deleteIntervento} />;
+    else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+  } else if (tab === 'scadenze') {
+    if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => setView({ name: 'list' })} onDelete={deleteManutenzione} />;
+    else content = <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+  } else if (tab === 'costi') {
+    if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => setView({ name: 'list' })} />;
+    else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => setView({ name: 'list' })} onDelete={deleteCosto} />;
+    else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+  } else {
+    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenReparti={() => setSubScreen('reparti')} onOpenTecnici={() => setSubScreen('tecnici')} />;
+  }
+
+  const showBottomNav = view.name === 'list' && !subScreen;
+
+  return (
+    <div style={{ minHeight: '100vh', background: STR_COLORS.bg, fontFamily: 'Inter, sans-serif', color: STR_COLORS.ink, maxWidth: 480, margin: '0 auto', position: 'relative' }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+        * { box-sizing: border-box; }
+        input:focus, select:focus, textarea:focus { border-color: ${STR_COLORS.primary} !important; }
+      `}</style>
+      <div style={{ paddingBottom: showBottomNav ? 78 : 20 }}>{content}</div>
+      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} />}
+      {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => setShowMenu(false)} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: showBottomNav ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: STR_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
+          <Check size={15} /> {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
    HUB — schermata di ingresso con i moduli disponibili
    ========================================================================= */
 
@@ -1359,6 +2206,15 @@ const MODULES = [
     color: '#33594E',
     colorSoft: '#DCEAE3',
     stat: (d) => `${d.carrozzine.length} carrozzine`,
+  },
+  {
+    key: 'struttura',
+    name: 'Struttura',
+    desc: 'Camere, interventi, scadenze e costi',
+    icon: BedDouble,
+    color: '#6E4A2E',
+    colorSoft: '#EDE3D6',
+    stat: (d) => `${d.camere.length} camere`,
   },
 ];
 
@@ -1409,23 +2265,26 @@ function HubScreen({ onOpen, counts }) {
    ========================================================================= */
 
 export default function ManutenzioneApp() {
-  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine'
-  const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED });
+  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura'
+  const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
 
   // Tengo aggiornati i conteggi mostrati sull'Hub leggendo lo storage al volo
   useEffect(() => {
     (async () => {
-      let v, c;
+      let v, c, ca;
       try { v = JSON.parse((await storage.get('vehicles')).value); } catch { v = null; }
       try { c = JSON.parse((await storage.get('carrozzine')).value); } catch { c = null; }
+      try { ca = JSON.parse((await storage.get('struttura-camere')).value); } catch { ca = null; }
       setCounts({
         vehicles: v && v.length ? v : SEED_VEHICLES,
         carrozzine: c && c.length ? c : SEED,
+        camere: ca && ca.length ? ca : S_CAMERE,
       });
     })();
   }, [screen]);
 
   if (screen === 'mezzi') return <MezziModule onHome={() => setScreen('hub')} />;
   if (screen === 'carrozzine') return <CarrozzineModule onHome={() => setScreen('hub')} />;
+  if (screen === 'struttura') return <StrutturaModule onHome={() => setScreen('hub')} />;
   return <HubScreen onOpen={setScreen} counts={counts} />;
 }
