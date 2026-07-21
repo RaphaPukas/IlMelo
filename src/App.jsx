@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft,
@@ -22,6 +22,88 @@ const storage = {
     return { value };
   },
 };
+
+// Riferimento condiviso per lo stato "lista": riusarlo (invece di creare
+// ogni volta un nuovo oggetto {name:'list'}) evita che i reset automatici
+// di vista generino voci fantasma nella cronologia del tasto indietro.
+const LIST_VIEW = { name: 'list' };
+
+/* =========================================================================
+   TASTO INDIETRO DEL TELEFONO — invece di uscire dall'app, torna alla
+   schermata precedente (schermata > tab > dettaglio > form).
+   Ogni livello di navigazione (screen, tab, view, openId, ecc.) si registra
+   con useBackable(valore, setValore): ad ogni cambiamento viene creata una
+   voce nella cronologia del browser; quando l'utente preme "indietro" la
+   voce piu' recente viene ripristinata senza uscire dalla pagina.
+   Se non c'e' piu' nulla da annullare (si e' alla schermata Home), il tasto
+   indietro esce normalmente dall'app, come ci si aspetta.
+   ========================================================================= */
+const __backStack = [];
+const __skipPushFor = new Set();
+
+function __pushBack(setValue, previous) {
+  __backStack.push({ setValue, previous });
+  try { window.history.pushState({ appNav: true, depth: __backStack.length }, ''); } catch (e) {}
+}
+
+function __popBack() {
+  if (__backStack.length === 0) return false;
+  const { setValue, previous } = __backStack.pop();
+  __skipPushFor.add(setValue);
+  setValue(previous);
+  return true;
+}
+
+function useBackable(value, setValue) {
+  const prevRef = useRef(value);
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; prevRef.current = value; return; }
+    if (__skipPushFor.has(setValue)) {
+      __skipPushFor.delete(setValue);
+      prevRef.current = value;
+      return;
+    }
+    if (value !== prevRef.current) {
+      __pushBack(setValue, prevRef.current);
+      prevRef.current = value;
+    }
+  }, [value, setValue]);
+}
+
+// Da usare nei pulsanti "Indietro"/"Annulla" dentro l'app: cosi' si comportano
+// esattamente come il tasto indietro del telefono e restano sincronizzati
+// con la cronologia del browser.
+function goBack() {
+  if (__backStack.length > 0) { window.history.back(); }
+}
+
+// Da usare quando un'azione deve saltare piu' di un livello in un colpo solo
+// (es: eliminare un elemento dalla sua scheda di modifica raggiunta da un
+// dettaglio — il dettaglio sottostante non avrebbe piu' senso una volta che
+// l'elemento non esiste piu', quindi si salta dritti alla destinazione finale).
+let __suppressPopstateCount = 0;
+function goBackMulti(n, setValue, finalValue) {
+  if (__backStack.length === 0) return;
+  n = Math.min(n, __backStack.length);
+  for (let i = 0; i < n; i++) __backStack.pop();
+  __skipPushFor.add(setValue);
+  setValue(finalValue);
+  __suppressPopstateCount += n;
+  try { window.history.go(-n); } catch (e) {}
+}
+
+
+function useHardwareBack() {
+  useEffect(() => {
+    const handler = () => {
+      if (__suppressPopstateCount > 0) { __suppressPopstateCount--; return; }
+      __popBack();
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, []);
+}
 
 
 /* =========================================================================
@@ -657,9 +739,13 @@ function MezziModule({ onHome }) {
   const [maints, setMaints] = useState([]);
   const [params] = useState(DEFAULT_PARAMS);
   const [tab, setTab] = useState('veicoli');
-  const [view, setView] = useState({ name: 'list' });
+  const [view, setView] = useState(LIST_VIEW);
   const [toast, setToast] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  useBackable(showMenu, setShowMenu);
+
+  useBackable(tab, setTab);
+  useBackable(view, setView);
 
   useEffect(() => {
     (async () => {
@@ -725,33 +811,33 @@ function MezziModule({ onHome }) {
 
     const stamp = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `registro_manutenzione_veicoli_${stamp}.xlsx`);
-    setShowMenu(false);
+    goBack();
     flash('File Excel scaricato');
   };
 
-  useEffect(() => { setView({ name: 'list' }); }, [tab]);
+  useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
 
   const saveVehicle = (v) => {
     setVehicles(prev => prev.some(x => x.id === v.id) ? prev.map(x => x.id === v.id ? v : x) : [...prev, v]);
     flash('Veicolo salvato');
-    setView({ name: 'list' });
+    goBack();
   };
   const deleteVehicle = (v) => {
     setVehicles(prev => prev.filter(x => x.id !== v.id));
     flash('Veicolo eliminato');
-    setView({ name: 'list' });
+    goBack();
   };
   const saveMaint = (m) => {
     setMaints(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]);
     flash('Intervento salvato');
-    setView({ name: 'list' });
+    goBack();
   };
   const deleteMaint = (m) => {
     setMaints(prev => prev.filter(x => x.id !== m.id));
     flash('Intervento eliminato');
-    setView({ name: 'list' });
+    goBack();
   };
 
   if (!ready) {
@@ -760,13 +846,13 @@ function MezziModule({ onHome }) {
 
   let content;
   if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => setView({ name: 'list' })} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} />;
-    else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => setView({ name: 'detail', id: view.v.id })} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} />;
+    else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'manutenzioni') {
-    if (view.name === 'add') content = <MaintForm vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => setView({ name: 'list' })} onDelete={deleteMaint} />;
+    if (view.name === 'add') content = <MaintForm vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
     else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'scadenze') {
     content = <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -783,7 +869,7 @@ function MezziModule({ onHome }) {
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
       {view.name === 'list' && <BottomNav theme={MEZZI_COLORS} tab={tab} setTab={setTab} items={MEZZI_NAV_ITEMS} />}
-      {showMenu && <MenuSheet theme={MEZZI_COLORS} onClose={() => setShowMenu(false)} onExport={exportToExcel} exportSub="Scarica anagrafica e registro in .xlsx" />}
+      {showMenu && <MenuSheet theme={MEZZI_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica anagrafica e registro in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: view.name === 'list' ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: MEZZI_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
           <Check size={15} /> {toast}
@@ -1252,7 +1338,11 @@ function CarrozzineModule({ onHome }) {
   const [openId, setOpenId] = useState(null);
   const [filterNucleo, setFilterNucleo] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
+  useBackable(showMenu, setShowMenu);
   const [toast, setToast] = useState('');
+
+  useBackable(tab, setTab);
+  useBackable(openId, setOpenId);
 
   useEffect(() => {
     (async () => {
@@ -1288,7 +1378,7 @@ function CarrozzineModule({ onHome }) {
     XLSX.utils.book_append_sheet(wb, ws, 'Totale');
     const stamp = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `Carrozzine-Melo2_Totale_${stamp}.xlsx`);
-    setShowMenu(false);
+    goBack();
     flash('File Excel scaricato');
   };
 
@@ -1301,7 +1391,7 @@ function CarrozzineModule({ onHome }) {
 
   let content;
   if (openItem) {
-    content = <CarrozzinaDetail w={openItem} onBack={() => setOpenId(null)} onUpdate={updateItem} />;
+    content = <CarrozzinaDetail w={openItem} onBack={() => goBack()} onUpdate={updateItem} />;
   } else if (tab === 'carrozzine') {
     content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filterNucleo={filterNucleo} setFilterNucleo={setFilterNucleo} onHome={onHome} />;
   } else if (tab === 'controlli') {
@@ -1321,7 +1411,7 @@ function CarrozzineModule({ onHome }) {
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
       {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} />}
-      {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => setShowMenu(false)} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
+      {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
           <Check size={15} /> {toast}
@@ -1560,7 +1650,14 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica camera' : 'Nuova camera'} onBack={onCancel} />
       <div style={{ padding: 16 }}>
-        <STR_Field label="Codice camera *"><input style={strInputStyle} value={f.codice} onChange={set('codice')} disabled={!!initial} /></STR_Field>
+        <STR_Field label="Codice camera *">
+          <input style={strInputStyle} value={f.codice} onChange={set('codice')} />
+        </STR_Field>
+        {initial && (
+          <div style={{ fontSize: 11.5, color: STR_COLORS.muted, marginTop: -8, marginBottom: 14 }}>
+            Cambiando il codice, gli interventi e le scadenze gia' collegati a questa camera verranno aggiornati automaticamente.
+          </div>
+        )}
         <STR_Field label="Piano"><input list="str-piani" style={strInputStyle} value={f.piano} onChange={set('piano')} />
           <datalist id="str-piani">{piani.map(p => <option key={p} value={p} />)}</datalist>
         </STR_Field>
@@ -2026,9 +2123,14 @@ function StrutturaModule({ onHome }) {
   const [costi, setCosti] = useState([]);
   const [tab, setTab] = useState('camere');
   const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici'
-  const [view, setView] = useState({ name: 'list' });
+  const [view, setView] = useState(LIST_VIEW);
   const [toast, setToast] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  useBackable(showMenu, setShowMenu);
+
+  useBackable(tab, setTab);
+  useBackable(subScreen, setSubScreen);
+  useBackable(view, setView);
 
   useEffect(() => {
     (async () => {
@@ -2048,25 +2150,53 @@ function StrutturaModule({ onHome }) {
   useEffect(() => { if (ready) storage.set('struttura-interventi', JSON.stringify(interventi)).catch(() => {}); }, [interventi, ready]);
   useEffect(() => { if (ready) storage.set('struttura-manutenzioni', JSON.stringify(manutenzioni)).catch(() => {}); }, [manutenzioni, ready]);
   useEffect(() => { if (ready) storage.set('struttura-costi', JSON.stringify(costi)).catch(() => {}); }, [costi, ready]);
-  useEffect(() => { setView({ name: 'list' }); }, [tab, subScreen]);
+  useEffect(() => { setView(LIST_VIEW); }, [tab, subScreen]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
 
-  const saveCamera = (c) => { setCamere(prev => prev.some(x => x.codice === c.codice) ? prev.map(x => x.codice === c.codice ? c : x) : [...prev, c]); flash('Camera salvata'); setView({ name: 'detail', id: c.codice }); };
-  const deleteCamera = (c) => { setCamere(prev => prev.filter(x => x.codice !== c.codice)); flash('Camera eliminata'); setView({ name: 'list' }); };
-  const saveReparto = (r) => { setReparti(prev => prev.some(x => x.codice === r.codice) ? prev.map(x => x.codice === r.codice ? r : x) : [...prev, r]); flash('Reparto salvato'); setView({ name: 'list' }); };
-  const deleteReparto = (r) => { setReparti(prev => prev.filter(x => x.codice !== r.codice)); flash('Reparto eliminato'); setView({ name: 'list' }); };
-  const saveTecnico = (t) => { setTecnici(prev => prev.some(x => x.id === t.id) ? prev.map(x => x.id === t.id ? t : x) : [...prev, t]); flash('Tecnico salvato'); setView({ name: 'list' }); };
-  const deleteTecnico = (t) => { setTecnici(prev => prev.filter(x => x.id !== t.id)); flash('Tecnico eliminato'); setView({ name: 'list' }); };
-  const saveIntervento = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); setView({ name: 'list' }); };
-  const deleteIntervento = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); setView({ name: 'list' }); };
-  const saveManutenzione = (m) => { setManutenzioni(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]); flash('Scadenza salvata'); setView({ name: 'list' }); };
-  const deleteManutenzione = (m) => { setManutenzioni(prev => prev.filter(x => x.id !== m.id)); flash('Scadenza eliminata'); setView({ name: 'list' }); };
-  const saveCosto = (c) => { setCosti(prev => prev.some(x => x.id === c.id) ? prev.map(x => x.id === c.id ? c : x) : [...prev, c]); flash('Costo salvato'); setView({ name: 'list' }); };
-  const deleteCosto = (c) => { setCosti(prev => prev.filter(x => x.id !== c.id)); flash('Costo eliminato'); setView({ name: 'list' }); };
+  const saveCamera = (c, originalCodice) => {
+    const codiceNuovo = (c.codice || '').trim();
+    if (!codiceNuovo) { flash('Il codice camera non puo\' essere vuoto'); return; }
+    const matchCodice = originalCodice || c.codice;
+    const duplicato = camere.some(x => x.codice === codiceNuovo && x.codice !== matchCodice);
+    if (duplicato) { flash(`Esiste gia' una camera con codice ${codiceNuovo}`); return; }
+    const cNorm = { ...c, codice: codiceNuovo };
+    setCamere(prev => prev.some(x => x.codice === matchCodice) ? prev.map(x => x.codice === matchCodice ? cNorm : x) : [...prev, cNorm]);
+    if (originalCodice && originalCodice !== codiceNuovo) {
+      // Il codice e' cambiato: aggiorno i riferimenti negli interventi e nelle
+      // scadenze gia' collegati, cosi' non restano orfani.
+      setInterventi(prev => prev.map(i => (i.cameraZona === originalCodice ? { ...i, cameraZona: codiceNuovo } : i)));
+      setManutenzioni(prev => prev.map(m => (m.cameraZona === originalCodice ? { ...m, cameraZona: codiceNuovo } : m)));
+      flash(`Camera rinominata in ${codiceNuovo}`);
+      // Il "torna indietro" punterebbe ancora al vecchio codice: lo correggo
+      // per farlo puntare al dettaglio della camera con il nuovo codice.
+      goBackMulti(1, setView, { name: 'detail', id: codiceNuovo });
+    } else {
+      flash('Camera salvata');
+      goBack();
+    }
+  };
+  const deleteCamera = (c) => {
+    setCamere(prev => prev.filter(x => x.codice !== c.codice));
+    flash('Camera eliminata');
+    // La modifica si apre sempre dal dettaglio: eliminando, quel dettaglio
+    // non avrebbe piu' senso (la camera non esiste piu'), quindi si salta
+    // dritti alla lista invece di passare da una scheda ormai orfana.
+    goBackMulti(2, setView, LIST_VIEW);
+  };
+  const saveReparto = (r) => { setReparti(prev => prev.some(x => x.codice === r.codice) ? prev.map(x => x.codice === r.codice ? r : x) : [...prev, r]); flash('Reparto salvato'); goBack(); };
+  const deleteReparto = (r) => { setReparti(prev => prev.filter(x => x.codice !== r.codice)); flash('Reparto eliminato'); goBack(); };
+  const saveTecnico = (t) => { setTecnici(prev => prev.some(x => x.id === t.id) ? prev.map(x => x.id === t.id ? t : x) : [...prev, t]); flash('Tecnico salvato'); goBack(); };
+  const deleteTecnico = (t) => { setTecnici(prev => prev.filter(x => x.id !== t.id)); flash('Tecnico eliminato'); goBack(); };
+  const saveIntervento = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); goBack(); };
+  const deleteIntervento = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); goBack(); };
+  const saveManutenzione = (m) => { setManutenzioni(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]); flash('Scadenza salvata'); goBack(); };
+  const deleteManutenzione = (m) => { setManutenzioni(prev => prev.filter(x => x.id !== m.id)); flash('Scadenza eliminata'); goBack(); };
+  const saveCosto = (c) => { setCosti(prev => prev.some(x => x.id === c.id) ? prev.map(x => x.id === c.id ? c : x) : [...prev, c]); flash('Costo salvato'); goBack(); };
+  const deleteCosto = (c) => { setCosti(prev => prev.filter(x => x.id !== c.id)); flash('Costo eliminato'); goBack(); };
   // Intervento aperto dal dettaglio di una camera: torna al dettaglio invece che alla lista
-  const saveInterventoDaCamera = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); setView({ name: 'detail', id: view.cameraId }); };
-  const deleteInterventoDaCamera = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); setView({ name: 'detail', id: view.cameraId }); };
+  const saveInterventoDaCamera = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); goBack(); };
+  const deleteInterventoDaCamera = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); goBack(); };
 
   const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
   const tecniciNomi = useMemo(() => tecnici.map(t => t.nome), [tecnici]);
@@ -2114,7 +2244,7 @@ function StrutturaModule({ onHome }) {
 
     const stamp = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `registro_manutenzione_rsa_${stamp}.xlsx`);
-    setShowMenu(false);
+    goBack();
     flash('File Excel scaricato');
   };
 
@@ -2126,30 +2256,30 @@ function StrutturaModule({ onHome }) {
   let content;
 
   if (subScreen === 'reparti') {
-    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => setView({ name: 'list' })} onDelete={deleteReparto} />;
+    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
     else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
   } else if (subScreen === 'tecnici') {
-    if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => setView({ name: 'list' })} onDelete={deleteTecnico} />;
+    if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
     else content = <TecniciStrScreen tecnici={tecnici} onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
   } else if (tab === 'camere') {
-    if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => setView({ name: 'list' })} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
-    else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={saveCamera} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={saveCamera} onCancel={() => setView({ name: 'detail', id: view.c.codice })} onDelete={deleteCamera} />;
-    else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => setView({ name: 'detail', id: view.cameraId })} onDelete={deleteInterventoDaCamera} />;
+    if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
+    else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c, view.c.codice)} onCancel={() => goBack()} onDelete={deleteCamera} />;
+    else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => goBack()} onDelete={deleteInterventoDaCamera} />;
     else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'interventi') {
-    if (view.name === 'add') content = <InterventoForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => setView({ name: 'list' })} onDelete={deleteIntervento} />;
+    if (view.name === 'add') content = <InterventoForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} onDelete={deleteIntervento} />;
     else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'scadenze') {
-    if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => setView({ name: 'list' })} onDelete={deleteManutenzione} />;
+    if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
     else content = <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'costi') {
-    if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => setView({ name: 'list' })} />;
-    else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => setView({ name: 'list' })} onDelete={deleteCosto} />;
+    if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
     else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
   } else {
     content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenReparti={() => setSubScreen('reparti')} onOpenTecnici={() => setSubScreen('tecnici')} />;
@@ -2166,7 +2296,7 @@ function StrutturaModule({ onHome }) {
       `}</style>
       <div style={{ paddingBottom: showBottomNav ? 78 : 20 }}>{content}</div>
       {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} />}
-      {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => setShowMenu(false)} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
+      {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: showBottomNav ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: STR_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
           <Check size={15} /> {toast}
@@ -2267,6 +2397,9 @@ function HubScreen({ onOpen, counts }) {
 export default function ManutenzioneApp() {
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura'
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
+
+  useHardwareBack();
+  useBackable(screen, setScreen);
 
   // Tengo aggiornati i conteggi mostrati sull'Hub leggendo lo storage al volo
   useEffect(() => {
