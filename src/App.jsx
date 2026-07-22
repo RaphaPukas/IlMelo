@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useContext, createContext } from 'react';
 import * as XLSX from 'xlsx';
+import { supabase } from './supabaseClient.js';
 import {
   Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft,
   Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical,
   FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle,
   MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
   BedDouble, Building2, Users, Wallet,
+  LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog,
 } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
@@ -239,6 +241,225 @@ const GLOBAL_FONTS = `
 
 
 /* ---------- design tokens ---------- */
+/* =========================================================================
+   AUTENTICAZIONE E RUOLI (Supabase)
+   ========================================================================= */
+const RoleContext = createContext('lettore');
+function useRole() { return useContext(RoleContext); }
+function usePermessi() {
+  const role = useRole();
+  return {
+    role,
+    puoScrivere: role === 'admin' || role === 'operatore',
+    puoEliminare: role === 'admin',
+    isAdmin: role === 'admin',
+  };
+}
+
+function traduciErroreAuth(msg) {
+  const m = (msg || '').toLowerCase();
+  if (m.includes('invalid login credentials')) return 'Email o password non corretti.';
+  if (m.includes('already registered') || m.includes('already exists') || m.includes('user already')) return 'Esiste gia\' un account con questa email.';
+  if (m.includes('password') && (m.includes('character') || m.includes('least'))) return 'La password deve avere almeno 6 caratteri.';
+  if (m.includes('rate limit')) return 'Troppi tentativi: riprova tra qualche minuto.';
+  if (m.includes('invalid') && m.includes('email')) return 'Indirizzo email non valido.';
+  if (m.includes('network') || m.includes('fetch')) return 'Problema di connessione: controlla la rete e riprova.';
+  return msg || 'Si e\' verificato un errore, riprova.';
+}
+
+function useAuth() {
+  const [session, setSession] = useState(undefined); // undefined = non ancora verificato
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => { if (mounted) setSession(data.session ?? null); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s ?? null); });
+    return () => { mounted = false; listener.subscription.unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    if (session === undefined) return undefined;
+    if (session === null) { setProfile(null); setProfileLoading(false); return undefined; }
+    setProfileLoading(true);
+    supabase.from('profiles').select('*').eq('id', session.user.id).single()
+      .then(({ data, error }) => { if (mounted) { setProfile(error ? null : data); setProfileLoading(false); } });
+    return () => { mounted = false; };
+  }, [session]);
+
+  return {
+    session,
+    profile,
+    authLoading: session === undefined || (session !== null && profileLoading),
+    signOut: () => supabase.auth.signOut(),
+  };
+}
+
+function AuthScreen() {
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setError(''); setInfo('');
+    if (!email.trim() || !password) { setError('Inserisci email e password.'); return; }
+    setBusy(true);
+    if (mode === 'login') {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) setError(traduciErroreAuth(error.message));
+    } else {
+      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+      if (error) setError(traduciErroreAuth(error.message));
+      else if (!data.session) setInfo('Account creato: controlla la tua email per confermarlo, poi accedi. Un admin dovra\' assegnarti il ruolo giusto.');
+      else setInfo('Account creato. Un admin dovra\' assegnarti il ruolo giusto prima che tu possa modificare i dati.');
+    }
+    setBusy(false);
+  }
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '12px 12px 12px 40px', borderRadius: 10,
+    border: '1.5px solid #3A423F', background: '#222B27', color: '#fff', fontSize: 15, outline: 'none',
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#1C2321', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <div style={{ width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <WrenchHub size={26} />
+          </div>
+          <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 24 }}>Manutenzione</div>
+          <div style={{ fontSize: 13, opacity: 0.6, marginTop: 4 }}>{mode === 'login' ? 'Accedi per continuare' : 'Crea un nuovo account'}</div>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <Mail size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
+            <input type="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ position: 'relative', marginBottom: 8 }}>
+            <Lock size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
+            <input type={showPw ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, paddingRight: 40 }} />
+            <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, top: 10, background: 'none', border: 'none', color: '#fff', opacity: 0.6, padding: 4 }}>
+              {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+
+          {error && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(178,58,46,0.18)', color: '#F5A896', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} /> {error}
+            </div>
+          )}
+          {info && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(76,122,79,0.2)', color: '#A9D6AC', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>
+              <Check size={15} style={{ flexShrink: 0, marginTop: 1 }} /> {info}
+            </div>
+          )}
+
+          <button type="submit" disabled={busy} style={{ width: '100%', background: '#fff', color: '#1C2321', border: 'none', borderRadius: 10, padding: '13px', fontWeight: 700, fontSize: 15, marginTop: 4, opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'Un attimo…' : mode === 'login' ? 'Accedi' : 'Crea account'}
+          </button>
+        </form>
+
+        <button
+          onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setInfo(''); }}
+          style={{ width: '100%', background: 'none', border: 'none', color: '#B7C7C1', fontSize: 13, marginTop: 18, padding: 8 }}
+        >
+          {mode === 'login' ? 'Non hai un account? Registrati' : 'Hai gia\' un account? Accedi'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const RUOLI = ['admin', 'operatore', 'lettore'];
+const RUOLO_LABEL = { admin: 'Admin', operatore: 'Operatore', lettore: 'Sola lettura' };
+const RUOLO_STYLE = {
+  admin: { bg: '#F7DCD9', fg: '#A3352A' },
+  operatore: { bg: '#FBEDD2', fg: '#8A5A00' },
+  lettore: { bg: '#E8E5DC', fg: '#5B564A' },
+};
+
+function UtentiScreen({ onHome, myUserId }) {
+  const [profiles, setProfiles] = useState(null);
+  const [error, setError] = useState('');
+  const [savingId, setSavingId] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.from('profiles').select('*').order('email').then(({ data, error }) => {
+      if (!mounted) return;
+      if (error) setError(error.message); else setProfiles(data);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  async function cambiaRuolo(id, nuovoRuolo) {
+    setError('');
+    setSavingId(id);
+    const prev = profiles;
+    setProfiles((p) => p.map((u) => (u.id === id ? { ...u, role: nuovoRuolo } : u)));
+    const { error } = await supabase.from('profiles').update({ role: nuovoRuolo }).eq('id', id);
+    if (error) { setProfiles(prev); setError('Non sono riuscito a salvare: ' + error.message); }
+    setSavingId(null);
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <TopBar theme={HUB_COLORS} title="Gestione utenti" subtitle={profiles ? `${profiles.length} account` : 'Caricamento…'} onBack={onHome} backIcon={Home} />
+      <div style={{ padding: 14 }}>
+        <p style={{ fontSize: 12, color: HUB_COLORS.muted, marginTop: 0, marginBottom: 14 }}>
+          Admin: accesso completo. Operatore: puo\' aggiungere e modificare, non eliminare. Sola lettura: puo\' solo consultare.
+          Il tuo ruolo non e\' modificabile da qui: chiedi a un altro admin.
+        </p>
+        {error && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
+        {!profiles && <div style={{ textAlign: 'center', color: HUB_COLORS.muted, padding: 30 }}>Caricamento…</div>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {profiles && profiles.map((u) => {
+            const isMe = u.id === myUserId;
+            return (
+              <div key={u.id} style={{ background: HUB_COLORS.surface, border: `1px solid ${HUB_COLORS.line}`, borderRadius: 14, padding: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {u.email || '(email non disponibile)'} {isMe && <span style={{ fontWeight: 500, color: HUB_COLORS.muted }}>(tu)</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  {RUOLI.map((r) => (
+                    <button
+                      key={r}
+                      disabled={savingId === u.id || isMe}
+                      onClick={() => cambiaRuolo(u.id, r)}
+                      title={isMe ? 'Non puoi modificare il tuo stesso ruolo' : ''}
+                      style={{
+                        border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                        cursor: isMe ? 'not-allowed' : 'pointer',
+                        background: u.role === r ? RUOLO_STYLE[r].fg : RUOLO_STYLE[r].bg,
+                        color: u.role === r ? '#fff' : RUOLO_STYLE[r].fg,
+                        opacity: (savingId === u.id || isMe) ? 0.5 : 1,
+                      }}
+                    >
+                      {RUOLO_LABEL[r]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const MEZZI_COLORS = {
   bg: '#F4F1E8',
   surface: '#FFFFFF',
@@ -2348,16 +2569,32 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts }) {
+function HubScreen({ onOpen, counts, userEmail, role, onSignOut, onOpenUsers }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
       <div style={{ background: '#1C2321', padding: '34px 20px 30px', color: '#fff' }}>
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-          <WrenchHub size={24} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ width: 46, height: 46, borderRadius: 13, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <WrenchHub size={24} />
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {role === 'admin' && (
+              <button onClick={onOpenUsers} title="Gestione utenti" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                <UserCog size={17} />
+              </button>
+            )}
+            <button onClick={onSignOut} title="Esci" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
         <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 26 }}>Manutenzione</div>
         <div style={{ fontSize: 13.5, opacity: 0.7, marginTop: 4 }}>Scegli un modulo per iniziare</div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.08)', padding: '4px 10px 4px 8px', borderRadius: 999 }}>
+          <ShieldCheck size={13} />
+          <span style={{ fontSize: 11.5, opacity: 0.85 }}>{userEmail} · {RUOLO_LABEL[role] || role}</span>
+        </div>
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2395,14 +2632,16 @@ function HubScreen({ onOpen, counts }) {
    ========================================================================= */
 
 export default function ManutenzioneApp() {
-  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura'
+  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti'
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
+  const { session, profile, authLoading, signOut } = useAuth();
 
   useHardwareBack();
   useBackable(screen, setScreen);
 
   // Tengo aggiornati i conteggi mostrati sull'Hub leggendo lo storage al volo
   useEffect(() => {
+    if (!session) return;
     (async () => {
       let v, c, ca;
       try { v = JSON.parse((await storage.get('vehicles')).value); } catch { v = null; }
@@ -2414,10 +2653,35 @@ export default function ManutenzioneApp() {
         camere: ca && ca.length ? ca : S_CAMERE,
       });
     })();
-  }, [screen]);
+  }, [screen, session]);
 
-  if (screen === 'mezzi') return <MezziModule onHome={() => setScreen('hub')} />;
-  if (screen === 'carrozzine') return <CarrozzineModule onHome={() => setScreen('hub')} />;
-  if (screen === 'struttura') return <StrutturaModule onHome={() => setScreen('hub')} />;
-  return <HubScreen onOpen={setScreen} counts={counts} />;
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#1C2321', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'Inter, sans-serif', fontSize: 13.5, opacity: 0.7 }}>
+        Caricamento…
+      </div>
+    );
+  }
+  if (!session) return <AuthScreen />;
+
+  const role = profile?.role || 'lettore';
+
+  return (
+    <RoleContext.Provider value={role}>
+      {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
+      {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
+      {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
+      {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
+      {screen === 'hub' && (
+        <HubScreen
+          onOpen={setScreen}
+          counts={counts}
+          userEmail={session.user.email}
+          role={role}
+          onSignOut={signOut}
+          onOpenUsers={() => setScreen('utenti')}
+        />
+      )}
+    </RoleContext.Provider>
+  );
 }
