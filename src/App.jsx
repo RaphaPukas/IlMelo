@@ -460,6 +460,63 @@ function UtentiScreen({ onHome, myUserId }) {
   );
 }
 
+/* =========================================================================
+   DATI CONDIVISI (Supabase) — un'unica hook riusabile per ogni tabella:
+   carica le righe, le tiene sincronizzate in tempo reale con chi altro e'
+   collegato, ed espone save/remove che scrivono sul database.
+   ========================================================================= */
+function useSupaTable(table, idKey, seed) {
+  const [rows, setRows] = useState(seed || []);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    setReady(false);
+    supabase.from(table).select('*').then(({ data, error }) => {
+      if (!mounted) return;
+      if (error) { setError(error.message); setRows(seed || []); }
+      else { setRows(data || []); setError(''); }
+      setReady(true);
+    });
+    // Se un'altra persona collegata modifica questa tabella, mi aggiorno da solo
+    const channel = supabase
+      .channel(`sync-${table}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+        supabase.from(table).select('*').then(({ data }) => { if (mounted && data) setRows(data); });
+      })
+      .subscribe();
+    return () => { mounted = false; supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table]);
+
+  async function save(record) {
+    setError('');
+    const { data, error } = await supabase.from(table).upsert(record).select().single();
+    if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
+    setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
+    return { data };
+  }
+
+  async function remove(record) {
+    setError('');
+    const { error } = await supabase.from(table).delete().eq(idKey, record[idKey]);
+    if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
+    setRows((prev) => prev.filter((r) => r[idKey] !== record[idKey]));
+    return {};
+  }
+
+  return { rows, setRows, ready, error, setError, save, remove };
+}
+
+function traduciErroreDati(msg) {
+  const m = (msg || '').toLowerCase();
+  if (m.includes('row-level security') || m.includes('permission denied')) return 'Non hai i permessi per questa operazione (il tuo ruolo non lo consente).';
+  if (m.includes('duplicate key')) return 'Esiste gia\' un elemento con questo identificativo.';
+  if (m.includes('network') || m.includes('fetch failed') || m.includes('failed to fetch')) return 'Problema di connessione: controlla la rete e riprova.';
+  return msg || 'Si e\' verificato un errore, riprova.';
+}
+
 const MEZZI_COLORS = {
   bg: '#F4F1E8',
   surface: '#FFFFFF',
@@ -578,6 +635,8 @@ const inputStyle = {
 };
 
 function FAB({ onClick, label }) {
+  const { puoScrivere } = usePermessi();
+  if (!puoScrivere) return null;
   return (
     <button
       onClick={onClick}
@@ -642,6 +701,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
 }
 
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const deadlines = [
     ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo],
   ].filter(([, d]) => d);
@@ -655,10 +715,14 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Plate targa={vehicle.targa} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => onEdit(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: MEZZI_COLORS.primary }}>Modifica</button>
-              <button onClick={() => onDelete(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 9px' }}><Trash2 size={15} color={MEZZI_COLORS.danger} /></button>
-            </div>
+            {puoScrivere && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => onEdit(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: MEZZI_COLORS.primary }}>Modifica</button>
+                {puoEliminare && (
+                  <button onClick={() => onDelete(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 9px' }}><Trash2 size={15} color={MEZZI_COLORS.danger} /></button>
+                )}
+              </div>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13.5 }}>
             <InfoRow theme={MEZZI_COLORS} icon={Gauge} label="Km attuali" value={fmtKm(vehicle.km)} />
@@ -715,6 +779,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
 
 /* ---------- Vehicle form ---------- */
 function VehicleForm({ initial, onSave, onCancel }) {
+  const { puoScrivere } = usePermessi();
   const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
@@ -722,7 +787,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title={initial ? 'Modifica veicolo' : 'Nuovo veicolo'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="Marca *"><input style={inputStyle} value={f.marca} onChange={set('marca')} placeholder="Fiat" /></Field>
           <Field label="Modello *"><input style={inputStyle} value={f.modello} onChange={set('modello')} placeholder="Panda" /></Field>
@@ -742,15 +807,18 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
         <Field label="Bollo"><input type="date" style={inputStyle} value={f.bollo} onChange={set('bollo')} /></Field>
         <Field label="Note"><textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} value={f.note} onChange={set('note')} /></Field>
-
-        <button
-          disabled={!valid}
-          onClick={() => onSave({ ...f, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null })}
-          style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 6 }}
-        >
-          Salva veicolo
-        </button>
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button
+            disabled={!valid}
+            onClick={() => onSave({ ...f, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null })}
+            style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 6 }}
+          >
+            Salva veicolo
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -788,6 +856,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
 }
 
 function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const costo = Number(f.costo) || 0;
@@ -797,7 +866,7 @@ function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title={initial ? 'Modifica intervento' : 'Nuovo intervento'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <Field label="Veicolo *">
           <select style={inputStyle} value={f.targa} onChange={set('targa')}>
             {vehicles.map(v => <option key={v.id} value={v.targa}>{v.marca} {v.modello}{v.targa ? ' · ' + v.targa : ' · senza targa'}</option>)}
@@ -820,19 +889,22 @@ function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
           </div>
         )}
         <Field label="Stato"><select style={inputStyle} value={f.stato} onChange={set('stato')}>{STATI_MANUTENZIONE.map(t => <option key={t}>{t}</option>)}</select></Field>
-
-        <button
-          onClick={() => onSave({ ...f, id: f.id || uid(), km: f.km ? Number(f.km) : null, costo: f.costo ? Number(f.costo) : null })}
-          style={{ width: '100%', background: MEZZI_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
-        >
-          Salva intervento
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: MEZZI_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina intervento
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button
+            onClick={() => onSave({ ...f, id: f.id || uid(), km: f.km ? Number(f.km) : null, costo: f.costo ? Number(f.costo) : null })}
+            style={{ width: '100%', background: MEZZI_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
+          >
+            Salva intervento
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: MEZZI_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina intervento
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -955,9 +1027,11 @@ function DashboardScreen({ vehicles, maints, params, onMenu, onHome }) {
 
 /* ---------- Root ---------- */
 function MezziModule({ onHome }) {
-  const [ready, setReady] = useState(false);
-  const [vehicles, setVehicles] = useState([]);
-  const [maints, setMaints] = useState([]);
+  const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES);
+  const maintsT = useSupaTable('maints', 'id', SEED_MAINTS);
+  const vehicles = vehiclesT.rows, maints = maintsT.rows;
+  const ready = vehiclesT.ready && maintsT.ready;
+  const dataError = vehiclesT.error || maintsT.error;
   const [params] = useState(DEFAULT_PARAMS);
   const [tab, setTab] = useState('veicoli');
   const [view, setView] = useState(LIST_VIEW);
@@ -968,24 +1042,29 @@ function MezziModule({ onHome }) {
   useBackable(tab, setTab);
   useBackable(view, setView);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        let v, m;
-        try { v = JSON.parse((await storage.get('vehicles')).value); } catch { v = null; }
-        try { m = JSON.parse((await storage.get('maintenances')).value); } catch { m = null; }
-        setVehicles(v && v.length ? v : SEED_VEHICLES);
-        setMaints(m && m.length ? m : SEED_MAINTS);
-      } catch (e) {
-        setVehicles(SEED_VEHICLES); setMaints(SEED_MAINTS);
-      }
-      setReady(true);
-    })();
-  }, []);
+  useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
-  useEffect(() => { if (ready) storage.set('vehicles', JSON.stringify(vehicles)).catch(() => {}); }, [vehicles, ready]);
-  useEffect(() => { if (ready) storage.set('maintenances', JSON.stringify(maints)).catch(() => {}); }, [maints, ready]);
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
+  async function salvaOTorna(azione, msgOk) {
+    const { error } = await azione();
+    if (error) { flash(error.message); return; }
+    flash(msgOk);
+    goBack();
+  }
+  const saveVehicle = (v) => salvaOTorna(() => vehiclesT.save(v), 'Veicolo salvato');
+  const deleteVehicle = (v) => salvaOTorna(() => vehiclesT.remove(v), 'Veicolo eliminato');
+  const saveMaint = (m) => salvaOTorna(() => maintsT.save(m), 'Intervento salvato');
+  const deleteMaint = (m) => salvaOTorna(() => maintsT.remove(m), 'Intervento eliminato');
+
+  if (!ready) {
+    return (
+      <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MEZZI_COLORS.muted, flexDirection: 'column', gap: 10, padding: 24, textAlign: 'center' }}>
+        <span>Caricamento…</span>
+        {dataError && <span style={{ color: MEZZI_COLORS.danger, fontSize: 13, maxWidth: 280 }}>{dataError}</span>}
+      </div>
+    );
+  }
   const exportToExcel = () => {
     const dt = (iso) => (iso ? new Date(iso + 'T00:00:00') : '');
 
@@ -1035,35 +1114,6 @@ function MezziModule({ onHome }) {
     goBack();
     flash('File Excel scaricato');
   };
-
-  useEffect(() => { setView(LIST_VIEW); }, [tab]);
-
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
-
-  const saveVehicle = (v) => {
-    setVehicles(prev => prev.some(x => x.id === v.id) ? prev.map(x => x.id === v.id ? v : x) : [...prev, v]);
-    flash('Veicolo salvato');
-    goBack();
-  };
-  const deleteVehicle = (v) => {
-    setVehicles(prev => prev.filter(x => x.id !== v.id));
-    flash('Veicolo eliminato');
-    goBack();
-  };
-  const saveMaint = (m) => {
-    setMaints(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]);
-    flash('Intervento salvato');
-    goBack();
-  };
-  const deleteMaint = (m) => {
-    setMaints(prev => prev.filter(x => x.id !== m.id));
-    flash('Intervento eliminato');
-    goBack();
-  };
-
-  if (!ready) {
-    return <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MEZZI_COLORS.muted }}>Caricamento…</div>;
-  }
 
   let content;
   if (tab === 'veicoli') {
@@ -1238,13 +1288,14 @@ function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo
 }
 
 function CarrozzinaDetail({ w, onBack, onUpdate }) {
+  const { puoScrivere } = usePermessi();
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${w.id}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
-      <div style={{ padding: 14 }}>
+      <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <InfoRow theme={CARROZZINE_COLORS} icon={Calendar} label="Data" value={fmtDate(w.data)} />
@@ -1553,8 +1604,10 @@ const SEED = [
 {id:114,data:"",marca:"OSD",modello:"Millennium II",seriale:"",tipologia:"Standard",fornitore:"Melo",nucleo:"IKEA",stanza:"",ospite:"",stato:"",c:{gomme:"",mozzi:"",freni:"",pedalini:"",braccioli:"",portaborraccia:"",tavolino:"",manopole:"",seduta:"",poggiatesta:"",pulizia:""},note:""}
 ];/* ---------- Root ---------- */
 function CarrozzineModule({ onHome }) {
-  const [ready, setReady] = useState(false);
-  const [items, setItems] = useState([]);
+  const itemsT = useSupaTable('carrozzine', 'id', SEED);
+  const items = itemsT.rows;
+  const ready = itemsT.ready;
+  const dataError = itemsT.error;
   const [tab, setTab] = useState('carrozzine');
   const [openId, setOpenId] = useState(null);
   const [filterNucleo, setFilterNucleo] = useState(null);
@@ -1565,22 +1618,13 @@ function CarrozzineModule({ onHome }) {
   useBackable(tab, setTab);
   useBackable(openId, setOpenId);
 
-  useEffect(() => {
-    (async () => {
-      let data = null;
-      try { data = JSON.parse((await storage.get('carrozzine')).value); } catch { data = null; }
-      setItems(data && data.length ? data : SEED);
-      setReady(true);
-    })();
-  }, []);
-
-  useEffect(() => { if (ready) storage.set('carrozzine', JSON.stringify(items)).catch(() => {}); }, [items, ready]);
   useEffect(() => { setOpenId(null); }, [tab]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
-  const updateItem = (w) => {
-    setItems(prev => prev.map(x => x.id === w.id ? w : x));
+  const updateItem = async (w) => {
+    const { error } = await itemsT.save(w);
+    if (error) flash(error.message);
   };
 
   const exportToExcel = () => {
@@ -1604,7 +1648,12 @@ function CarrozzineModule({ onHome }) {
   };
 
   if (!ready) {
-    return <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: CARROZZINE_COLORS.muted }}>Caricamento…</div>;
+    return (
+      <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: CARROZZINE_COLORS.muted, flexDirection: 'column', gap: 10, padding: 24, textAlign: 'center' }}>
+        <span>Caricamento…</span>
+        {dataError && <span style={{ color: CARROZZINE_COLORS.danger, fontSize: 13, maxWidth: 280 }}>{dataError}</span>}
+      </div>
+    );
   }
 
   const openItem = openId != null ? items.find(w => w.id === openId) : null;
@@ -1740,6 +1789,8 @@ const strInputStyle = {
   background: '#FCFBF7', color: STR_COLORS.ink, outline: 'none',
 };
 function STR_FAB({ onClick, label }) {
+  const { puoScrivere } = usePermessi();
+  if (!puoScrivere) return null;
   return (
     <button
       onClick={onClick}
@@ -1824,6 +1875,7 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
 }
 
 function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) {
+  const { puoScrivere } = usePermessi();
   const own = interventi.filter(i => i.cameraZona === camera.codice).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
   return (
     <>
@@ -1839,9 +1891,11 @@ function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) 
             <InfoRow theme={STR_COLORS} icon={BedDouble} label="Tipo" value={camera.tipo} />
           </div>
           {camera.note && <div style={{ marginTop: 10, fontSize: 13, color: STR_COLORS.muted }}>{camera.note}</div>}
-          <button onClick={() => onEdit(camera)} style={{ width: '100%', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, color: STR_COLORS.ink, borderRadius: 10, padding: '10px', fontWeight: 700, fontSize: 13.5, marginTop: 12 }}>
-            Modifica camera
-          </button>
+          {puoScrivere && (
+            <button onClick={() => onEdit(camera)} style={{ width: '100%', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, color: STR_COLORS.ink, borderRadius: 10, padding: '10px', fontWeight: 700, fontSize: 13.5, marginTop: 12 }}>
+              Modifica camera
+            </button>
+          )}
         </Card>
 
         <SectionLabel theme={STR_COLORS}>Interventi in questa camera · {own.length}</SectionLabel>
@@ -1865,12 +1919,13 @@ function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) 
 }
 
 function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || { codice: '', piano: piani[0] || 'Piano Terra', nucleo: nuclei[0] || '', tipo: 'Singola', stato: 'Attiva', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica camera' : 'Nuova camera'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Codice camera *">
           <input style={strInputStyle} value={f.codice} onChange={set('codice')} />
         </STR_Field>
@@ -1890,16 +1945,19 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
           <STR_Field label="Stato"><select style={selectStyle(STR_STATO_CAMERA_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_CAMERA.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
         </div>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-          Salva camera
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina camera
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+            Salva camera
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina camera
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -1947,6 +2005,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
 }
 
 function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || {
     dataSegnalazione: todayISO(), cameraZona: luoghi[0] || '', descrizione: '', priorita: 'Media',
     tecnico: tecnici[0] || '', stato: 'Aperto', dataChiusura: '', costo: '', note: '',
@@ -1955,7 +2014,7 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica intervento' : 'Nuovo intervento'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Camera / Zona *">
           <input list="str-luoghi" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
           <datalist id="str-luoghi">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
@@ -1975,19 +2034,22 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
           <STR_Field label="Costo (€)"><input type="number" step="0.01" style={strInputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></STR_Field>
         </div>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button
-          onClick={() => onSave({ ...f, id: f.id || uid(), costo: f.costo ? Number(f.costo) : 0 })}
-          style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
-        >
-          Salva intervento
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina intervento
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button
+            onClick={() => onSave({ ...f, id: f.id || uid(), costo: f.costo ? Number(f.costo) : 0 })}
+            style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
+          >
+            Salva intervento
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina intervento
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2029,6 +2091,7 @@ function ScadenzeStrScreen({ manutenzioni, onOpen, onAdd, onMenu, onHome }) {
 }
 
 function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || {
     cameraZona: luoghi[0] || '', tipoManutenzione: STR_TIPI_MANUTENZIONE[0], frequenza: STR_FREQUENZE[1],
     ultimaEsecuzione: todayISO(), prossimaScadenza: todayISO(), tecnico: tecnici[0] || '', note: '',
@@ -2037,7 +2100,7 @@ function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica scadenza' : 'Nuova scadenza'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Camera / Zona *">
           <input list="str-luoghi2" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
           <datalist id="str-luoghi2">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
@@ -2053,16 +2116,19 @@ function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete
           <datalist id="str-tecnici2">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
         </STR_Field>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button onClick={() => onSave({ ...f, id: f.id || uid() })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-          Salva scadenza
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina scadenza
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button onClick={() => onSave({ ...f, id: f.id || uid() })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+            Salva scadenza
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina scadenza
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2110,6 +2176,7 @@ function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome }) {
 }
 
 function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || {
     idIntervento: '', tipo: 'Preventivo', descrizione: '', fornitore: tecnici[0] || '',
     numeroDocumento: '', data: todayISO(), importo: '', statoPagamento: 'Da pagare', note: '',
@@ -2118,7 +2185,7 @@ function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica costo' : 'Nuovo costo'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Descrizione"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} /></STR_Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_COSTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
@@ -2138,16 +2205,19 @@ function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete
         </STR_Field>
         <STR_Field label="Stato pagamento"><select style={selectStyle(STR_STATO_PAGAMENTO_STYLE[f.statoPagamento] || {})} value={f.statoPagamento} onChange={set('statoPagamento')}>{STR_STATI_PAGAMENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button onClick={() => onSave({ ...f, id: f.id || uid(), importo: f.importo ? Number(f.importo) : 0 })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-          Salva costo
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina costo
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button onClick={() => onSave({ ...f, id: f.id || uid(), importo: f.importo ? Number(f.importo) : 0 })} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+            Salva costo
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina costo
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2179,26 +2249,30 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
 }
 
 function RepartoForm({ initial, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', responsabile: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica reparto' : 'Nuovo reparto'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome reparto / zona *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
         <STR_Field label="Categoria"><select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>{STR_CATEGORIE_REPARTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
         <STR_Field label="Responsabile"><input style={strInputStyle} value={f.responsabile} onChange={set('responsabile')} /></STR_Field>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-          Salva reparto
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina reparto
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+            Salva reparto
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina reparto
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2230,12 +2304,13 @@ function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack }) {
 }
 
 function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', telefono: '', email: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica tecnico' : 'Nuovo tecnico'} onBack={onCancel} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome / Ragione sociale *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
         <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_TECNICO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
         <STR_Field label="Specializzazione"><input style={strInputStyle} value={f.specializzazione} onChange={set('specializzazione')} /></STR_Field>
@@ -2244,16 +2319,19 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
           <STR_Field label="Email"><input style={strInputStyle} value={f.email} onChange={set('email')} /></STR_Field>
         </div>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
-
-        <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
-          Salva tecnico
-        </button>
-        {initial && (
-          <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
-            Elimina tecnico
-          </button>
-        )}
       </div>
+      {puoScrivere && (
+        <div style={{ padding: '0 16px' }}>
+          <button onClick={() => onSave(f)} style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}>
+            Salva tecnico
+          </button>
+          {initial && puoEliminare && (
+            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+              Elimina tecnico
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -2335,13 +2413,17 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
 
 /* ---------- Root ---------- */
 function StrutturaModule({ onHome }) {
-  const [ready, setReady] = useState(false);
-  const [camere, setCamere] = useState([]);
-  const [reparti, setReparti] = useState([]);
-  const [tecnici, setTecnici] = useState([]);
-  const [interventi, setInterventi] = useState([]);
-  const [manutenzioni, setManutenzioni] = useState([]);
-  const [costi, setCosti] = useState([]);
+  const camereT = useSupaTable('camere', 'codice', S_CAMERE);
+  const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
+  const tecniciT = useSupaTable('tecnici', 'id', S_TECNICI);
+  const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI);
+  const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI);
+  const costiT = useSupaTable('costi', 'id', S_COSTI);
+  const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
+  const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
+  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
+  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
+
   const [tab, setTab] = useState('camere');
   const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici'
   const [view, setView] = useState(LIST_VIEW);
@@ -2353,71 +2435,69 @@ function StrutturaModule({ onHome }) {
   useBackable(subScreen, setSubScreen);
   useBackable(view, setView);
 
-  useEffect(() => {
-    (async () => {
-      const load = async (key, seed) => { try { const v = JSON.parse((await storage.get(key)).value); return v && v.length ? v : seed; } catch { return seed; } };
-      const [c, r, t, i, m, co] = await Promise.all([
-        load('struttura-camere', S_CAMERE), load('struttura-reparti', S_REPARTI), load('struttura-tecnici', S_TECNICI),
-        load('struttura-interventi', S_INTERVENTI), load('struttura-manutenzioni', S_MANUTENZIONI), load('struttura-costi', S_COSTI),
-      ]);
-      setCamere(c); setReparti(r); setTecnici(t); setInterventi(i); setManutenzioni(m); setCosti(co);
-      setReady(true);
-    })();
-  }, []);
-
-  useEffect(() => { if (ready) storage.set('struttura-camere', JSON.stringify(camere)).catch(() => {}); }, [camere, ready]);
-  useEffect(() => { if (ready) storage.set('struttura-reparti', JSON.stringify(reparti)).catch(() => {}); }, [reparti, ready]);
-  useEffect(() => { if (ready) storage.set('struttura-tecnici', JSON.stringify(tecnici)).catch(() => {}); }, [tecnici, ready]);
-  useEffect(() => { if (ready) storage.set('struttura-interventi', JSON.stringify(interventi)).catch(() => {}); }, [interventi, ready]);
-  useEffect(() => { if (ready) storage.set('struttura-manutenzioni', JSON.stringify(manutenzioni)).catch(() => {}); }, [manutenzioni, ready]);
-  useEffect(() => { if (ready) storage.set('struttura-costi', JSON.stringify(costi)).catch(() => {}); }, [costi, ready]);
   useEffect(() => { setView(LIST_VIEW); }, [tab, subScreen]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800); };
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
-  const saveCamera = (c, originalCodice) => {
+  const saveCamera = async (c, originalCodice) => {
     const codiceNuovo = (c.codice || '').trim();
     if (!codiceNuovo) { flash('Il codice camera non puo\' essere vuoto'); return; }
     const matchCodice = originalCodice || c.codice;
     const duplicato = camere.some(x => x.codice === codiceNuovo && x.codice !== matchCodice);
     if (duplicato) { flash(`Esiste gia' una camera con codice ${codiceNuovo}`); return; }
     const cNorm = { ...c, codice: codiceNuovo };
-    setCamere(prev => prev.some(x => x.codice === matchCodice) ? prev.map(x => x.codice === matchCodice ? cNorm : x) : [...prev, cNorm]);
+
     if (originalCodice && originalCodice !== codiceNuovo) {
-      // Il codice e' cambiato: aggiorno i riferimenti negli interventi e nelle
-      // scadenze gia' collegati, cosi' non restano orfani.
-      setInterventi(prev => prev.map(i => (i.cameraZona === originalCodice ? { ...i, cameraZona: codiceNuovo } : i)));
-      setManutenzioni(prev => prev.map(m => (m.cameraZona === originalCodice ? { ...m, cameraZona: codiceNuovo } : m)));
+      // Rinomina vera e propria (la chiave primaria cambia): aggiorno la riga
+      // esistente e sposto i riferimenti negli interventi/scadenze collegati,
+      // cosi' non restano orfani.
+      const { data, error } = await supabase.from('camere').update(cNorm).eq('codice', originalCodice).select().single();
+      if (error) { flash(traduciErroreDati(error.message)); return; }
+      camereT.setRows((prev) => prev.map((x) => (x.codice === originalCodice ? data : x)));
+
+      const { error: e2 } = await supabase.from('interventi').update({ cameraZona: codiceNuovo }).eq('cameraZona', originalCodice);
+      if (!e2) interventiT.setRows((prev) => prev.map((x) => (x.cameraZona === originalCodice ? { ...x, cameraZona: codiceNuovo } : x)));
+
+      const { error: e3 } = await supabase.from('manutenzioni').update({ cameraZona: codiceNuovo }).eq('cameraZona', originalCodice);
+      if (!e3) manutenzioniT.setRows((prev) => prev.map((x) => (x.cameraZona === originalCodice ? { ...x, cameraZona: codiceNuovo } : x)));
+
       flash(`Camera rinominata in ${codiceNuovo}`);
-      // Il "torna indietro" punterebbe ancora al vecchio codice: lo correggo
-      // per farlo puntare al dettaglio della camera con il nuovo codice.
       goBackMulti(1, setView, { name: 'detail', id: codiceNuovo });
     } else {
+      const { error } = await camereT.save(cNorm);
+      if (error) { flash(error.message); return; }
       flash('Camera salvata');
       goBack();
     }
   };
-  const deleteCamera = (c) => {
-    setCamere(prev => prev.filter(x => x.codice !== c.codice));
+  const deleteCamera = async (c) => {
+    const { error } = await camereT.remove(c);
+    if (error) { flash(error.message); return; }
     flash('Camera eliminata');
     // La modifica si apre sempre dal dettaglio: eliminando, quel dettaglio
     // non avrebbe piu' senso (la camera non esiste piu'), quindi si salta
     // dritti alla lista invece di passare da una scheda ormai orfana.
     goBackMulti(2, setView, LIST_VIEW);
   };
-  const saveReparto = (r) => { setReparti(prev => prev.some(x => x.codice === r.codice) ? prev.map(x => x.codice === r.codice ? r : x) : [...prev, r]); flash('Reparto salvato'); goBack(); };
-  const deleteReparto = (r) => { setReparti(prev => prev.filter(x => x.codice !== r.codice)); flash('Reparto eliminato'); goBack(); };
-  const saveTecnico = (t) => { setTecnici(prev => prev.some(x => x.id === t.id) ? prev.map(x => x.id === t.id ? t : x) : [...prev, t]); flash('Tecnico salvato'); goBack(); };
-  const deleteTecnico = (t) => { setTecnici(prev => prev.filter(x => x.id !== t.id)); flash('Tecnico eliminato'); goBack(); };
-  const saveIntervento = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); goBack(); };
-  const deleteIntervento = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); goBack(); };
-  const saveManutenzione = (m) => { setManutenzioni(prev => prev.some(x => x.id === m.id) ? prev.map(x => x.id === m.id ? m : x) : [...prev, m]); flash('Scadenza salvata'); goBack(); };
-  const deleteManutenzione = (m) => { setManutenzioni(prev => prev.filter(x => x.id !== m.id)); flash('Scadenza eliminata'); goBack(); };
-  const saveCosto = (c) => { setCosti(prev => prev.some(x => x.id === c.id) ? prev.map(x => x.id === c.id ? c : x) : [...prev, c]); flash('Costo salvato'); goBack(); };
-  const deleteCosto = (c) => { setCosti(prev => prev.filter(x => x.id !== c.id)); flash('Costo eliminato'); goBack(); };
+  async function salvaOTorna(azione, entita, msgOk) {
+    const { error } = await azione();
+    if (error) { flash(error.message); return; }
+    flash(msgOk);
+    goBack();
+  }
+  const saveReparto = (r) => salvaOTorna(() => repartiT.save(r), 'reparto', 'Reparto salvato');
+  const deleteReparto = (r) => salvaOTorna(() => repartiT.remove(r), 'reparto', 'Reparto eliminato');
+  const saveTecnico = (t) => salvaOTorna(() => tecniciT.save(t), 'tecnico', 'Tecnico salvato');
+  const deleteTecnico = (t) => salvaOTorna(() => tecniciT.remove(t), 'tecnico', 'Tecnico eliminato');
+  const saveIntervento = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
+  const deleteIntervento = (i) => salvaOTorna(() => interventiT.remove(i), 'intervento', 'Intervento eliminato');
+  const saveManutenzione = (m) => salvaOTorna(() => manutenzioniT.save(m), 'manutenzione', 'Scadenza salvata');
+  const deleteManutenzione = (m) => salvaOTorna(() => manutenzioniT.remove(m), 'manutenzione', 'Scadenza eliminata');
+  const saveCosto = (c) => salvaOTorna(() => costiT.save(c), 'costo', 'Costo salvato');
+  const deleteCosto = (c) => salvaOTorna(() => costiT.remove(c), 'costo', 'Costo eliminato');
   // Intervento aperto dal dettaglio di una camera: torna al dettaglio invece che alla lista
-  const saveInterventoDaCamera = (i) => { setInterventi(prev => prev.some(x => x.id === i.id) ? prev.map(x => x.id === i.id ? i : x) : [...prev, i]); flash('Intervento salvato'); goBack(); };
-  const deleteInterventoDaCamera = (i) => { setInterventi(prev => prev.filter(x => x.id !== i.id)); flash('Intervento eliminato'); goBack(); };
+  const saveInterventoDaCamera = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
+  const deleteInterventoDaCamera = (i) => salvaOTorna(() => interventiT.remove(i), 'intervento', 'Intervento eliminato');
 
   const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
   const tecniciNomi = useMemo(() => tecnici.map(t => t.nome), [tecnici]);
@@ -2470,7 +2550,12 @@ function StrutturaModule({ onHome }) {
   };
 
   if (!ready) {
-    return <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: STR_COLORS.muted }}>Caricamento…</div>;
+    return (
+      <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: STR_COLORS.muted, flexDirection: 'column', gap: 10, padding: 24, textAlign: 'center' }}>
+        <span>Caricamento…</span>
+        {dataError && <span style={{ color: STR_COLORS.red, fontSize: 13, maxWidth: 280 }}>{dataError}</span>}
+      </div>
+    );
   }
 
   const onMenu = () => setShowMenu(true);
