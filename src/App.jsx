@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useContext, createContext } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from './supabaseClient.js';
+import { supabase, supabaseConfigured } from './supabaseClient.js';
 import {
   Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft,
   Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical,
@@ -2717,6 +2717,20 @@ function HubScreen({ onOpen, counts, userEmail, role, onSignOut, onOpenUsers }) 
    ========================================================================= */
 
 export default function ManutenzioneApp() {
+  if (!supabaseConfigured) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#1C2321', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'sans-serif', textAlign: 'center' }}>
+        <div style={{ maxWidth: 380 }}>
+          <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 10 }}>Configurazione mancante</div>
+          <div style={{ fontSize: 14, opacity: 0.8, lineHeight: 1.5 }}>
+            Mancano le variabili <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code>.<br /><br />
+            Su GitHub: <b>Settings → Secrets and variables → Actions</b>, verifica che i due secret esistano con questi nomi esatti, poi rilancia il deploy (<b>Actions → il workflow più recente → Re-run all jobs</b>).
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti'
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
   const { session, profile, authLoading, signOut } = useAuth();
