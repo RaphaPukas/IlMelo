@@ -7,7 +7,7 @@ import {
   FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle,
   MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
   BedDouble, Building2, Users, Wallet,
-  LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog,
+  LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon,
 } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
@@ -244,12 +244,14 @@ const GLOBAL_FONTS = `
 /* =========================================================================
    AUTENTICAZIONE E RUOLI (Supabase)
    ========================================================================= */
-const RoleContext = createContext('lettore');
-function useRole() { return useContext(RoleContext); }
+const RoleContext = createContext({ role: 'lettore', email: '' });
+function useRole() { return useContext(RoleContext).role; }
+function useUserEmail() { return useContext(RoleContext).email; }
 function usePermessi() {
-  const role = useRole();
+  const { role, email } = useContext(RoleContext);
   return {
     role,
+    email,
     puoScrivere: role === 'admin' || role === 'operatore',
     puoEliminare: role === 'admin',
     isAdmin: role === 'admin',
@@ -271,11 +273,15 @@ function useAuth() {
   const [session, setSession] = useState(undefined); // undefined = non ancora verificato
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data }) => { if (mounted) setSession(data.session ?? null); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s ?? null); });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true);
+      setSession(s ?? null);
+    });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
 
@@ -292,6 +298,8 @@ function useAuth() {
   return {
     session,
     profile,
+    passwordRecovery,
+    clearPasswordRecovery: () => setPasswordRecovery(false),
     authLoading: session === undefined || (session !== null && profileLoading),
     signOut: () => supabase.auth.signOut(),
   };
@@ -310,6 +318,15 @@ function AuthScreen() {
     e.preventDefault();
     if (busy) return;
     setError(''); setInfo('');
+    if (mode === 'reset') {
+      if (!email.trim()) { setError('Inserisci la tua email.'); return; }
+      setBusy(true);
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href });
+      if (error) setError(traduciErroreAuth(error.message));
+      else setInfo('Se l\'indirizzo e\' registrato, ti abbiamo mandato un\'email con le istruzioni per scegliere una nuova password.');
+      setBusy(false);
+      return;
+    }
     if (!email.trim() || !password) { setError('Inserisci email e password.'); return; }
     setBusy(true);
     if (mode === 'login') {
@@ -329,6 +346,8 @@ function AuthScreen() {
     border: '1.5px solid #3A423F', background: '#222B27', color: '#fff', fontSize: 15, outline: 'none',
   };
 
+  const titolo = mode === 'login' ? 'Accedi per continuare' : mode === 'signup' ? 'Crea un nuovo account' : 'Recupera la password';
+
   return (
     <div style={{ minHeight: '100vh', background: '#1C2321', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'Inter, sans-serif', color: '#fff' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -338,7 +357,7 @@ function AuthScreen() {
             <WrenchHub size={26} />
           </div>
           <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 24 }}>Manutenzione</div>
-          <div style={{ fontSize: 13, opacity: 0.6, marginTop: 4 }}>{mode === 'login' ? 'Accedi per continuare' : 'Crea un nuovo account'}</div>
+          <div style={{ fontSize: 13, opacity: 0.6, marginTop: 4 }}>{titolo}</div>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -346,13 +365,25 @@ function AuthScreen() {
             <Mail size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
             <input type="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
           </div>
-          <div style={{ position: 'relative', marginBottom: 8 }}>
-            <Lock size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
-            <input type={showPw ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, paddingRight: 40 }} />
-            <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, top: 10, background: 'none', border: 'none', color: '#fff', opacity: 0.6, padding: 4 }}>
-              {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+          {mode !== 'reset' && (
+            <div style={{ position: 'relative', marginBottom: 8 }}>
+              <Lock size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
+              <input type={showPw ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, paddingRight: 40 }} />
+              <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, top: 10, background: 'none', border: 'none', color: '#fff', opacity: 0.6, padding: 4 }}>
+                {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+          )}
+
+          {mode === 'login' && (
+            <button
+              type="button"
+              onClick={() => { setMode('reset'); setError(''); setInfo(''); }}
+              style={{ display: 'block', marginLeft: 'auto', background: 'none', border: 'none', color: '#8FA69D', fontSize: 12.5, padding: '2px 2px 14px' }}
+            >
+              Password dimenticata?
             </button>
-          </div>
+          )}
 
           {error && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(178,58,46,0.18)', color: '#F5A896', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>
@@ -366,16 +397,86 @@ function AuthScreen() {
           )}
 
           <button type="submit" disabled={busy} style={{ width: '100%', background: '#fff', color: '#1C2321', border: 'none', borderRadius: 10, padding: '13px', fontWeight: 700, fontSize: 15, marginTop: 4, opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'Un attimo…' : mode === 'login' ? 'Accedi' : 'Crea account'}
+            {busy ? 'Un attimo…' : mode === 'login' ? 'Accedi' : mode === 'signup' ? 'Crea account' : 'Invia email di ripristino'}
           </button>
         </form>
 
-        <button
-          onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setInfo(''); }}
-          style={{ width: '100%', background: 'none', border: 'none', color: '#B7C7C1', fontSize: 13, marginTop: 18, padding: 8 }}
-        >
-          {mode === 'login' ? 'Non hai un account? Registrati' : 'Hai gia\' un account? Accedi'}
-        </button>
+        {mode === 'reset' ? (
+          <button
+            onClick={() => { setMode('login'); setError(''); setInfo(''); }}
+            style={{ width: '100%', background: 'none', border: 'none', color: '#B7C7C1', fontSize: 13, marginTop: 18, padding: 8 }}
+          >
+            Torna al login
+          </button>
+        ) : (
+          <button
+            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setInfo(''); }}
+            style={{ width: '100%', background: 'none', border: 'none', color: '#B7C7C1', fontSize: 13, marginTop: 18, padding: 8 }}
+          >
+            {mode === 'login' ? 'Non hai un account? Registrati' : 'Hai gia\' un account? Accedi'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '12px 40px 12px 40px', borderRadius: 10,
+    border: '1.5px solid #3A423F', background: '#222B27', color: '#fff', fontSize: 15, outline: 'none',
+  };
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setError('');
+    if (password.length < 6) { setError('La password deve avere almeno 6 caratteri.'); return; }
+    if (password !== password2) { setError('Le due password non coincidono.'); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) { setError(traduciErroreAuth(error.message)); return; }
+    onDone();
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#1C2321', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <div style={{ width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 28 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+            <Lock size={24} />
+          </div>
+          <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 22, textAlign: 'center' }}>Scegli una nuova password</div>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <Lock size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
+            <input type={showPw ? 'text' : 'password'} autoComplete="new-password" placeholder="Nuova password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+            <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, top: 10, background: 'none', border: 'none', color: '#fff', opacity: 0.6, padding: 4 }}>
+              {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <Lock size={16} style={{ position: 'absolute', left: 13, top: 14, opacity: 0.5 }} />
+            <input type={showPw ? 'text' : 'password'} autoComplete="new-password" placeholder="Ripeti la password" value={password2} onChange={(e) => setPassword2(e.target.value)} style={inputStyle} />
+          </div>
+          {error && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(178,58,46,0.18)', color: '#F5A896', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} /> {error}
+            </div>
+          )}
+          <button type="submit" disabled={busy} style={{ width: '100%', background: '#fff', color: '#1C2321', border: 'none', borderRadius: 10, padding: '13px', fontWeight: 700, fontSize: 15, marginTop: 4, opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'Un attimo…' : 'Salva la nuova password'}
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -1988,7 +2089,14 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
                   <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}</div>
-                  <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
+                    {i.foto?.length > 0 && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: STR_COLORS.muted }}>
+                        <ImageIcon size={12} /> {i.foto.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                   <Pill style={STR_STATO_INTERVENTO_STYLE[i.stato] || {}}>{i.stato}</Pill>
@@ -2004,44 +2112,160 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
   );
 }
 
+const FOTO_BUCKET = 'segnalazioni';
+
+async function caricaFoto(interventoId, file) {
+  const estensione = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${interventoId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${estensione}`;
+  const { error } = await supabase.storage.from(FOTO_BUCKET).upload(path, file, { upsert: false });
+  if (error) throw error;
+  return path;
+}
+async function eliminaFoto(paths) {
+  if (!paths || paths.length === 0) return;
+  try { await supabase.storage.from(FOTO_BUCKET).remove(paths); } catch (e) { /* non bloccante */ }
+}
+async function urlFirmateFoto(paths) {
+  if (!paths || paths.length === 0) return {};
+  const { data, error } = await supabase.storage.from(FOTO_BUCKET).createSignedUrls(paths, 3600);
+  if (error || !data) return {};
+  const map = {};
+  data.forEach((d) => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; });
+  return map;
+}
+
+function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, onRemoveNuova, disabled }) {
+  const [urls, setUrls] = useState({});
+  const fileInputRef = useRef(null);
+  const chiave = fotoEsistenti.join(',');
+
+  useEffect(() => {
+    let mounted = true;
+    urlFirmateFoto(fotoEsistenti).then((m) => { if (mounted) setUrls(m); });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chiave]);
+
+  const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
+
+  const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0 };
+  const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: STR_COLORS.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Fotografie</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {fotoEsistenti.map((p) => (
+          <div key={p} style={thumbStyle}>
+            {urls[p] && <img src={urls[p]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            {!disabled && <button type="button" onClick={() => onRemoveEsistente(p)} style={xStyle}><XIcon size={12} /></button>}
+          </div>
+        ))}
+        {fotoNuove.map((file, i) => (
+          <div key={i} style={thumbStyle}>
+            <img src={anteprimeNuove[i]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            {!disabled && <button type="button" onClick={() => onRemoveNuova(i)} style={xStyle}><XIcon size={12} /></button>}
+          </div>
+        ))}
+        {!disabled && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            style={{ width: 72, height: 72, borderRadius: 10, border: `1.5px dashed ${STR_COLORS.line}`, background: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: STR_COLORS.muted, gap: 3, flexShrink: 0 }}
+          >
+            <Plus size={18} />
+            <span style={{ fontSize: 10 }}>Aggiungi</span>
+          </button>
+        )}
+        <input
+          ref={fileInputRef} type="file" accept="image/*" multiple capture="environment"
+          style={{ display: 'none' }}
+          onChange={(e) => { onAddNuove(Array.from(e.target.files || [])); e.target.value = ''; }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { puoScrivere, puoEliminare, email } = usePermessi();
   const [f, setF] = useState(initial || {
     dataSegnalazione: todayISO(), cameraZona: luoghi[0] || '', descrizione: '', priorita: 'Media',
     tecnico: tecnici[0] || '', stato: 'Aperto', dataChiusura: '', costo: '', note: '',
+    segnalatoDa: email,
   });
+  const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
+  const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
+  const [fotoNuove, setFotoNuove] = useState([]);
+  const [salvataggio, setSalvataggio] = useState(false);
+  const [erroreFoto, setErroreFoto] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  async function handleSave() {
+    if (salvataggio) return;
+    setErroreFoto('');
+    setSalvataggio(true);
+    const id = f.id || uid();
+    try {
+      if (fotoDaRimuovere.length) await eliminaFoto(fotoDaRimuovere);
+      const nuovePaths = [];
+      for (const file of fotoNuove) {
+        nuovePaths.push(await caricaFoto(id, file));
+      }
+      const fotoFinali = [...fotoEsistenti, ...nuovePaths];
+      onSave({ ...f, id, costo: f.costo ? Number(f.costo) : 0, foto: fotoFinali });
+    } catch (e) {
+      setErroreFoto('Caricamento foto non riuscito: ' + (e.message || 'riprova.'));
+      setSalvataggio(false);
+    }
+  }
+
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica intervento' : 'Nuovo intervento'} onBack={onCancel} />
-      <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
-        <STR_Field label="Camera / Zona *">
-          <input list="str-luoghi" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
-          <datalist id="str-luoghi">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
-        </STR_Field>
-        <STR_Field label="Data segnalazione"><input type="date" style={strInputStyle} value={f.dataSegnalazione} onChange={set('dataSegnalazione')} /></STR_Field>
-        <STR_Field label="Descrizione problema"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Cosa è successo" /></STR_Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <STR_Field label="Priorità"><select style={selectStyle(STR_PRIORITA_STYLE[f.priorita] || {})} value={f.priorita} onChange={set('priorita')}>{STR_PRIORITA_LIST.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
-          <STR_Field label="Stato"><select style={selectStyle(STR_STATO_INTERVENTO_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_INTERVENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+      <div style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, fontSize: 12.5, color: STR_COLORS.muted }}>
+          <User size={13} /> Segnalato da <b style={{ color: STR_COLORS.ink }}>{f.segnalatoDa || email}</b>
         </div>
-        <STR_Field label="Tecnico / Ditta assegnato">
-          <input list="str-tecnici" style={strInputStyle} value={f.tecnico} onChange={set('tecnico')} />
-          <datalist id="str-tecnici">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
-        </STR_Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <STR_Field label="Data chiusura"><input type="date" style={strInputStyle} value={f.dataChiusura || ''} onChange={set('dataChiusura')} /></STR_Field>
-          <STR_Field label="Costo (€)"><input type="number" step="0.01" style={strInputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></STR_Field>
+        <div style={{ pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
+          <STR_Field label="Camera / Zona *">
+            <input list="str-luoghi" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
+            <datalist id="str-luoghi">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
+          </STR_Field>
+          <STR_Field label="Data segnalazione"><input type="date" style={strInputStyle} value={f.dataSegnalazione} onChange={set('dataSegnalazione')} /></STR_Field>
+          <STR_Field label="Descrizione problema"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Cosa è successo" /></STR_Field>
+          <FotoPicker
+            fotoEsistenti={fotoEsistenti}
+            onRemoveEsistente={(p) => { setFotoEsistenti(prev => prev.filter(x => x !== p)); setFotoDaRimuovere(prev => [...prev, p]); }}
+            fotoNuove={fotoNuove}
+            onAddNuove={(files) => setFotoNuove(prev => [...prev, ...files])}
+            onRemoveNuova={(i) => setFotoNuove(prev => prev.filter((_, idx) => idx !== i))}
+            disabled={!puoScrivere}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <STR_Field label="Priorità"><select style={selectStyle(STR_PRIORITA_STYLE[f.priorita] || {})} value={f.priorita} onChange={set('priorita')}>{STR_PRIORITA_LIST.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+            <STR_Field label="Stato"><select style={selectStyle(STR_STATO_INTERVENTO_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_INTERVENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+          </div>
+          <STR_Field label="Tecnico / Ditta assegnato">
+            <input list="str-tecnici" style={strInputStyle} value={f.tecnico} onChange={set('tecnico')} />
+            <datalist id="str-tecnici">{tecnici.map(t => <option key={t} value={t} />)}</datalist>
+          </STR_Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <STR_Field label="Data chiusura"><input type="date" style={strInputStyle} value={f.dataChiusura || ''} onChange={set('dataChiusura')} /></STR_Field>
+            <STR_Field label="Costo (€)"><input type="number" step="0.01" style={strInputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></STR_Field>
+          </div>
+          <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
         </div>
-        <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
       </div>
       {puoScrivere && (
         <div style={{ padding: '0 16px' }}>
+          {erroreFoto && <div style={{ background: STR_COLORS.redBg, color: STR_COLORS.red, padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{erroreFoto}</div>}
           <button
-            onClick={() => onSave({ ...f, id: f.id || uid(), costo: f.costo ? Number(f.costo) : 0 })}
-            style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4 }}
+            onClick={handleSave}
+            disabled={salvataggio}
+            style={{ width: '100%', background: STR_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 4, opacity: salvataggio ? 0.6 : 1 }}
           >
-            Salva intervento
+            {salvataggio ? 'Salvataggio…' : 'Salva intervento'}
           </button>
           {initial && puoEliminare && (
             <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
@@ -2490,14 +2714,14 @@ function StrutturaModule({ onHome }) {
   const saveTecnico = (t) => salvaOTorna(() => tecniciT.save(t), 'tecnico', 'Tecnico salvato');
   const deleteTecnico = (t) => salvaOTorna(() => tecniciT.remove(t), 'tecnico', 'Tecnico eliminato');
   const saveIntervento = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
-  const deleteIntervento = (i) => salvaOTorna(() => interventiT.remove(i), 'intervento', 'Intervento eliminato');
+  const deleteIntervento = (i) => salvaOTorna(async () => { await eliminaFoto(i.foto); return interventiT.remove(i); }, 'intervento', 'Intervento eliminato');
   const saveManutenzione = (m) => salvaOTorna(() => manutenzioniT.save(m), 'manutenzione', 'Scadenza salvata');
   const deleteManutenzione = (m) => salvaOTorna(() => manutenzioniT.remove(m), 'manutenzione', 'Scadenza eliminata');
   const saveCosto = (c) => salvaOTorna(() => costiT.save(c), 'costo', 'Costo salvato');
   const deleteCosto = (c) => salvaOTorna(() => costiT.remove(c), 'costo', 'Costo eliminato');
   // Intervento aperto dal dettaglio di una camera: torna al dettaglio invece che alla lista
   const saveInterventoDaCamera = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
-  const deleteInterventoDaCamera = (i) => salvaOTorna(() => interventiT.remove(i), 'intervento', 'Intervento eliminato');
+  const deleteInterventoDaCamera = (i) => salvaOTorna(async () => { await eliminaFoto(i.foto); return interventiT.remove(i); }, 'intervento', 'Intervento eliminato');
 
   const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
   const tecniciNomi = useMemo(() => tecnici.map(t => t.nome), [tecnici]);
@@ -2766,7 +2990,7 @@ export default function ManutenzioneApp() {
   const role = profile?.role || 'lettore';
 
   return (
-    <RoleContext.Provider value={role}>
+    <RoleContext.Provider value={{ role, email: session.user.email }}>
       {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
       {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
