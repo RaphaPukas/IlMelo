@@ -244,17 +244,24 @@ const GLOBAL_FONTS = `
 /* =========================================================================
    AUTENTICAZIONE E RUOLI (Supabase)
    ========================================================================= */
-const RoleContext = createContext({ role: 'lettore', email: '' });
+const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '' });
 function useRole() { return useContext(RoleContext).role; }
 function useUserEmail() { return useContext(RoleContext).email; }
+function nomeVisualizzato({ nome, cognome, email }) {
+  const n = `${nome || ''} ${cognome || ''}`.trim();
+  return n || email;
+}
 function usePermessi() {
-  const { role, email } = useContext(RoleContext);
+  const ctx = useContext(RoleContext);
   return {
-    role,
-    email,
-    puoScrivere: role === 'admin' || role === 'operatore',
-    puoEliminare: role === 'admin',
-    isAdmin: role === 'admin',
+    role: ctx.role,
+    email: ctx.email,
+    nome: ctx.nome,
+    cognome: ctx.cognome,
+    nomeVisualizzato: nomeVisualizzato(ctx),
+    puoScrivere: ctx.role === 'admin' || ctx.role === 'operatore',
+    puoEliminare: ctx.role === 'admin',
+    isAdmin: ctx.role === 'admin',
   };
 }
 
@@ -295,9 +302,16 @@ function useAuth() {
     return () => { mounted = false; };
   }, [session]);
 
+  async function refreshProfile() {
+    if (!session) return;
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+    if (!error) setProfile(data);
+  }
+
   return {
     session,
     profile,
+    refreshProfile,
     passwordRecovery,
     clearPasswordRecovery: () => setPasswordRecovery(false),
     authLoading: session === undefined || (session !== null && profileLoading),
@@ -531,8 +545,12 @@ function UtentiScreen({ onHome, myUserId }) {
             return (
               <div key={u.id} style={{ background: HUB_COLORS.surface, border: `1px solid ${HUB_COLORS.line}`, borderRadius: 14, padding: 14 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {u.email || '(email non disponibile)'} {isMe && <span style={{ fontWeight: 500, color: HUB_COLORS.muted }}>(tu)</span>}
+                  {(u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : (u.email || '(email non disponibile)')}
+                  {isMe && <span style={{ fontWeight: 500, color: HUB_COLORS.muted }}> (tu)</span>}
                 </div>
+                {(u.nome || u.cognome) && u.email && (
+                  <div style={{ fontSize: 11.5, color: HUB_COLORS.muted, marginTop: 1 }}>{u.email}</div>
+                )}
                 <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                   {RUOLI.map((r) => (
                     <button
@@ -561,12 +579,64 @@ function UtentiScreen({ onHome, myUserId }) {
   );
 }
 
+function ProfiloScreen({ onHome, profile, onSaved }) {
+  const [nome, setNome] = useState(profile?.nome || '');
+  const [cognome, setCognome] = useState(profile?.cognome || '');
+  const [busy, setBusy] = useState(false);
+  const [errore, setErrore] = useState('');
+  const [salvato, setSalvato] = useState(false);
+
+  async function salva() {
+    setBusy(true); setErrore(''); setSalvato(false);
+    const { error } = await supabase.rpc('update_my_profile', { p_nome: nome, p_cognome: cognome });
+    setBusy(false);
+    if (error) { setErrore(traduciErroreDati(error.message)); return; }
+    setSalvato(true);
+    onSaved();
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <TopBar theme={HUB_COLORS} title="Il tuo profilo" subtitle={profile?.email} onBack={onHome} backIcon={Home} />
+      <div style={{ padding: 16 }}>
+        <p style={{ fontSize: 12.5, color: HUB_COLORS.muted, marginTop: 0, marginBottom: 18 }}>
+          Nome e cognome vengono mostrati al posto dell'email nell'app (es. nelle segnalazioni). Il ruolo non si cambia da qui.
+        </p>
+        <label style={{ display: 'block', marginBottom: 14 }}>
+          <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: HUB_COLORS.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Nome</span>
+          <input
+            value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Es. Mario"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${HUB_COLORS.line}`, fontSize: 15, background: '#FCFBF7', color: HUB_COLORS.ink, outline: 'none' }}
+          />
+        </label>
+        <label style={{ display: 'block', marginBottom: 18 }}>
+          <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: HUB_COLORS.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cognome</span>
+          <input
+            value={cognome} onChange={(e) => setCognome(e.target.value)} placeholder="Es. Rossi"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${HUB_COLORS.line}`, fontSize: 15, background: '#FCFBF7', color: HUB_COLORS.ink, outline: 'none' }}
+          />
+        </label>
+        {errore && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{errore}</div>}
+        {salvato && <div style={{ background: '#DCEEE3', color: '#1F6B45', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>Salvato.</div>}
+        <button
+          onClick={salva}
+          disabled={busy}
+          style={{ width: '100%', background: HUB_COLORS.ink || '#1C2321', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? 'Salvataggio…' : 'Salva'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================================
    DATI CONDIVISI (Supabase) — un'unica hook riusabile per ogni tabella:
    carica le righe, le tiene sincronizzate in tempo reale con chi altro e'
    collegato, ed espone save/remove che scrivono sul database.
    ========================================================================= */
-function useSupaTable(table, idKey, seed) {
+function useSupaTable(table, idKey, seed, dateFields = []) {
   const [rows, setRows] = useState(seed || []);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -593,7 +663,11 @@ function useSupaTable(table, idKey, seed) {
 
   async function save(record) {
     setError('');
-    const { data, error } = await supabase.from(table).upsert(record).select().single();
+    // Le colonne data non accettano stringa vuota: una data non compilata
+    // deve arrivare come NULL, altrimenti Postgres la rifiuta.
+    const pulito = { ...record };
+    dateFields.forEach((f) => { if (pulito[f] === '') pulito[f] = null; });
+    const { data, error } = await supabase.from(table).upsert(pulito).select().single();
     if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
     setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
     return { data };
@@ -1128,8 +1202,8 @@ function DashboardScreen({ vehicles, maints, params, onMenu, onHome }) {
 
 /* ---------- Root ---------- */
 function MezziModule({ onHome }) {
-  const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES);
-  const maintsT = useSupaTable('maints', 'id', SEED_MAINTS);
+  const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
+  const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
   const ready = vehiclesT.ready && maintsT.ready;
   const dataError = vehiclesT.error || maintsT.error;
@@ -1705,7 +1779,7 @@ const SEED = [
 {id:114,data:"",marca:"OSD",modello:"Millennium II",seriale:"",tipologia:"Standard",fornitore:"Melo",nucleo:"IKEA",stanza:"",ospite:"",stato:"",c:{gomme:"",mozzi:"",freni:"",pedalini:"",braccioli:"",portaborraccia:"",tavolino:"",manopole:"",seduta:"",poggiatesta:"",pulizia:""},note:""}
 ];/* ---------- Root ---------- */
 function CarrozzineModule({ onHome }) {
-  const itemsT = useSupaTable('carrozzine', 'id', SEED);
+  const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
   const ready = itemsT.ready;
   const dataError = itemsT.error;
@@ -2178,7 +2252,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
           </button>
         )}
         <input
-          ref={fileInputRef} type="file" accept="image/*" multiple capture="environment"
+          ref={fileInputRef} type="file" accept="image/*" multiple
           style={{ display: 'none' }}
           onChange={(e) => { onAddNuove(Array.from(e.target.files || [])); e.target.value = ''; }}
         />
@@ -2188,11 +2262,11 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 }
 
 function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare, email } = usePermessi();
+  const { puoScrivere, puoEliminare, nomeVisualizzato } = usePermessi();
   const [f, setF] = useState(initial || {
     dataSegnalazione: todayISO(), cameraZona: luoghi[0] || '', descrizione: '', priorita: 'Media',
     tecnico: tecnici[0] || '', stato: 'Aperto', dataChiusura: '', costo: '', note: '',
-    segnalatoDa: email,
+    segnalatoDa: nomeVisualizzato,
   });
   const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
   const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
@@ -2225,7 +2299,7 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica intervento' : 'Nuovo intervento'} onBack={onCancel} />
       <div style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, fontSize: 12.5, color: STR_COLORS.muted }}>
-          <User size={13} /> Segnalato da <b style={{ color: STR_COLORS.ink }}>{f.segnalatoDa || email}</b>
+          <User size={13} /> Segnalato da <b style={{ color: STR_COLORS.ink }}>{f.segnalatoDa || nomeVisualizzato}</b>
         </div>
         <div style={{ pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
           <STR_Field label="Camera / Zona *">
@@ -2640,9 +2714,9 @@ function StrutturaModule({ onHome }) {
   const camereT = useSupaTable('camere', 'codice', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
   const tecniciT = useSupaTable('tecnici', 'id', S_TECNICI);
-  const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI);
-  const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI);
-  const costiT = useSupaTable('costi', 'id', S_COSTI);
+  const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
+  const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI, ['ultimaEsecuzione', 'prossimaScadenza']);
+  const costiT = useSupaTable('costi', 'id', S_COSTI, ['data']);
   const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
   const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
@@ -2878,7 +2952,7 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts, userEmail, role, onSignOut, onOpenUsers }) {
+function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenProfilo }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -2900,10 +2974,13 @@ function HubScreen({ onOpen, counts, userEmail, role, onSignOut, onOpenUsers }) 
         </div>
         <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 26 }}>Manutenzione</div>
         <div style={{ fontSize: 13.5, opacity: 0.7, marginTop: 4 }}>Scegli un modulo per iniziare</div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.08)', padding: '4px 10px 4px 8px', borderRadius: 999 }}>
+        <button
+          onClick={onOpenProfilo}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.08)', padding: '4px 10px 4px 8px', borderRadius: 999, border: 'none', color: '#fff', cursor: 'pointer' }}
+        >
           <ShieldCheck size={13} />
-          <span style={{ fontSize: 11.5, opacity: 0.85 }}>{userEmail} · {RUOLO_LABEL[role] || role}</span>
-        </div>
+          <span style={{ fontSize: 11.5, opacity: 0.85 }}>{nomeVisualizzato} · {RUOLO_LABEL[role] || role}</span>
+        </button>
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2955,9 +3032,9 @@ export default function ManutenzioneApp() {
     );
   }
 
-  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti'
+  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo'
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
-  const { session, profile, authLoading, signOut } = useAuth();
+  const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
 
   useHardwareBack();
   useBackable(screen, setScreen);
@@ -2986,23 +3063,30 @@ export default function ManutenzioneApp() {
     );
   }
   if (!session) return <AuthScreen />;
+  if (passwordRecovery) return <NewPasswordScreen onDone={clearPasswordRecovery} />;
 
   const role = profile?.role || 'lettore';
+  const nome = profile?.nome || '';
+  const cognome = profile?.cognome || '';
 
   return (
-    <RoleContext.Provider value={{ role, email: session.user.email }}>
+    <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome }}>
       {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
       {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
+      {screen === 'profilo' && (
+        <ProfiloScreen onHome={() => setScreen('hub')} profile={{ ...profile, email: session.user.email }} onSaved={refreshProfile} />
+      )}
       {screen === 'hub' && (
         <HubScreen
           onOpen={setScreen}
           counts={counts}
-          userEmail={session.user.email}
+          nomeVisualizzato={nomeVisualizzato({ nome, cognome, email: session.user.email })}
           role={role}
           onSignOut={signOut}
           onOpenUsers={() => setScreen('utenti')}
+          onOpenProfilo={() => setScreen('profilo')}
         />
       )}
     </RoleContext.Provider>
