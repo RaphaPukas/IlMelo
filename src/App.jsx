@@ -140,6 +140,21 @@ function Empty({ theme, icon: Icon, text }) {
   );
 }
 
+function ConfirmDelete({ theme, message, onConfirm, onCancel }) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 20, maxWidth: 320, width: '100%' }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: theme.ink }}>Confermi l'eliminazione?</div>
+        <div style={{ fontSize: 13.5, color: theme.muted, marginBottom: 20 }}>{message || 'L\'azione non si puo\' annullare.'}</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: '11px', borderRadius: 10, border: `1px solid ${theme.line}`, background: '#fff', color: theme.ink, fontWeight: 600, fontSize: 14 }}>Annulla</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: theme.danger, color: '#fff', fontWeight: 700, fontSize: 14 }}>Elimina</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionLabel({ theme, children }) {
   return <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: theme.primary, margin: '18px 2px 8px' }}>{children}</div>;
 }
@@ -218,14 +233,26 @@ function MenuSheet({ theme, onClose, onExport, exportTitle, exportSub }) {
   );
 }
 
-function BottomNav({ theme, tab, setTab, items }) {
+function BottomNav({ theme, tab, setTab, items, badges }) {
   return (
     <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${theme.line}`, display: 'flex', paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 20 }}>
       {items.map(([key, Icon, label]) => {
         const active = tab === key;
+        const badge = badges && badges[key];
         return (
           <button key={key} onClick={() => setTab(key)} style={{ flex: 1, background: 'none', border: 'none', padding: '9px 0 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, color: active ? theme.primary : theme.muted }}>
-            <Icon size={21} strokeWidth={active ? 2.4 : 2} />
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              <Icon size={21} strokeWidth={active ? 2.4 : 2} />
+              {!!badge && (
+                <span style={{
+                  position: 'absolute', top: -6, right: -8, background: '#C0392B', color: '#fff',
+                  fontSize: 10, fontWeight: 700, lineHeight: 1, minWidth: 15, height: 15, borderRadius: 999,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '1.5px solid #fff',
+                }}>
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
+            </span>
             <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500 }}>{label}</span>
           </button>
         );
@@ -877,6 +904,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
 
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
     ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo],
   ].filter(([, d]) => d);
@@ -894,7 +922,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => onEdit(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: MEZZI_COLORS.primary }}>Modifica</button>
                 {puoEliminare && (
-                  <button onClick={() => onDelete(vehicle)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 9px' }}><Trash2 size={15} color={MEZZI_COLORS.danger} /></button>
+                  <button onClick={() => setConfermaElimina(true)} style={{ border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', borderRadius: 9, padding: '7px 9px' }}><Trash2 size={15} color={MEZZI_COLORS.danger} /></button>
                 )}
               </div>
             )}
@@ -948,6 +976,14 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
           ))}
         </div>
       </div>
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={MEZZI_COLORS}
+          message={`Eliminare ${vehicle.marca} ${vehicle.modello} (${vehicle.targa || 'senza targa'})?`}
+          onConfirm={() => { setConfermaElimina(false); onDelete(vehicle); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
+      )}
     </>
   );
 }
@@ -1032,6 +1068,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
 
 function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const costo = Number(f.costo) || 0;
@@ -1074,11 +1111,18 @@ function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
             Salva intervento
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: MEZZI_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: MEZZI_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina intervento
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={MEZZI_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -1912,6 +1956,11 @@ const STR_PRIORITA_STYLE = {
 };
 const STR_PRIORITA_LIST = Object.keys(STR_PRIORITA_STYLE);
 
+const STR_TIPOLOGIE_INTERVENTO = [
+  'Elettrico', 'Idraulico', 'Muratura', 'Falegnameria', 'Serramenti',
+  'Climatizzazione', 'Verde/Giardino', 'Pulizie', 'Informatica', 'Altro',
+];
+
 const STR_STATO_INTERVENTO_STYLE = {
   'Aperto': { bg: '#F7DCD9', fg: '#A3352A' },
   'In corso': { bg: '#FBEDD2', fg: '#8A5A00' },
@@ -2095,6 +2144,7 @@ function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) 
 
 function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: '', piano: piani[0] || 'Piano Terra', nucleo: nuclei[0] || '', tipo: 'Singola', stato: 'Attiva', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
@@ -2127,11 +2177,19 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
             Salva camera
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina camera
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          message={`Eliminare la camera ${initial?.codice}? Verranno eliminati anche gli interventi e le scadenze collegati.`}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2140,12 +2198,16 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
 /* ---------- Interventi ---------- */
 function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
   const [filtro, setFiltro] = useState(null);
-  const sorted = [...interventi].filter(i => !filtro || i.stato === filtro).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
+  const [filtroTipologia, setFiltroTipologia] = useState('');
+  const sorted = [...interventi]
+    .filter(i => !filtro || i.stato === filtro)
+    .filter(i => !filtroTipologia || i.tipologia === filtroTipologia)
+    .sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
   return (
     <>
       <TopBar theme={STR_COLORS} title="Interventi" subtitle={`${interventi.length} segnalazioni`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
-        <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 7, marginBottom: 10, flexWrap: 'wrap' }}>
           {STR_STATI_INTERVENTO.map(s => (
             <button key={s} onClick={() => setFiltro(filtro === s ? null : s)}
               style={{ border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
@@ -2155,6 +2217,14 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
             </button>
           ))}
         </div>
+        <select
+          value={filtroTipologia}
+          onChange={(e) => setFiltroTipologia(e.target.value)}
+          style={{ ...strInputStyle, marginBottom: 12, width: 'auto', minWidth: 180, fontSize: 13, padding: '7px 10px' }}
+        >
+          <option value="">Tutte le tipologie</option>
+          {STR_TIPOLOGIE_INTERVENTO.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
         {sorted.length === 0 && <Empty theme={STR_COLORS} icon={ClipboardList} text="Nessun intervento ancora. Aggiungine uno." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {sorted.map(i => (
@@ -2162,7 +2232,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
-                  <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}{i.tipologia ? ' · ' + i.tipologia : ''}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
                     {i.foto?.length > 0 && (
@@ -2210,6 +2280,7 @@ async function urlFirmateFoto(paths) {
 
 function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, onRemoveNuova, disabled }) {
   const [urls, setUrls] = useState({});
+  const [zoom, setZoom] = useState(null);
   const fileInputRef = useRef(null);
   const chiave = fotoEsistenti.join(',');
 
@@ -2222,7 +2293,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 
   const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
 
-  const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0 };
+  const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
   const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
   return (
@@ -2230,15 +2301,15 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
       <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: STR_COLORS.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Fotografie</span>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {fotoEsistenti.map((p) => (
-          <div key={p} style={thumbStyle}>
+          <div key={p} style={thumbStyle} onClick={() => urls[p] && setZoom(urls[p])}>
             {urls[p] && <img src={urls[p]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-            {!disabled && <button type="button" onClick={() => onRemoveEsistente(p)} style={xStyle}><XIcon size={12} /></button>}
+            {!disabled && <button type="button" onClick={(e) => { e.stopPropagation(); onRemoveEsistente(p); }} style={xStyle}><XIcon size={12} /></button>}
           </div>
         ))}
         {fotoNuove.map((file, i) => (
-          <div key={i} style={thumbStyle}>
+          <div key={i} style={thumbStyle} onClick={() => setZoom(anteprimeNuove[i])}>
             <img src={anteprimeNuove[i]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            {!disabled && <button type="button" onClick={() => onRemoveNuova(i)} style={xStyle}><XIcon size={12} /></button>}
+            {!disabled && <button type="button" onClick={(e) => { e.stopPropagation(); onRemoveNuova(i); }} style={xStyle}><XIcon size={12} /></button>}
           </div>
         ))}
         {!disabled && (
@@ -2257,6 +2328,20 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
           onChange={(e) => { onAddNuove(Array.from(e.target.files || [])); e.target.value = ''; }}
         />
       </div>
+      {zoom && (
+        <div
+          onClick={() => setZoom(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <button
+            onClick={() => setZoom(null)}
+            style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 999, width: 38, height: 38, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <XIcon size={18} />
+          </button>
+          <img src={zoom} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6 }} onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
@@ -2273,6 +2358,7 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
   const [fotoNuove, setFotoNuove] = useState([]);
   const [salvataggio, setSalvataggio] = useState(false);
   const [erroreFoto, setErroreFoto] = useState('');
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   async function handleSave() {
@@ -2316,6 +2402,7 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
             onRemoveNuova={(i) => setFotoNuove(prev => prev.filter((_, idx) => idx !== i))}
             disabled={!puoScrivere}
           />
+          <STR_Field label="Tipologia"><select style={strInputStyle} value={f.tipologia || ''} onChange={set('tipologia')}><option value="">—</option>{STR_TIPOLOGIE_INTERVENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <STR_Field label="Priorità"><select style={selectStyle(STR_PRIORITA_STYLE[f.priorita] || {})} value={f.priorita} onChange={set('priorita')}>{STR_PRIORITA_LIST.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
             <STR_Field label="Stato"><select style={selectStyle(STR_STATO_INTERVENTO_STYLE[f.stato] || {})} value={f.stato} onChange={set('stato')}>{STR_STATI_INTERVENTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
@@ -2342,11 +2429,18 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
             {salvataggio ? 'Salvataggio…' : 'Salva intervento'}
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina intervento
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2390,6 +2484,7 @@ function ScadenzeStrScreen({ manutenzioni, onOpen, onAdd, onMenu, onHome }) {
 
 function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || {
     cameraZona: luoghi[0] || '', tipoManutenzione: STR_TIPI_MANUTENZIONE[0], frequenza: STR_FREQUENZE[1],
     ultimaEsecuzione: todayISO(), prossimaScadenza: todayISO(), tecnico: tecnici[0] || '', note: '',
@@ -2421,11 +2516,18 @@ function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete
             Salva scadenza
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina scadenza
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2475,6 +2577,7 @@ function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome }) {
 
 function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || {
     idIntervento: '', tipo: 'Preventivo', descrizione: '', fornitore: tecnici[0] || '',
     numeroDocumento: '', data: todayISO(), importo: '', statoPagamento: 'Da pagare', note: '',
@@ -2510,11 +2613,18 @@ function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete
             Salva costo
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina costo
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2548,6 +2658,7 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
 
 function RepartoForm({ initial, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', responsabile: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
@@ -2565,11 +2676,18 @@ function RepartoForm({ initial, onSave, onCancel, onDelete }) {
             Salva reparto
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina reparto
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2603,7 +2721,8 @@ function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack }) {
 
 function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
-  const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', telefono: '', email: '', note: '' });
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', indirizzo: '', telefono: '', email: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
@@ -2612,6 +2731,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
         <STR_Field label="Nome / Ragione sociale *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
         <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_TECNICO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
         <STR_Field label="Specializzazione"><input style={strInputStyle} value={f.specializzazione} onChange={set('specializzazione')} /></STR_Field>
+        <STR_Field label="Indirizzo"><input style={strInputStyle} value={f.indirizzo || ''} onChange={set('indirizzo')} placeholder="Via, civico, città" /></STR_Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <STR_Field label="Telefono"><input style={strInputStyle} value={f.telefono} onChange={set('telefono')} /></STR_Field>
           <STR_Field label="Email"><input style={strInputStyle} value={f.email} onChange={set('email')} /></STR_Field>
@@ -2624,11 +2744,18 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
             Salva tecnico
           </button>
           {initial && puoEliminare && (
-            <button onClick={() => onDelete(initial)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
+            <button onClick={() => setConfermaElimina(true)} style={{ width: '100%', background: 'none', border: 'none', color: STR_COLORS.danger, fontWeight: 600, fontSize: 13.5, padding: '14px 0 4px' }}>
               Elimina tecnico
             </button>
           )}
         </div>
+      )}
+      {confermaElimina && (
+        <ConfirmDelete
+          theme={STR_COLORS}
+          onConfirm={() => { setConfermaElimina(false); onDelete(initial); }}
+          onCancel={() => setConfermaElimina(false)}
+        />
       )}
     </>
   );
@@ -2899,7 +3026,7 @@ function StrutturaModule({ onHome }) {
         input:focus, select:focus, textarea:focus { border-color: ${STR_COLORS.primary} !important; }
       `}</style>
       <div style={{ paddingBottom: showBottomNav ? 78 : 20 }}>{content}</div>
-      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} />}
+      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} badges={{ interventi: interventi.filter(i => i.stato === 'Aperto').length }} />}
       {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: showBottomNav ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: STR_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
