@@ -1392,7 +1392,7 @@ const NUCLEO_COLORS = {
   'Bianco': { bg: '#F1F0EC', fg: '#4A4A46', dot: '#C7C4B8' },
   'Blu': { bg: '#D2DEEF', fg: '#1E3D66', dot: '#3363A8' },
   'IKEA': { bg: '#E3DCF1', fg: '#4C3B75', dot: '#8E7CC3' },
-  'Terra': { bg: '#F6E7C4', fg: '#7A5A18', dot: '#C99B3E' },
+  'Terra': { bg: '#F7D6E8', fg: '#8A2159', dot: '#D93B8C' },
   'Palestra FKT': { bg: '#D9F0E1', fg: '#1F6B45', dot: '#4FAE79' },
   'Primo Piano': { bg: '#E4DEF0', fg: '#4C3B75', dot: '#9A87C9' },
 };
@@ -1403,6 +1403,7 @@ const STATO_STYLE = {
   'In uso': { bg: '#DCE8F0', fg: '#1E4D73' },
   'Manutenzione': { bg: '#FBEDD2', fg: '#8A5A00' },
   'Fuori uso': { bg: '#F7DCD9', fg: '#A3352A' },
+  'Scorta': { bg: '#E7E3F5', fg: '#4B3B87' },
 };
 const STATI_CARROZZINA = Object.keys(STATO_STYLE);
 
@@ -1432,6 +1433,7 @@ const CARROZZINE_NAV_ITEMS = [
 const needsAttention = (w) => COMPONENTI.some(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante');
 const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').length;
 const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Carrozzina senza marca';
+const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
 
 /* ---------- small UI atoms ---------- */
 function NucleoTag({ nucleo }) {
@@ -1456,7 +1458,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo
   const [q, setQ] = useState('');
   const filtered = items.filter(w => {
     if (filterNucleo && w.nucleo !== filterNucleo) return false;
-    const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo}`.toLowerCase();
+    const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtCarrozzinaId(w.id)}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
 
@@ -1466,7 +1468,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo
       <div style={{ padding: 14 }}>
         <div style={{ position: 'relative', marginBottom: 10 }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: CARROZZINE_COLORS.muted }} />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cerca marca, modello, ospite…"
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cerca numero, marca, modello, ospite…"
             style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px 11px 34px', borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, fontSize: 15, background: '#FCFBF7', outline: 'none' }} />
         </div>
         {filterNucleo && (
@@ -1485,7 +1487,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: CARROZZINE_COLORS.muted }}>#{w.id}</span>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: CARROZZINE_COLORS.muted }}>#{fmtCarrozzinaId(w.id)}</span>
                       <span style={{ fontWeight: 700, fontSize: 14.5 }}>{labelOf(w)}</span>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: w.ospite ? 6 : 0 }}>
@@ -1513,7 +1515,7 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${w.id}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
+      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtCarrozzinaId(w.id)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
       <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
