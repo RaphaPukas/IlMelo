@@ -1513,6 +1513,12 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
+  const inputInlineStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 7,
+    border: `1.5px solid ${CARROZZINE_COLORS.line}`, fontSize: 13, background: '#FCFBF7',
+    fontFamily: 'Inter, sans-serif', outline: 'none', color: CARROZZINE_COLORS.ink,
+  };
+
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtCarrozzinaId(w.id)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
@@ -1521,8 +1527,18 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <InfoRow theme={CARROZZINE_COLORS} icon={Calendar} label="Data" value={fmtDate(w.data)} />
             <InfoRow theme={CARROZZINE_COLORS} icon={Hash} label="Tipologia" value={w.tipologia} />
-            <InfoRow theme={CARROZZINE_COLORS} icon={MapPin} label="Stanza" value={w.stanza} />
-            <InfoRow theme={CARROZZINE_COLORS} icon={User} label="Ospite" value={w.ospite} />
+            <div>
+              <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <MapPin size={11} /> Stanza
+              </div>
+              <input value={w.stanza || ''} onChange={e => set({ stanza: e.target.value })} placeholder="—" style={inputInlineStyle} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <User size={11} /> Ospite
+              </div>
+              <input value={w.ospite || ''} onChange={e => set({ ospite: e.target.value })} placeholder="—" style={inputInlineStyle} />
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, paddingTop: 10, borderTop: `1px solid ${CARROZZINE_COLORS.line}` }}>
             <div>
