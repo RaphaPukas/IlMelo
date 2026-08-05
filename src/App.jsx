@@ -1454,10 +1454,11 @@ const selectStyle = (s) => ({
 });
 
 /* ---------- Carrozzine ---------- */
-function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo, onHome }) {
+function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) {
   const [q, setQ] = useState('');
   const filtered = items.filter(w => {
-    if (filterNucleo && w.nucleo !== filterNucleo) return false;
+    if (filtro?.tipo === 'nucleo' && w.nucleo !== filtro.valore) return false;
+    if (filtro?.tipo === 'stato' && w.stato !== filtro.valore) return false;
     const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtCarrozzinaId(w.id)}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
@@ -1471,11 +1472,11 @@ function CarrozzineScreen({ items, onOpen, onMenu, filterNucleo, setFilterNucleo
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cerca numero, marca, modello, ospite…"
             style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px 11px 34px', borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, fontSize: 15, background: '#FCFBF7', outline: 'none' }} />
         </div>
-        {filterNucleo && (
+        {filtro && (
           <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: CARROZZINE_COLORS.muted }}>Filtro:</span>
-            <NucleoTag nucleo={filterNucleo} />
-            <button onClick={() => setFilterNucleo(null)} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.muted, fontSize: 12, textDecoration: 'underline' }}>rimuovi</button>
+            {filtro.tipo === 'nucleo' ? <NucleoTag nucleo={filtro.valore} /> : <Pill style={STATO_STYLE[filtro.valore] || {}}>{filtro.valore}</Pill>}
+            <button onClick={() => setFiltro(null)} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.muted, fontSize: 12, textDecoration: 'underline' }}>rimuovi</button>
           </div>
         )}
         {filtered.length === 0 && <Empty theme={CARROZZINE_COLORS} icon={Armchair} text="Nessuna carrozzina trovata." />}
@@ -1563,20 +1564,40 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
           {COMPONENTI.map(([key, label], i) => {
             const val = w.c[key];
             const isFreeText = val && !CONDIZIONI.includes(val);
+            const dataSost = w.dataSostituzioni?.[key] || '';
             return (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 0', borderTop: i ? `1px solid ${CARROZZINE_COLORS.line}` : 'none' }}>
-                <span style={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>{label}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  {isFreeText && <span style={{ fontSize: 11, color: CARROZZINE_COLORS.muted, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{val}</span>}
-                  <select
-                    value={CONDIZIONI.includes(val) ? val : ''}
-                    onChange={e => setC(key, e.target.value)}
-                    style={{ ...selectStyle(COND_STYLE[val] || { bg: '#F1EFE6', fg: CARROZZINE_COLORS.muted }), width: 118 }}
-                  >
-                    <option value="">{isFreeText ? 'nota storica' : '—'}</option>
-                    {CONDIZIONI.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+              <div key={key} style={{ padding: '9px 0', borderTop: i ? `1px solid ${CARROZZINE_COLORS.line}` : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>{label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    {isFreeText && <span style={{ fontSize: 11, color: CARROZZINE_COLORS.muted, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{val}</span>}
+                    <select
+                      value={CONDIZIONI.includes(val) ? val : ''}
+                      onChange={e => {
+                        const nuovoValore = e.target.value;
+                        const nuovoDsSost = { ...(w.dataSostituzioni || {}) };
+                        if (nuovoValore !== 'Sostituito') delete nuovoDsSost[key];
+                        onUpdate({ ...w, c: { ...w.c, [key]: nuovoValore }, dataSostituzioni: nuovoDsSost });
+                      }}
+                      style={{ ...selectStyle(COND_STYLE[val] || { bg: '#F1EFE6', fg: CARROZZINE_COLORS.muted }), width: 118 }}
+                    >
+                      <option value="">{isFreeText ? 'nota storica' : '—'}</option>
+                      {CONDIZIONI.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </div>
+                {val === 'Sostituito' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, paddingLeft: 4 }}>
+                    <Calendar size={12} color={CARROZZINE_COLORS.muted} />
+                    <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, flexShrink: 0 }}>Data sostituzione:</span>
+                    <input
+                      type="date"
+                      value={dataSost}
+                      onChange={e => onUpdate({ ...w, dataSostituzioni: { ...(w.dataSostituzioni || {}), [key]: e.target.value } })}
+                      style={{ fontSize: 12, border: `1px solid ${CARROZZINE_COLORS.line}`, borderRadius: 7, padding: '3px 7px', background: '#FCFBF7', color: CARROZZINE_COLORS.ink, outline: 'none' }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1667,7 +1688,7 @@ function NucleiScreen({ items, onFilter, onMenu, onHome }) {
 }
 
 /* ---------- Riepilogo ---------- */
-function RiepilogoScreen({ items, onMenu, onHome }) {
+function RiepilogoScreen({ items, onMenu, onHome, onFilterStato }) {
   const tot = items.length;
   const attCount = items.filter(needsAttention).length;
   const perStato = STATI_CARROZZINA.map(s => [s, items.filter(w => w.stato === s).length]);
@@ -1691,9 +1712,16 @@ function RiepilogoScreen({ items, onMenu, onHome }) {
         <SectionLabel theme={CARROZZINE_COLORS}>Per stato</SectionLabel>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 4 }}>
           {perStato.map(([s, n], i) => (
-            <div key={s} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: i ? `1px solid ${CARROZZINE_COLORS.line}` : 'none' }}>
+            <div
+              key={s}
+              onClick={() => n > 0 && onFilterStato(s)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: i ? `1px solid ${CARROZZINE_COLORS.line}` : 'none', cursor: n > 0 ? 'pointer' : 'default' }}
+            >
               <Pill style={STATO_STYLE[s]}>{s}</Pill>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>{n}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{n}</span>
+                {n > 0 && <ChevronRight size={14} color={CARROZZINE_COLORS.muted} />}
+              </span>
             </div>
           ))}
           {senzaStato > 0 && (
@@ -1847,7 +1875,7 @@ function CarrozzineModule({ onHome }) {
   const dataError = itemsT.error;
   const [tab, setTab] = useState('carrozzine');
   const [openId, setOpenId] = useState(null);
-  const [filterNucleo, setFilterNucleo] = useState(null);
+  const [filtro, setFiltro] = useState(null); // { tipo: 'nucleo'|'stato', valore }
   const [showMenu, setShowMenu] = useState(false);
   useBackable(showMenu, setShowMenu);
   const [toast, setToast] = useState('');
@@ -1900,13 +1928,13 @@ function CarrozzineModule({ onHome }) {
   if (openItem) {
     content = <CarrozzinaDetail w={openItem} onBack={() => goBack()} onUpdate={updateItem} />;
   } else if (tab === 'carrozzine') {
-    content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filterNucleo={filterNucleo} setFilterNucleo={setFilterNucleo} onHome={onHome} />;
+    content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
     content = <ControlliScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'nuclei') {
-    content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFilterNucleo(n === '—' ? null : n); setTab('carrozzine'); }} onHome={onHome} />;
+    content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} />;
   } else {
-    content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome} />;
+    content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome} onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }} />;
   }
 
   return (
