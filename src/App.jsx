@@ -740,6 +740,49 @@ const TIPI_MANUTENZIONE = [
 const STATI_MANUTENZIONE = ['Completato', 'In Garanzia', 'Programmato', 'In Attesa Ricambi'];
 const TIPI_VEICOLO = ['Auto', 'Furgone', 'Pulmino'];
 const CARBURANTI = ['Benzina', 'Diesel', 'GPL', 'Metano', 'Elettrico', 'Ibrido'];
+const TIPI_GOMME = ['Invernali', 'Estive', 'Quattro stagioni'];
+
+// Ritorna null | { tipo: 'invernali'|'estive', livello: 'giallo'|'rosso', testo: string }
+function alertGomme(tipologiaGomme) {
+  if (tipologiaGomme === 'Quattro stagioni') return null;
+  const now = new Date();
+  const mese = now.getMonth() + 1; // 1-12
+  const giorno = now.getDate();
+
+  // Calcolo "giorno dell'anno" semplificato: usiamo mese*100+giorno per comparazioni semplici
+  const md = mese * 100 + giorno;
+
+  // Periodi cambio:
+  //   Estive (A -> verso invernali): giallo 1015-1115, rosso 1116-0414
+  //   Invernali (B -> verso estive): giallo 0415-0515, rosso 0516-1014
+
+  const gialloInvernali = (md >= 1015 && md <= 1115);
+  const rossoInvernali  = (md >= 1116 || md <= 414); // novembre 16 -> aprile 14
+  const gialloEstive    = (md >= 415 && md <= 515);
+  const rossoEstive     = (md >= 516 && md <= 1014);
+
+  if (tipologiaGomme === 'Invernali') {
+    // Montate invernali: non avvisare di montare invernali (A)
+    // Avvisare di montare estive (B)
+    if (gialloEstive) return { tipo: 'estive', livello: 'giallo', testo: 'Montare gomme estive' };
+    if (rossoEstive)  return { tipo: 'estive', livello: 'rosso',  testo: 'Montare gomme estive' };
+    return null;
+  }
+  if (tipologiaGomme === 'Estive') {
+    // Montate estive: non avvisare di montare estive (B)
+    // Avvisare di montare invernali (A)
+    if (gialloInvernali) return { tipo: 'invernali', livello: 'giallo', testo: 'Montare gomme invernali' };
+    if (rossoInvernali)  return { tipo: 'invernali', livello: 'rosso',  testo: 'Montare gomme invernali' };
+    return null;
+  }
+  // Tipologia non specificata: mostra tutti gli avvisi
+  if (gialloInvernali) return { tipo: 'invernali', livello: 'giallo', testo: 'Montare gomme invernali' };
+  if (rossoInvernali)  return { tipo: 'invernali', livello: 'rosso',  testo: 'Montare gomme invernali' };
+  if (gialloEstive)    return { tipo: 'estive', livello: 'giallo', testo: 'Montare gomme estive' };
+  if (rossoEstive)     return { tipo: 'estive', livello: 'rosso',  testo: 'Montare gomme estive' };
+  return null;
+}
+
 
 const SEED_VEHICLES = [
   { id: 'v1', targa: 'FV-460-MV', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: 2019, km: 87500, carburante: 'Benzina', colore: 'Bianco', assicurazione: '2026-04-23', revisione: '2026-07-07', bollo: '2026-09-25', note: '' },
@@ -910,11 +953,30 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
+  const alertGomma = alertGomme(vehicle.tipologiaGomme || '');
 
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title={`${vehicle.marca} ${vehicle.modello}`} subtitle={vehicle.tipo} onBack={onBack} />
       <div style={{ padding: 14 }}>
+        {alertGomma && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, marginBottom: 12,
+            background: alertGomma.livello === 'rosso' ? '#F7DCD9' : '#FDF3D0',
+            border: `1.5px solid ${alertGomma.livello === 'rosso' ? '#E8A09A' : '#F0D060'}`,
+          }}>
+            <AlertTriangle size={18} color={alertGomma.livello === 'rosso' ? '#A3352A' : '#8A6000'} style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: alertGomma.livello === 'rosso' ? '#A3352A' : '#6B4A00' }}>
+                {alertGomma.testo.toUpperCase()}
+              </div>
+              <div style={{ fontSize: 11.5, color: alertGomma.livello === 'rosso' ? '#C0504A' : '#8A6A00', marginTop: 2 }}>
+                {alertGomma.livello === 'giallo' ? 'Periodo consigliato' : 'Periodo scaduto — cambio urgente'}
+              </div>
+            </div>
+          </div>
+        )}
+
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Plate targa={vehicle.targa} />
@@ -938,6 +1000,20 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
               <StickyNote size={14} style={{ marginTop: 1, flexShrink: 0 }} /> {vehicle.note}
             </div>
           )}
+        </Card>
+
+        <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
+        <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+          <InfoRow theme={MEZZI_COLORS} icon={Car} label="Modello pneumatici" value={vehicle.modelloGomme || '—'} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, marginTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}` }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: MEZZI_COLORS.muted }}>Tipologia montata</span>
+            <span style={{
+              fontWeight: 700, fontSize: 13,
+              color: vehicle.tipologiaGomme === 'Invernali' ? '#1E4D73' : vehicle.tipologiaGomme === 'Estive' ? '#1F6B45' : vehicle.tipologiaGomme === 'Quattro stagioni' ? '#4C3B75' : MEZZI_COLORS.muted
+            }}>
+              {vehicle.tipologiaGomme || '—'}
+            </span>
+          </div>
         </Card>
 
         {deadlines.length > 0 && (
@@ -991,7 +1067,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
 /* ---------- Vehicle form ---------- */
 function VehicleForm({ initial, onSave, onCancel }) {
   const { puoScrivere } = usePermessi();
-  const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', note: '' });
+  const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
 
@@ -1013,6 +1089,14 @@ function VehicleForm({ initial, onSave, onCancel }) {
           <Field label="Carburante"><select style={inputStyle} value={f.carburante} onChange={set('carburante')}><option value="">—</option>{CARBURANTI.map(t => <option key={t}>{t}</option>)}</select></Field>
         </div>
         <Field label="Colore"><input style={inputStyle} value={f.colore} onChange={set('colore')} /></Field>
+        <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
+        <Field label="Modello pneumatici"><input style={inputStyle} value={f.modelloGomme || ''} onChange={set('modelloGomme')} placeholder="Es. Pirelli Cinturato P7 205/55 R16" /></Field>
+        <Field label="Tipologia montata">
+          <select style={inputStyle} value={f.tipologiaGomme || ''} onChange={set('tipologiaGomme')}>
+            <option value="">— non specificata</option>
+            {TIPI_GOMME.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </Field>
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
