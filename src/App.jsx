@@ -1459,6 +1459,8 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   const filtered = items.filter(w => {
     if (filtro?.tipo === 'nucleo' && w.nucleo !== filtro.valore) return false;
     if (filtro?.tipo === 'stato' && w.stato !== filtro.valore) return false;
+    if (filtro?.tipo === 'attenzione' && !needsAttention(w)) return false;
+    if (filtro?.tipo === 'marca' && w.marca !== filtro.valore) return false;
     const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtCarrozzinaId(w.id)}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
@@ -1475,7 +1477,10 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
         {filtro && (
           <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: CARROZZINE_COLORS.muted }}>Filtro:</span>
-            {filtro.tipo === 'nucleo' ? <NucleoTag nucleo={filtro.valore} /> : <Pill style={STATO_STYLE[filtro.valore] || {}}>{filtro.valore}</Pill>}
+            {filtro.tipo === 'nucleo' && <NucleoTag nucleo={filtro.valore} />}
+            {filtro.tipo === 'stato' && <Pill style={STATO_STYLE[filtro.valore] || {}}>{filtro.valore}</Pill>}
+            {filtro.tipo === 'attenzione' && <Pill style={{ bg: '#F7DCD9', fg: '#A3352A' }}>Da controllare</Pill>}
+            {filtro.tipo === 'marca' && <Pill style={{ bg: '#E8EEF5', fg: '#1E4D73' }}>{filtro.valore}</Pill>}
             <button onClick={() => setFiltro(null)} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.muted, fontSize: 12, textDecoration: 'underline' }}>rimuovi</button>
           </div>
         )}
@@ -1688,7 +1693,7 @@ function NucleiScreen({ items, onFilter, onMenu, onHome }) {
 }
 
 /* ---------- Riepilogo ---------- */
-function RiepilogoScreen({ items, onMenu, onHome, onFilterStato }) {
+function RiepilogoScreen({ items, onMenu, onHome, onFilterStato, onFilterAttenzione, onFilterMarca }) {
   const tot = items.length;
   const attCount = items.filter(needsAttention).length;
   const perStato = STATI_CARROZZINA.map(s => [s, items.filter(w => w.stato === s).length]);
@@ -1706,7 +1711,9 @@ function RiepilogoScreen({ items, onMenu, onHome, onFilterStato }) {
       <div style={{ padding: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
           <StatCard theme={CARROZZINE_COLORS} label="Carrozzine totali" value={tot} accent={CARROZZINE_COLORS.primary} />
-          <StatCard theme={CARROZZINE_COLORS} label="Da controllare" value={attCount} accent={attCount ? CARROZZINE_COLORS.danger : CARROZZINE_COLORS.ok} />
+          <div onClick={() => attCount > 0 && onFilterAttenzione()} style={{ cursor: attCount > 0 ? 'pointer' : 'default' }}>
+            <StatCard theme={CARROZZINE_COLORS} label={attCount > 0 ? 'Da controllare →' : 'Da controllare'} value={attCount} accent={attCount ? CARROZZINE_COLORS.danger : CARROZZINE_COLORS.ok} />
+          </div>
         </div>
 
         <SectionLabel theme={CARROZZINE_COLORS}>Per stato</SectionLabel>
@@ -1735,9 +1742,12 @@ function RiepilogoScreen({ items, onMenu, onHome, onFilterStato }) {
         <SectionLabel theme={CARROZZINE_COLORS}>Marche più diffuse</SectionLabel>
         <Card theme={CARROZZINE_COLORS}>
           {perMarca.map(([m, n], i) => (
-            <div key={m} style={{ marginTop: i ? 10 : 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
-                <span>{m}</span><span style={{ color: CARROZZINE_COLORS.muted }}>{n}</span>
+            <div key={m} onClick={() => onFilterMarca(m)} style={{ marginTop: i ? 10 : 0, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, marginBottom: 4 }}>
+                <span style={{ fontWeight: 600 }}>{m}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: CARROZZINE_COLORS.muted }}>
+                  {n} <ChevronRight size={13} />
+                </span>
               </div>
               <div style={{ height: 7, background: '#EEEAE0', borderRadius: 999 }}>
                 <div style={{ height: '100%', width: `${(n / maxMarca) * 100}%`, background: CARROZZINE_COLORS.amber, borderRadius: 999 }} />
@@ -1934,7 +1944,11 @@ function CarrozzineModule({ onHome }) {
   } else if (tab === 'nuclei') {
     content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} />;
   } else {
-    content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome} onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }} />;
+    content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome}
+      onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }}
+      onFilterAttenzione={() => { setFiltro({ tipo: 'attenzione' }); setTab('carrozzine'); }}
+      onFilterMarca={(m) => { setFiltro({ tipo: 'marca', valore: m }); setTab('carrozzine'); }}
+    />;
   }
 
   return (
