@@ -1225,11 +1225,26 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome }) {
   const rows = useMemo(() => {
     const out = [];
     vehicles.forEach(v => {
+      // Scadenze classiche
       [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo]].forEach(([label, d]) => {
         if (!d) return;
         const days = daysUntil(d);
-        out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params) });
+        out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params), isGomme: false });
       });
+      // Allarme gomme stagionali
+      const alert = alertGomme(v.tipologiaGomme || '');
+      if (alert) {
+        out.push({
+          key: v.id + '_gomme',
+          v,
+          label: alert.testo,
+          d: null,
+          days: alert.livello === 'rosso' ? -1 : 0, // rosso = già scaduto, giallo = imminente
+          u: alert.livello === 'rosso' ? 'urgent' : 'soon',
+          isGomme: true,
+          livello: alert.livello,
+        });
+      }
     });
     return out.sort((a, b) => a.days - b.days);
   }, [vehicles, params]);
@@ -1249,8 +1264,16 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome }) {
                   <Plate targa={r.v.targa} size="sm" />
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <Pill style={URGENCY_STYLE[r.u]}>{r.days < 0 ? 'Scaduta' : `${r.days} giorni`}</Pill>
-                  <div style={{ fontSize: 12, color: MEZZI_COLORS.muted, marginTop: 6 }}>{fmtDate(r.d)}</div>
+                  {r.isGomme ? (
+                    <Pill style={r.livello === 'rosso' ? URGENCY_STYLE.urgent : URGENCY_STYLE.soon}>
+                      {r.livello === 'rosso' ? 'Urgente' : 'Consigliato'}
+                    </Pill>
+                  ) : (
+                    <>
+                      <Pill style={URGENCY_STYLE[r.u]}>{r.days < 0 ? 'Scaduta' : `${r.days} giorni`}</Pill>
+                      <div style={{ fontSize: 12, color: MEZZI_COLORS.muted, marginTop: 6 }}>{fmtDate(r.d)}</div>
+                    </>
+                  )}
                 </div>
               </div>
             </Card>
@@ -2135,7 +2158,7 @@ const STR_NAV_ITEMS = [
   ['camere', BedDouble, 'Camere'],
   ['interventi', ClipboardList, 'Interventi'],
   ['scadenze', CalendarClock, 'Scadenze'],
-  ['costi', Wallet, 'Costi'],
+  ['reparti', Building2, 'Reparti'],
   ['riepilogo', BarChart3, 'Riepilogo'],
 ];
 
@@ -2678,13 +2701,13 @@ function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete
 }
 
 /* ---------- Costi ---------- */
-function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome }) {
+function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome, onBack }) {
   const [filtro, setFiltro] = useState(null);
   const sorted = [...costi].filter(c => !filtro || c.statoPagamento === filtro).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = costi.reduce((s, c) => s + (Number(c.importo) || 0), 0);
   return (
     <>
-      <TopBar theme={STR_COLORS} title="Costi" subtitle={`${costi.length} voci · ${fmtEuro(totale)}`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={STR_COLORS} title="Costi" subtitle={`${costi.length} voci · ${fmtEuro(totale)}`} onBack={onBack || onHome} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
         <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
           {STR_STATI_PAGAMENTO.map(s => (
@@ -2906,7 +2929,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Riepilogo (dashboard) ---------- */
-function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenReparti, onOpenTecnici }) {
+function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti }) {
   const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
   const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
   const aperti = interventi.filter(i => i.stato === 'Aperto').length;
@@ -2954,17 +2977,8 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
           ))}
         </Card>
 
-        <SectionLabel theme={STR_COLORS}>Anagrafiche</SectionLabel>
+        <SectionLabel theme={STR_COLORS}>Anagrafiche e Costi</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <Card theme={STR_COLORS} onClick={onOpenReparti}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Building2 size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Reparti e Zone</span>
-              </div>
-              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{reparti.length} →</span>
-            </div>
-          </Card>
           <Card theme={STR_COLORS} onClick={onOpenTecnici}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2972,6 +2986,15 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
                 <span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici e Ditte</span>
               </div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.length} →</span>
+            </div>
+          </Card>
+          <Card theme={STR_COLORS} onClick={onOpenCosti}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Wallet size={17} color={STR_COLORS.primary} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Costi</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{costi.length} voci · {fmtEuro(costoTotale)} →</span>
             </div>
           </Card>
         </div>
@@ -3130,11 +3153,7 @@ function StrutturaModule({ onHome }) {
   const onMenu = () => setShowMenu(true);
   let content;
 
-  if (subScreen === 'reparti') {
-    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
-    else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
-  } else if (subScreen === 'tecnici') {
+  if (subScreen === 'tecnici') {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
     else content = <TecniciStrScreen tecnici={tecnici} onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
@@ -3152,15 +3171,19 @@ function StrutturaModule({ onHome }) {
     if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
     else content = <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
-  } else if (tab === 'costi') {
+  } else if (tab === 'reparti') {
+    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
+    else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => goBack()} />;
+  } else if (subScreen === 'costi') {
     if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
-    else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+    else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} onBack={() => setSubScreen(null)} />;
   } else {
-    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenReparti={() => setSubScreen('reparti')} onOpenTecnici={() => setSubScreen('tecnici')} />;
+    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} />;
   }
 
-  const showBottomNav = view.name === 'list' && !subScreen;
+  const showBottomNav = view.name === 'list' && subScreen !== 'costi' && subScreen !== 'tecnici';
 
   return (
     <div style={{ minHeight: '100vh', background: STR_COLORS.bg, fontFamily: 'Inter, sans-serif', color: STR_COLORS.ink, maxWidth: 480, margin: '0 auto', position: 'relative' }}>
