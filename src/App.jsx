@@ -2113,6 +2113,7 @@ const STR_STATI_CAMERA = Object.keys(STR_STATO_CAMERA_STYLE);
 const STR_TIPI_CAMERA = ['Singola', 'Doppia'];
 
 const STR_CATEGORIE_REPARTO = ['Assistenziale', 'Amministrativo', 'Servizi'];
+const STR_PIANI_REPARTO = ['Piano Terra', 'Primo Piano', 'Secondo Piano', 'Piano Interrato', 'Esterno'];
 const STR_TIPI_TECNICO = ['Interno', 'Esterno'];
 
 const STR_PRIORITA_STYLE = {
@@ -2799,18 +2800,62 @@ function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete
 
 /* ---------- Reparti (anagrafica, raggiungibile dal Riepilogo) ---------- */
 function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
+  const [filtroPiano, setFiltroPiano] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState('');
+
+  const piani = useMemo(() => [...new Set(reparti.map(r => r.piano).filter(Boolean))].sort(), [reparti]);
+  const categorie = STR_CATEGORIE_REPARTO;
+
+  const filtered = reparti.filter(r => {
+    if (filtroPiano && r.piano !== filtroPiano) return false;
+    if (filtroCategoria && r.categoria !== filtroCategoria) return false;
+    return true;
+  });
+
+  const pillBtn = (label, active, onClick) => (
+    <button
+      key={label}
+      onClick={() => onClick(active ? '' : label)}
+      style={{ border: 'none', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+        background: active ? STR_COLORS.primary : STR_COLORS.bg,
+        color: active ? '#fff' : STR_COLORS.muted,
+        boxShadow: active ? `0 2px 8px ${STR_COLORS.primary}44` : 'none',
+      }}
+    >{label}</button>
+  );
+
   return (
     <>
-      <TopBar theme={STR_COLORS} title="Reparti e Zone" subtitle={`${reparti.length} in anagrafica`} onBack={onBack} />
+      <TopBar theme={STR_COLORS} title="Reparti e Zone" subtitle={`${filtered.length} di ${reparti.length}`} onBack={onBack} />
+
+      {/* Filtro Piano */}
+      {piani.length > 0 && (
+        <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Piano</div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
+            {piani.map(p => pillBtn(p, filtroPiano === p, setFiltroPiano))}
+          </div>
+        </div>
+      )}
+
+      {/* Filtro Tipologia */}
+      <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Tipologia</div>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
+          {categorie.map(c => pillBtn(c, filtroCategoria === c, setFiltroCategoria))}
+        </div>
+      </div>
+
       <div style={{ padding: 14 }}>
-        {reparti.length === 0 && <Empty theme={STR_COLORS} icon={Building2} text="Nessun reparto registrato." />}
+        {filtered.length === 0 && <Empty theme={STR_COLORS} icon={Building2} text="Nessun reparto per questo filtro." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {reparti.map(r => (
+          {filtered.map(r => (
             <Card theme={STR_COLORS} key={r.codice} onClick={() => onOpen(r)}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.nome}</div>
                   <div style={{ fontSize: 12, color: STR_COLORS.muted }}>{r.responsabile}</div>
+                  {r.piano && <div style={{ fontSize: 11, color: STR_COLORS.muted, marginTop: 2 }}>{r.piano}</div>}
                 </div>
                 <Pill style={{ bg: STR_COLORS.bg, fg: STR_COLORS.primary }}>{r.categoria}</Pill>
               </div>
@@ -2826,7 +2871,7 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
 function RepartoForm({ initial, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', responsabile: '', note: '' });
+  const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', piano: '', responsabile: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
@@ -2834,6 +2879,12 @@ function RepartoForm({ initial, onSave, onCancel, onDelete }) {
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome reparto / zona *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
         <STR_Field label="Categoria"><select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>{STR_CATEGORIE_REPARTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Piano">
+          <select style={strInputStyle} value={f.piano || ''} onChange={set('piano')}>
+            <option value="">— non specificato</option>
+            {STR_PIANI_REPARTO.map(p => <option key={p}>{p}</option>)}
+          </select>
+        </STR_Field>
         <STR_Field label="Responsabile"><input style={strInputStyle} value={f.responsabile} onChange={set('responsabile')} /></STR_Field>
         <STR_Field label="Note"><input style={strInputStyle} value={f.note} onChange={set('note')} /></STR_Field>
       </div>
@@ -2861,10 +2912,11 @@ function RepartoForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Tecnici e ditte (anagrafica, raggiungibile dal Riepilogo) ---------- */
-function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack }) {
+function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack, titolo }) {
+  const titoloMostrato = titolo || 'Tecnici e Ditte';
   return (
     <>
-      <TopBar theme={STR_COLORS} title="Tecnici e Ditte" subtitle={`${tecnici.length} in anagrafica`} onBack={onBack} />
+      <TopBar theme={STR_COLORS} title={titoloMostrato} subtitle={`${tecnici.length} in anagrafica`} onBack={onBack} />
       <div style={{ padding: 14 }}>
         {tecnici.length === 0 && <Empty theme={STR_COLORS} icon={Users} text="Nessun tecnico registrato." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -2929,7 +2981,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Riepilogo (dashboard) ---------- */
-function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti }) {
+function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori }) {
   const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
   const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
   const aperti = interventi.filter(i => i.stato === 'Aperto').length;
@@ -2983,9 +3035,18 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Users size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici e Ditte</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici interni</span>
               </div>
-              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.length} →</span>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Interno').length} →</span>
+            </div>
+          </Card>
+          <Card theme={STR_COLORS} onClick={onOpenFornitori}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Building2 size={17} color={STR_COLORS.primary} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Fornitori e Ditte esterne</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Esterno').length} →</span>
             </div>
           </Card>
           <Card theme={STR_COLORS} onClick={onOpenCosti}>
@@ -3157,6 +3218,10 @@ function StrutturaModule({ onHome }) {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
     else content = <TecniciStrScreen tecnici={tecnici} onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+  } else if (subScreen === 'fornitori') {
+    if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
+    else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Esterno')} titolo="Fornitori e Ditte esterne" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
@@ -3180,10 +3245,10 @@ function StrutturaModule({ onHome }) {
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
     else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} onBack={() => setSubScreen(null)} />;
   } else {
-    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} />;
+    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} onOpenFornitori={() => setSubScreen('fornitori')} />;
   }
 
-  const showBottomNav = view.name === 'list' && subScreen !== 'costi' && subScreen !== 'tecnici';
+  const showBottomNav = view.name === 'list' && subScreen !== 'costi' && subScreen !== 'tecnici' && subScreen !== 'fornitori';
 
   return (
     <div style={{ minHeight: '100vh', background: STR_COLORS.bg, fontFamily: 'Inter, sans-serif', color: STR_COLORS.ink, maxWidth: 480, margin: '0 auto', position: 'relative' }}>
