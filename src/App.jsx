@@ -2226,25 +2226,67 @@ const S_COSTI = [{"id": "C001", "idIntervento": "SI001", "tipo": "Fattura", "des
 /* ---------- Camere ---------- */
 function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
   const [q, setQ] = useState('');
-  const [filtro, setFiltro] = useState(null);
-  let filtered = camere.filter(c => `${c.codice} ${c.piano} ${c.nucleo}`.toLowerCase().includes(q.toLowerCase()));
-  if (filtro) filtered = filtered.filter(c => c.stato === filtro);
+  const [filtroPiano, setFiltroPiano] = useState('');
+  const [filtroNucleo, setFiltroNucleo] = useState('');
+  const [filtroStato, setFiltroStato] = useState('');
+
+  const piani = useMemo(() => [...new Set(camere.map(c => c.piano).filter(Boolean))].sort(), [camere]);
+  const nuclei = useMemo(() => [...new Set(camere.map(c => c.nucleo).filter(Boolean))].sort(), [camere]);
+
+  const filtered = camere.filter(c => {
+    if (filtroPiano && c.piano !== filtroPiano) return false;
+    if (filtroNucleo && c.nucleo !== filtroNucleo) return false;
+    if (filtroStato && c.stato !== filtroStato) return false;
+    return `${c.codice} ${c.piano} ${c.nucleo}`.toLowerCase().includes(q.toLowerCase());
+  });
+
+  const pillBtn = (label, active, setter, value) => (
+    <button
+      key={label}
+      onClick={() => setter(active ? '' : value)}
+      style={{ border: 'none', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+        background: active ? STR_COLORS.primary : STR_COLORS.bg,
+        color: active ? '#fff' : STR_COLORS.muted,
+        boxShadow: active ? `0 2px 8px ${STR_COLORS.primary}44` : 'none',
+      }}
+    >{label}</button>
+  );
 
   return (
     <>
-      <TopBar theme={STR_COLORS} title="Camere" subtitle={`${camere.length} in struttura`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={STR_COLORS} title="Camere" subtitle={`${filtered.length} di ${camere.length}`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+
+      {/* Filtro Piano */}
+      <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Piano</div>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
+          {piani.map(p => pillBtn(p, filtroPiano === p, setFiltroPiano, p))}
+        </div>
+      </div>
+
+      {/* Filtro Nucleo */}
+      <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Nucleo</div>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
+          {nuclei.map(n => pillBtn(n, filtroNucleo === n, setFiltroNucleo, n))}
+        </div>
+      </div>
+
       <div style={{ padding: 14 }}>
         <input placeholder="Cerca camera, piano, nucleo…" style={{ ...strInputStyle, marginBottom: 10 }} value={q} onChange={(e) => setQ(e.target.value)} />
+
+        {/* Filtro Stato */}
         <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
           {STR_STATI_CAMERA.map(s => (
-            <button key={s} onClick={() => setFiltro(filtro === s ? null : s)}
+            <button key={s} onClick={() => setFiltroStato(filtroStato === s ? '' : s)}
               style={{ border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                background: filtro === s ? STR_COLORS.primary : STR_STATO_CAMERA_STYLE[s].bg,
-                color: filtro === s ? '#fff' : STR_STATO_CAMERA_STYLE[s].fg }}>
+                background: filtroStato === s ? STR_COLORS.primary : STR_STATO_CAMERA_STYLE[s].bg,
+                color: filtroStato === s ? '#fff' : STR_STATO_CAMERA_STYLE[s].fg }}>
               {s}
             </button>
           ))}
         </div>
+
         {filtered.length === 0 && <Empty theme={STR_COLORS} icon={BedDouble} text="Nessuna camera trovata." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {filtered.map(c => (
