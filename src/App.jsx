@@ -738,6 +738,14 @@ const TIPI_MANUTENZIONE = [
   'Riparazione Motore', 'Sostituzione Filtri', 'Controllo Climatizzatore', 'Pulizia Interna', 'Autolavaggio',
 ];
 const STATI_MANUTENZIONE = ['Completato', 'In Garanzia', 'Programmato', 'In Attesa Ricambi'];
+const STATI_EFFETTUATI = ['Completato', 'In Garanzia'];
+const STATI_PROGRAMMATI = ['Programmato', 'In Attesa Ricambi'];
+const PRIORITA_MAINT = ['Alta', 'Media', 'Bassa'];
+const PRIORITA_STYLE = {
+  'Alta':  { bg: '#F7DCD9', fg: '#A3352A' },
+  'Media': { bg: '#FDF3D0', fg: '#8A6000' },
+  'Bassa': { bg: '#DCEEE3', fg: '#1F6B45' },
+};
 const TIPI_VEICOLO = ['Auto', 'Furgone', 'Pulmino'];
 const CARBURANTI = ['Benzina', 'Diesel', 'GPL', 'Metano', 'Elettrico', 'Ibrido'];
 const TIPI_GOMME = ['Invernali', 'Estive', 'Quattro stagioni'];
@@ -813,6 +821,7 @@ const DEFAULT_PARAMS = { ivaRate: 22, urgentDays: 30, mediumDays: 90 };
 const MEZZI_NAV_ITEMS = [
   ['veicoli', Car, 'Veicoli'],
   ['manutenzioni', Wrench, 'Interventi'],
+  ['segnalazioni', AlertTriangle, 'Segnala'],
   ['scadenze', CalendarClock, 'Scadenze'],
   ['dashboard', BarChart3, 'Riepilogo'],
 ];
@@ -880,8 +889,8 @@ const inputStyle = {
 };
 
 function FAB({ onClick, label }) {
-  const { puoScrivere } = usePermessi();
-  if (!puoScrivere) return null;
+  const { isAdmin } = usePermessi();
+  if (!isAdmin) return null;
   return (
     <button
       onClick={onClick}
@@ -946,7 +955,9 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
 }
 
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
+  const puoEliminare = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
     ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo],
@@ -1066,7 +1077,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
 
 /* ---------- Vehicle form ---------- */
 function VehicleForm({ initial, onSave, onCancel }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
@@ -1120,19 +1132,51 @@ function VehicleForm({ initial, onSave, onCancel }) {
 
 /* ---------- Maintenance ---------- */
 function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome }) {
-  const sorted = [...maints].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const [tabM, setTabM] = useState('programmati');
   const vOf = (targa) => vehicles.find(v => v.targa === targa);
+
+  const programmati = [...maints]
+    .filter(m => STATI_PROGRAMMATI.includes(m.stato))
+    .sort((a, b) => {
+      const po = { 'Alta': 0, 'Media': 1, 'Bassa': 2 };
+      const pa = po[a.priorita] ?? 1, pb = po[b.priorita] ?? 1;
+      if (pa !== pb) return pa - pb;
+      return (a.data || '').localeCompare(b.data || '');
+    });
+
+  const effettuati = [...maints]
+    .filter(m => STATI_EFFETTUATI.includes(m.stato))
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+
+  const lista = tabM === 'programmati' ? programmati : effettuati;
+
   return (
     <>
-      <TopBar theme={MEZZI_COLORS} title="Manutenzioni" subtitle={`${maints.length} interventi registrati`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={MEZZI_COLORS} title="Interventi" subtitle={`${programmati.length} programmati · ${effettuati.length} effettuati`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+
+      {/* Tab switcher */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${MEZZI_COLORS.line}`, background: '#fff' }}>
+        {[['programmati', `Programmati (${programmati.length})`], ['effettuati', `Effettuati (${effettuati.length})`]].map(([key, label]) => (
+          <button key={key} onClick={() => setTabM(key)}
+            style={{ flex: 1, padding: '11px 4px', border: 'none', background: 'none', fontWeight: tabM === key ? 700 : 500, fontSize: 13,
+              color: tabM === key ? MEZZI_COLORS.primary : MEZZI_COLORS.muted,
+              borderBottom: tabM === key ? `2.5px solid ${MEZZI_COLORS.primary}` : '2.5px solid transparent' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div style={{ padding: 14 }}>
-        {sorted.length === 0 && <Empty theme={MEZZI_COLORS} icon={Wrench} text="Nessun intervento ancora. Aggiungine uno." />}
+        {lista.length === 0 && <Empty theme={MEZZI_COLORS} icon={Wrench} text={tabM === 'programmati' ? 'Nessun intervento programmato.' : 'Nessun intervento effettuato ancora.'} />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {sorted.map(m => (
+          {lista.map(m => (
             <Card theme={MEZZI_COLORS} key={m.id} onClick={() => onOpen(m)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{m.tipo}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14.5 }}>{m.tipo}</span>
+                    {m.priorita && tabM === 'programmati' && <Pill style={PRIORITA_STYLE[m.priorita] || {}}>{m.priorita}</Pill>}
+                  </div>
                   <div style={{ marginBottom: 6 }}><Plate targa={m.targa} size="sm" /></div>
                   <div style={{ fontSize: 12, color: MEZZI_COLORS.muted }}>{vOf(m.targa) ? `${vOf(m.targa).marca} ${vOf(m.targa).modello} · ` : ''}{fmtDate(m.data)}</div>
                 </div>
@@ -1151,9 +1195,10 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
 }
 
 function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato' });
+  const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato', priorita: 'Media' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const costo = Number(f.costo) || 0;
   const iva = costo * (params.ivaRate / 100);
@@ -1185,6 +1230,13 @@ function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
           </div>
         )}
         <Field label="Stato"><select style={inputStyle} value={f.stato} onChange={set('stato')}>{STATI_MANUTENZIONE.map(t => <option key={t}>{t}</option>)}</select></Field>
+        {STATI_PROGRAMMATI.includes(f.stato) && (
+          <Field label="Priorità">
+            <select style={inputStyle} value={f.priorita || 'Media'} onChange={set('priorita')}>
+              {PRIORITA_MAINT.map(p => <option key={p}>{p}</option>)}
+            </select>
+          </Field>
+        )}
       </div>
       {puoScrivere && (
         <div style={{ padding: '0 16px' }}>
@@ -1351,6 +1403,58 @@ function DashboardScreen({ vehicles, maints, params, onMenu, onHome }) {
 }
 
 
+function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
+  const { nomeVisualizzato } = usePermessi();
+  const [f, setF] = useState({
+    targa: vehicles[0]?.targa || '',
+    data: todayISO(),
+    tipo: 'Segnalazione anomalia',
+    descrizione: '',
+    priorita: 'Media',
+    stato: 'Programmato',
+    officina: '', km: '', costo: '',
+    segnalatoDa: nomeVisualizzato,
+  });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const valid = f.targa && f.descrizione.trim();
+
+  return (
+    <>
+      <TopBar theme={MEZZI_COLORS} title="Segnala anomalia" subtitle="Descrivi il problema riscontrato" onBack={onCancel} />
+      <div style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, fontSize: 12.5, color: MEZZI_COLORS.muted, background: MEZZI_COLORS.bg, borderRadius: 10, padding: '8px 12px' }}>
+          <User size={13} /> Segnalato da <b style={{ color: MEZZI_COLORS.ink }}>{f.segnalatoDa}</b>
+        </div>
+        <Field label="Veicolo *">
+          <select style={inputStyle} value={f.targa} onChange={set('targa')}>
+            {vehicles.map(v => <option key={v.id} value={v.targa}>{v.marca} {v.modello}{v.targa ? ' · ' + v.targa : ''}</option>)}
+          </select>
+        </Field>
+        <Field label="Data rilevamento"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
+        <Field label="Descrizione anomalia *">
+          <textarea
+            style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+            value={f.descrizione} onChange={set('descrizione')}
+            placeholder="Descrivi il problema nel modo più preciso possibile…"
+          />
+        </Field>
+        <Field label="Priorità">
+          <select style={inputStyle} value={f.priorita} onChange={set('priorita')}>
+            {PRIORITA_MAINT.map(p => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+        <button
+          disabled={!valid}
+          onClick={() => onSave({ ...f, id: uid() })}
+          style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 8 }}
+        >
+          Invia segnalazione
+        </button>
+      </div>
+    </>
+  );
+}
+
 /* ---------- Root ---------- */
 function MezziModule({ onHome }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
@@ -1451,6 +1555,45 @@ function MezziModule({ onHome }) {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
     else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+  } else if (tab === 'segnalazioni') {
+    if (view.name === 'add') {
+      content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
+    } else {
+      const segnalazioni = [...maints]
+        .filter(m => m.tipo === 'Segnalazione anomalia')
+        .sort((a, b) => ({ Alta: 0, Media: 1, Bassa: 2 }[a.priorita] ?? 1) - ({ Alta: 0, Media: 1, Bassa: 2 }[b.priorita] ?? 1));
+      content = (
+        <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg }}>
+          <TopBar theme={MEZZI_COLORS} title="Segnalazioni" subtitle={`${segnalazioni.length} anomalie segnalate`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={() => setShowMenu(true)} />} />
+          <div style={{ padding: 14 }}>
+            {segnalazioni.length === 0 && <Empty theme={MEZZI_COLORS} icon={AlertTriangle} text="Nessuna segnalazione ancora." />}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {segnalazioni.map(m => {
+                const v = vehicles.find(x => x.targa === m.targa);
+                return (
+                  <Card theme={MEZZI_COLORS} key={m.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                          <Pill style={PRIORITA_STYLE[m.priorita] || PRIORITA_STYLE.Media}>{m.priorita || 'Media'}</Pill>
+                          <span style={{ fontSize: 11.5, color: MEZZI_COLORS.muted }}>{fmtDate(m.data)}</span>
+                        </div>
+                        <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{m.descrizione || '—'}</div>
+                        <Plate targa={m.targa} size="sm" />
+                        {v && <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted, marginTop: 3 }}>{v.marca} {v.modello}</div>}
+                        {m.segnalatoDa && <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 3 }}>Da: {m.segnalatoDa}</div>}
+                      </div>
+                      <Pill style={{ bg: '#FBEDD2', fg: '#8A5A00' }}>{m.stato}</Pill>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
+        </div>
+      );
+    }
   } else if (tab === 'scadenze') {
     content = <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else {
@@ -2114,7 +2257,7 @@ const STR_TIPI_CAMERA = ['Singola', 'Doppia'];
 
 const STR_CATEGORIE_REPARTO = ['Assistenziale', 'Amministrativo', 'Servizi'];
 const STR_PIANI_REPARTO = ['Piano Terra', 'Primo Piano', 'Secondo Piano', 'Piano Interrato', 'Esterno'];
-const STR_TIPI_TECNICO = ['Interno', 'Esterno'];
+const STR_TIPI_TECNICO = ['Interno', 'Esterno', 'Fornitore'];
 
 const STR_PRIORITA_STYLE = {
   'Bassa': { bg: '#DCEEE3', fg: '#1F6B45' },
@@ -3006,7 +3149,7 @@ function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack, titolo }) {
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{t.nome}</div>
                   <div style={{ fontSize: 12, color: STR_COLORS.muted }}>{t.specializzazione}{t.telefono ? ' · ' + t.telefono : ''}</div>
                 </div>
-                <Pill style={t.tipo === 'Interno' ? { bg: '#DCEEE3', fg: '#1F6B45' } : { bg: STR_COLORS.bg, fg: STR_COLORS.primary }}>{t.tipo}</Pill>
+                <Pill style={t.tipo === 'Interno' ? { bg: '#DCEEE3', fg: '#1F6B45' } : t.tipo === 'Fornitore' ? { bg: '#FDF3D0', fg: '#8A6000' } : { bg: STR_COLORS.bg, fg: STR_COLORS.primary }}>{t.tipo}</Pill>
               </div>
             </Card>
           ))}
@@ -3060,7 +3203,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Riepilogo (dashboard) ---------- */
-function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori }) {
+function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori, onOpenDitte }) {
   const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
   const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
   const aperti = interventi.filter(i => i.stato === 'Aperto').length;
@@ -3123,7 +3266,16 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Building2 size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Fornitori e Ditte esterne</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Fornitori</span>
+              </div>
+              <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Fornitore').length} →</span>
+            </div>
+          </Card>
+          <Card theme={STR_COLORS} onClick={onOpenDitte}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Wrench size={17} color={STR_COLORS.primary} />
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Ditte esterne</span>
               </div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Esterno').length} →</span>
             </div>
@@ -3300,7 +3452,11 @@ function StrutturaModule({ onHome }) {
   } else if (subScreen === 'fornitori') {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
-    else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Esterno')} titolo="Fornitori e Ditte esterne" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+    else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Fornitore')} titolo="Fornitori" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+  } else if (subScreen === 'ditte') {
+    if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
+    else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Esterno')} titolo="Ditte esterne" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
@@ -3324,10 +3480,10 @@ function StrutturaModule({ onHome }) {
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
     else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} onBack={() => setSubScreen(null)} />;
   } else {
-    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} onOpenFornitori={() => setSubScreen('fornitori')} />;
+    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} onOpenFornitori={() => setSubScreen('fornitori')} onOpenDitte={() => setSubScreen('ditte')} />;
   }
 
-  const showBottomNav = view.name === 'list' && subScreen !== 'costi' && subScreen !== 'tecnici' && subScreen !== 'fornitori';
+  const showBottomNav = view.name === 'list' && !['costi','tecnici','fornitori','ditte'].includes(subScreen);
 
   return (
     <div style={{ minHeight: '100vh', background: STR_COLORS.bg, fontFamily: 'Inter, sans-serif', color: STR_COLORS.ink, maxWidth: 480, margin: '0 auto', position: 'relative' }}>
