@@ -2230,8 +2230,45 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
   const [filtroNucleo, setFiltroNucleo] = useState('');
   const [filtroStato, setFiltroStato] = useState('');
 
+  // Tutti i piani disponibili
   const piani = useMemo(() => [...new Set(camere.map(c => c.piano).filter(Boolean))].sort(), [camere]);
-  const nuclei = useMemo(() => [...new Set(camere.map(c => c.nucleo).filter(Boolean))].sort(), [camere]);
+
+  // I nuclei disponibili cambiano in base al piano selezionato
+  const nucleiDisponibili = useMemo(() => {
+    const base = filtroPiano ? camere.filter(c => c.piano === filtroPiano) : camere;
+    return [...new Set(base.map(c => c.nucleo).filter(Boolean))].sort();
+  }, [camere, filtroPiano]);
+
+  // Mappa nucleo -> piano (ogni nucleo sta su un solo piano)
+  const nucleoPiano = useMemo(() => {
+    const map = {};
+    camere.forEach(c => { if (c.nucleo && c.piano) map[c.nucleo] = c.piano; });
+    return map;
+  }, [camere]);
+
+  function selezionaPiano(piano) {
+    if (filtroPiano === piano) {
+      // Deseleziona piano: rimuovi anche il nucleo se non è compatibile
+      setFiltroPiano('');
+    } else {
+      setFiltroPiano(piano);
+      // Se il nucleo corrente non appartiene al nuovo piano, deselezionalo
+      if (filtroNucleo && nucleoPiano[filtroNucleo] !== piano) {
+        setFiltroNucleo('');
+      }
+    }
+  }
+
+  function selezionaNucleo(nucleo) {
+    if (filtroNucleo === nucleo) {
+      setFiltroNucleo('');
+    } else {
+      setFiltroNucleo(nucleo);
+      // Auto-seleziona il piano corrispondente
+      const piano = nucleoPiano[nucleo];
+      if (piano) setFiltroPiano(piano);
+    }
+  }
 
   const filtered = camere.filter(c => {
     if (filtroPiano && c.piano !== filtroPiano) return false;
@@ -2240,10 +2277,10 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
     return `${c.codice} ${c.piano} ${c.nucleo}`.toLowerCase().includes(q.toLowerCase());
   });
 
-  const pillBtn = (label, active, setter, value) => (
+  const pillBtn = (label, active, onPress) => (
     <button
       key={label}
-      onClick={() => setter(active ? '' : value)}
+      onClick={onPress}
       style={{ border: 'none', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
         background: active ? STR_COLORS.primary : STR_COLORS.bg,
         color: active ? '#fff' : STR_COLORS.muted,
@@ -2260,15 +2297,15 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
       <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Piano</div>
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
-          {piani.map(p => pillBtn(p, filtroPiano === p, setFiltroPiano, p))}
+          {piani.map(p => pillBtn(p, filtroPiano === p, () => selezionaPiano(p)))}
         </div>
       </div>
 
-      {/* Filtro Nucleo */}
+      {/* Filtro Nucleo — aggiornato dinamicamente in base al piano */}
       <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Nucleo</div>
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
-          {nuclei.map(n => pillBtn(n, filtroNucleo === n, setFiltroNucleo, n))}
+          {nucleiDisponibili.map(n => pillBtn(n, filtroNucleo === n, () => selezionaNucleo(n)))}
         </div>
       </div>
 
