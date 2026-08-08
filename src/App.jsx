@@ -8,6 +8,7 @@ import {
   MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
   BedDouble, Building2, Users, Wallet,
   LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon,
+  BookOpen, RefreshCw, Package, ExternalLink, FileText,
 } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
@@ -3508,6 +3509,496 @@ function StrutturaModule({ onHome }) {
    HUB — schermata di ingresso con i moduli disponibili
    ========================================================================= */
 
+// ============================================================
+//  MODULO PROCEDURE
+// ============================================================
+
+const PROC_COLORS = {
+  primary: '#5E3A8A', primaryDeep: '#3D2466',
+  bg: '#F2EEF8', surface: '#FFFFFF', line: '#DDD8EE',
+  ink: '#1E1530', muted: '#7A6A9A', danger: '#C0392B', ok: '#27AE60',
+};
+
+const PROC_TIPOLOGIE = ['Idraulico','Elettrico','Muratura/Edile','Climatizzazione','Antincendio','Informatica','Sicurezza','Generale'];
+const PROC_FREQUENZE = ['Giornaliera','Settimanale','Mensile','Trimestrale','Semestrale','Annuale'];
+const PROC_ARMADI_TIPI = ['Elettrico','Idraulico','Medicale','Attrezzature','DPI','Documenti','Generale'];
+const PROC_UNITA = ['pz','kg','lt','m','conf','scatola','rotolo','pacco'];
+const FREQ_GIORNI = { Giornaliera:1, Settimanale:7, Mensile:30, Trimestrale:90, Semestrale:180, Annuale:365 };
+
+const PROC_NAV_ITEMS = [
+  ['procedure', BookOpen, 'Procedure'],
+  ['ricorrenti', RefreshCw, 'Ricorrenti'],
+  ['armadi', Package, 'Armadi'],
+];
+
+const PROC_BUCKET = 'procedure-files';
+
+function PROC_Field({ label, children }) {
+  return (
+    <label style={{ display: 'block', marginBottom: 14 }}>
+      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: PROC_COLORS.muted, marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+const procInputStyle = { width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${PROC_COLORS.line}`, fontSize: 15, background: '#FAFAFE', fontFamily: 'Inter, sans-serif', outline: 'none', color: PROC_COLORS.ink };
+
+function PROC_FAB({ onClick, label = 'Aggiungi' }) {
+  const { puoScrivere } = usePermessi();
+  if (!puoScrivere) return null;
+  return <button onClick={onClick} style={{ position:'fixed', right:18, bottom:84, background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:999, height:52, padding:'0 20px 0 16px', display:'flex', alignItems:'center', gap:7, fontWeight:700, fontSize:14.5, boxShadow:`0 6px 16px ${PROC_COLORS.primary}66`, zIndex:20 }}><Plus size={20} strokeWidth={2.6} />{label}</button>;
+}
+
+async function caricaProcFile(id, file) {
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const path = `${id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const { error } = await supabase.storage.from(PROC_BUCKET).upload(path, file, { upsert: false });
+  if (error) throw error;
+  return { nome: file.name, path, tipo: file.type };
+}
+async function eliminaProcFiles(items) {
+  if (!items?.length) return;
+  try { await supabase.storage.from(PROC_BUCKET).remove(items.map(i => i.path || i)); } catch {}
+}
+async function urlFirmateProcImmagini(immagini) {
+  if (!immagini?.length) return {};
+  const { data } = await supabase.storage.from(PROC_BUCKET).createSignedUrls(immagini.map(i => i.path || i), 3600);
+  const map = {}; (data || []).forEach(d => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; }); return map;
+}
+async function urlFirmateFileProc(files) {
+  if (!files?.length) return {};
+  const { data } = await supabase.storage.from(PROC_BUCKET).createSignedUrls(files.map(f => f.path), 3600);
+  const map = {}; (data || []).forEach(d => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; }); return map;
+}
+function calcProssima(ultima, frequenza) {
+  if (!ultima) return '';
+  const d = new Date(ultima + 'T00:00:00');
+  d.setDate(d.getDate() + (FREQ_GIORNI[frequenza] || 30));
+  return d.toISOString().slice(0, 10);
+}
+
+/* ---- Procedure ---- */
+function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
+  const [filtro, setFiltro] = useState('');
+  const filtered = filtro ? procedure.filter(p => p.tipologia === filtro) : procedure;
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title="Procedure" subtitle={`${procedure.length} procedure`} onBack={onHome} backIcon={Home} />
+      <div style={{ padding:'8px 14px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+        <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10 }}>
+          {PROC_TIPOLOGIE.map(t => (
+            <button key={t} onClick={() => setFiltro(filtro === t ? '' : t)}
+              style={{ border:'none', borderRadius:999, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0,
+                background: filtro === t ? PROC_COLORS.primary : PROC_COLORS.bg,
+                color: filtro === t ? '#fff' : PROC_COLORS.muted }}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding:14 }}>
+        {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={BookOpen} text="Nessuna procedura. Aggiungine una." />}
+        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+          {filtered.map(p => (
+            <Card theme={PROC_COLORS} key={p.id} onClick={() => onOpen(p)}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:14.5, marginBottom:4 }}>{p.titolo}</div>
+                  {p.descrizione && <div style={{ fontSize:12.5, color:PROC_COLORS.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.descrizione}</div>}
+                  {(p.immagini?.length > 0 || p.videoLinks?.length > 0 || p.files?.length > 0) && (
+                    <div style={{ display:'flex', gap:10, marginTop:6, fontSize:11, color:PROC_COLORS.muted }}>
+                      {p.immagini?.length > 0 && <span><ImageIcon size={11} style={{ display:'inline', marginRight:3 }} />{p.immagini.length}</span>}
+                      {p.videoLinks?.length > 0 && <span><ExternalLink size={11} style={{ display:'inline', marginRight:3 }} />{p.videoLinks.length} video</span>}
+                      {p.files?.length > 0 && <span><FileText size={11} style={{ display:'inline', marginRight:3 }} />{p.files.length}</span>}
+                    </div>
+                  )}
+                </div>
+                <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{p.tipologia}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <PROC_FAB onClick={onAdd} />
+    </>
+  );
+}
+
+function ProceduraDetail({ procedura, onBack, onEdit }) {
+  const { puoScrivere } = usePermessi();
+  const [urls, setUrls] = useState({});
+  const [fileUrls, setFileUrls] = useState({});
+  const [zoom, setZoom] = useState(null);
+  useEffect(() => {
+    let m = true;
+    urlFirmateProcImmagini(procedura.immagini || []).then(u => { if (m) setUrls(u); });
+    urlFirmateFileProc(procedura.files || []).then(u => { if (m) setFileUrls(u); });
+    return () => { m = false; };
+  }, [procedura.id]);
+
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={procedura.titolo} subtitle={procedura.tipologia} onBack={onBack}
+        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
+      <div style={{ padding:14 }}>
+        {procedura.descrizione && <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:14, lineHeight:1.6 }}>{procedura.descrizione}</p></Card>}
+        {procedura.steps && (<><SectionLabel theme={PROC_COLORS}>Procedura passo-passo</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><pre style={{ margin:0, fontSize:13.5, lineHeight:1.7, fontFamily:'Inter, sans-serif', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{procedura.steps}</pre></Card></>)}
+        {procedura.immagini?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>Immagini</SectionLabel><div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>{procedura.immagini.map((img, i) => { const url = urls[img.path || img]; return (<div key={i} onClick={() => url && setZoom(url)} style={{ width:90, height:90, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, cursor:url?'pointer':'default', flexShrink:0 }}>{url && <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />}</div>); })}</div></>)}
+        {procedura.videoLinks?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>Video</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.videoLinks.map((url, i) => (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><ExternalLink size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} /><a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600, wordBreak:'break-all' }}>{url.replace(/^https?:\/\//, '').slice(0,50)}{url.length>55?'…':''}</a></div>))}</Card></>)}
+        {procedura.files?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.files.map((file, i) => { const url = fileUrls[file.path]; return (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><FileText size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} />{url?<a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600 }}>{file.nome}</a>:<span style={{ fontSize:13.5, color:PROC_COLORS.muted }}>{file.nome}</span>}</div>); })}</Card></>)}
+        {procedura.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{procedura.note}</p></Card></>)}
+      </div>
+      {zoom && (<div onClick={() => setZoom(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}><button onClick={() => setZoom(null)} style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.15)', border:'none', borderRadius:999, width:38, height:38, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={18} /></button><img src={zoom} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:6 }} onClick={e => e.stopPropagation()} /></div>)}
+    </>
+  );
+}
+
+function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const [f, setF] = useState(initial || { id:uid(), titolo:'', tipologia:PROC_TIPOLOGIE[0], descrizione:'', steps:'', videoLinks:[], files:[], immagini:[], note:'' });
+  const [nuoveImmagini, setNuoveImmagini] = useState([]);
+  const [nuoviFiles, setNuoviFiles] = useState([]);
+  const [immaginiDaRimuovere, setImmaginiDaRimuovere] = useState([]);
+  const [filesDaRimuovere, setFilesDaRimuovere] = useState([]);
+  const [links, setLinks] = useState(initial?.videoLinks || []);
+  const [salvataggio, setSalvataggio] = useState(false);
+  const [errore, setErrore] = useState('');
+  const imgRef = useRef(null); const fileRef = useRef(null);
+  const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
+  const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
+
+  async function handleSave() {
+    if (!f.titolo.trim()) { setErrore('Il titolo è obbligatorio.'); return; }
+    setSalvataggio(true); setErrore('');
+    try {
+      if (immaginiDaRimuovere.length) await eliminaProcFiles(immaginiDaRimuovere);
+      if (filesDaRimuovere.length) await eliminaProcFiles(filesDaRimuovere);
+      const nuoviImg = [];
+      for (const img of nuoveImmagini) nuoviImg.push(await caricaProcFile(f.id, img));
+      const nuoviF = [];
+      for (const file of nuoviFiles) nuoviF.push(await caricaProcFile(f.id, file));
+      onSave({ ...f, immagini:[...(f.immagini||[]).filter(x => !immaginiDaRimuovere.includes(x)), ...nuoviImg], files:[...(f.files||[]).filter(x => !filesDaRimuovere.find(d => d.path===x.path)), ...nuoviF], videoLinks:links.filter(l => l.trim()) });
+    } catch(e) { setErrore('Errore: ' + e.message); setSalvataggio(false); }
+  }
+
+  const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:PROC_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
+  const thumbStyle = { position:'relative', width:72, height:72, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, flexShrink:0 };
+  const xOverlay = (onClick) => (<button type="button" onClick={onClick} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:999, width:20, height:20, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={12} /></button>);
+
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={initial ? 'Modifica procedura' : 'Nuova procedura'} onBack={onCancel} />
+      <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
+        <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Spurgo radiatori" /></PROC_Field>
+        <PROC_Field label="Tipologia"><select style={procInputStyle} value={f.tipologia} onChange={set('tipologia')}>{PROC_TIPOLOGIE.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Descrizione breve"><input style={procInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Scopo e contesto" /></PROC_Field>
+        <PROC_Field label="Procedura passo-passo"><textarea style={{ ...procInputStyle, minHeight:120, resize:'vertical' }} value={f.steps} onChange={set('steps')} placeholder={'1. Primo passo\n2. Secondo passo\n3. ...'} /></PROC_Field>
+
+        <SectionLabel theme={PROC_COLORS}>Immagini</SectionLabel>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+          {(f.immagini||[]).filter(img => !immaginiDaRimuovere.includes(img)).map((img, i) => (
+            <div key={i} style={thumbStyle}><div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><ImageIcon size={20} color={PROC_COLORS.muted} /></div>{xOverlay(() => setImmaginiDaRimuovere(p => [...p, img]))}</div>
+          ))}
+          {nuoveImmagini.map((file, i) => (
+            <div key={`n${i}`} style={thumbStyle}><img src={anteprimeImg[i]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />{xOverlay(() => setNuoveImmagini(p => p.filter((_,idx)=>idx!==i)))}</div>
+          ))}
+          <button type="button" onClick={() => imgRef.current?.click()} style={{ width:72, height:72, borderRadius:10, border:`1.5px dashed ${PROC_COLORS.line}`, background:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:PROC_COLORS.muted, gap:3, flexShrink:0 }}><Plus size={18}/><span style={{ fontSize:10 }}>Immagine</span></button>
+          <input ref={imgRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e => { setNuoveImmagini(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
+        </div>
+
+        <SectionLabel theme={PROC_COLORS}>Link video</SectionLabel>
+        <div style={{ marginBottom:14 }}>
+          {links.map((l, i) => (
+            <div key={i} style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center' }}>
+              <input style={{ ...procInputStyle, flex:1, fontSize:13 }} value={l} onChange={e => setLinks(p => p.map((x,idx)=>idx===i?e.target.value:x))} placeholder="https://youtube.com/..." />
+              {xBtn(() => setLinks(p => p.filter((_,idx)=>idx!==i)))}
+            </div>
+          ))}
+          <button type="button" onClick={() => setLinks(p=>[...p,''])} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:0, display:'flex', alignItems:'center', gap:5 }}><Plus size={14}/> Aggiungi link</button>
+        </div>
+
+        <SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel>
+        <div style={{ marginBottom:14 }}>
+          {(f.files||[]).filter(file => !filesDaRimuovere.find(x=>x.path===file.path)).map((file, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+              <FileText size={14} color={PROC_COLORS.primary} />
+              <span style={{ flex:1, fontSize:13 }}>{file.nome}</span>
+              {xBtn(() => setFilesDaRimuovere(p=>[...p,file]))}
+            </div>
+          ))}
+          {nuoviFiles.map((file, i) => (
+            <div key={`n${i}`} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+              <FileText size={14} color={PROC_COLORS.primary} />
+              <span style={{ flex:1, fontSize:13 }}>{file.name}</span>
+              {xBtn(() => setNuoviFiles(p=>p.filter((_,idx)=>idx!==i)))}
+            </div>
+          ))}
+          <button type="button" onClick={() => fileRef.current?.click()} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'8px 0', display:'flex', alignItems:'center', gap:5 }}><Plus size={14}/> Allega file</button>
+          <input ref={fileRef} type="file" multiple style={{ display:'none' }} onChange={e => { setNuoviFiles(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
+        </div>
+        <PROC_Field label="Note"><input style={procInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
+      </div>
+      {puoScrivere && (
+        <div style={{ padding:'0 16px' }}>
+          {errore && <div style={{ background:'#F7DCD9', color:'#A3352A', padding:'10px 12px', borderRadius:10, fontSize:12.5, marginBottom:12 }}>{errore}</div>}
+          <button onClick={handleSave} disabled={salvataggio} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8, opacity:salvataggio?0.6:1 }}>{salvataggio?'Salvataggio…':'Salva procedura'}</button>
+          {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina procedura</button>}
+        </div>
+      )}
+      {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare "${initial?.titolo}"?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
+    </>
+  );
+}
+
+/* ---- Manutenzioni Ricorrenti ---- */
+function RicorrentiScreen({ items, onOpen, onAdd, onHome }) {
+  const lista = [...items].map(r => ({ ...r, days: r.prossimaScadenza ? daysUntil(r.prossimaScadenza) : null })).sort((a,b) => (a.days??9999)-(b.days??9999));
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title="Manutenzioni ricorrenti" subtitle={`${items.length} attività`} onBack={onHome} backIcon={Home} />
+      <div style={{ padding:14 }}>
+        {lista.length === 0 && <Empty theme={PROC_COLORS} icon={RefreshCw} text="Nessuna manutenzione ricorrente." />}
+        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+          {lista.map(r => {
+            const u = r.days != null ? urgencyOf(r.days, { urgentDays:7, soonDays:30 }) : 'ok';
+            return (
+              <Card theme={PROC_COLORS} key={r.id} onClick={() => onOpen(r)}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:14.5, marginBottom:3 }}>{r.titolo}</div>
+                    <div style={{ fontSize:12, color:PROC_COLORS.muted, marginBottom:4 }}>{r.frequenza}{r.categoria ? ' · ' + r.categoria : ''}</div>
+                    {r.ultimaEsecuzione && <div style={{ fontSize:12, color:PROC_COLORS.muted }}>Ultima: {fmtDate(r.ultimaEsecuzione)}</div>}
+                  </div>
+                  <div style={{ textAlign:'right', flexShrink:0 }}>
+                    {r.days != null ? <><Pill style={URGENCY_STYLE[u]}>{r.days < 0 ? 'Scaduta' : `${r.days} gg`}</Pill><div style={{ fontSize:11, color:PROC_COLORS.muted, marginTop:5 }}>{fmtDate(r.prossimaScadenza)}</div></> : <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.muted }}>N/D</Pill>}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+      <PROC_FAB onClick={onAdd} />
+    </>
+  );
+}
+
+function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const [f, setF] = useState(initial || { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' });
+  const set = (k) => (e) => {
+    const v = e.target.value;
+    setF(prev => {
+      const n = { ...prev, [k]: v };
+      if (k === 'ultimaEsecuzione' && v) n.prossimaScadenza = calcProssima(v, n.frequenza);
+      if (k === 'frequenza' && prev.ultimaEsecuzione) n.prossimaScadenza = calcProssima(prev.ultimaEsecuzione, v);
+      return n;
+    });
+  };
+  function segnaOggi() {
+    const oggi = todayISO();
+    setF(prev => ({ ...prev, ultimaEsecuzione:oggi, prossimaScadenza:calcProssima(oggi, prev.frequenza) }));
+  }
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={initial ? 'Modifica ricorrente' : 'Nuova ricorrente'} onBack={onCancel} />
+      <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
+        <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
+        <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{PROC_FREQUENZE.map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Descrizione"><textarea style={{ ...procInputStyle, minHeight:70, resize:'vertical' }} value={f.descrizione||''} onChange={set('descrizione')} /></PROC_Field>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <PROC_Field label="Ultima esecuzione"><input type="date" style={procInputStyle} value={f.ultimaEsecuzione||''} onChange={set('ultimaEsecuzione')} /></PROC_Field>
+          <PROC_Field label="Prossima scadenza"><input type="date" style={procInputStyle} value={f.prossimaScadenza||''} onChange={set('prossimaScadenza')} /></PROC_Field>
+        </div>
+        <button type="button" onClick={segnaOggi} style={{ width:'100%', background:PROC_COLORS.bg, border:`1.5px solid ${PROC_COLORS.line}`, borderRadius:10, padding:'11px', fontWeight:700, fontSize:13.5, color:PROC_COLORS.primary, marginBottom:14, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+          <Check size={15} /> Segna come eseguita oggi
+        </button>
+        <PROC_Field label="Responsabile"><input style={procInputStyle} value={f.responsabile||''} onChange={set('responsabile')} /></PROC_Field>
+        <PROC_Field label="Note"><input style={procInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
+      </div>
+      {puoScrivere && (
+        <div style={{ padding:'0 16px' }}>
+          <button onClick={() => onSave(f)} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8 }}>Salva</button>
+          {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina</button>}
+        </div>
+      )}
+      {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare "${initial?.titolo}"?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
+    </>
+  );
+}
+
+/* ---- Armadi ---- */
+function ArmadiScreen({ armadi, onOpen, onAdd, onHome }) {
+  const [q, setQ] = useState('');
+  const filtered = armadi.filter(a => `${a.numero} ${a.posizione} ${a.tipologia}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title="Contenuto armadi" subtitle={`${armadi.length} armadi`} onBack={onHome} backIcon={Home} />
+      <div style={{ padding:14 }}>
+        <input placeholder="Cerca numero, posizione, tipologia…" style={{ ...procInputStyle, marginBottom:12 }} value={q} onChange={e => setQ(e.target.value)} />
+        {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={Package} text="Nessun armadio registrato." />}
+        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+          {filtered.map(a => (
+            <Card theme={PROC_COLORS} key={a.id} onClick={() => onOpen(a)}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:14.5, marginBottom:3 }}>Armadio {a.numero}</div>
+                  <div style={{ fontSize:12, color:PROC_COLORS.muted }}>{a.posizione}</div>
+                  {a.contenuto?.length > 0 && <div style={{ fontSize:11.5, color:PROC_COLORS.muted, marginTop:4 }}>{a.contenuto.length} voci</div>}
+                </div>
+                <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{a.tipologia||'Generale'}</Pill>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      <PROC_FAB onClick={onAdd} />
+    </>
+  );
+}
+
+function ArmadioDetail({ armadio, onBack, onEdit }) {
+  const { puoScrivere } = usePermessi();
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia||armadio.posizione} onBack={onBack}
+        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
+      <div style={{ padding:14 }}>
+        <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+          <InfoRow theme={PROC_COLORS} icon={MapPin} label="Posizione" value={armadio.posizione||'—'} />
+          <InfoRow theme={PROC_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia||'—'} />
+        </Card>
+        {armadio.contenuto?.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Contenuto</SectionLabel>
+            <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'6px 12px', fontSize:12, fontWeight:700, color:PROC_COLORS.muted, paddingBottom:8, borderBottom:`1px solid ${PROC_COLORS.line}`, marginBottom:4 }}>
+                <span>Elemento</span><span style={{ textAlign:'right' }}>Qtà</span><span>U.M.</span>
+              </div>
+              {armadio.contenuto.map((r, i) => (
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'4px 12px', fontSize:13.5, padding:'6px 0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none' }}>
+                  <span>{r.elemento}</span>
+                  <span style={{ textAlign:'right', fontWeight:700 }}>{r.quantita}</span>
+                  <span style={{ color:PROC_COLORS.muted }}>{r.unita}</span>
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
+        {armadio.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{armadio.note}</p></Card></>)}
+      </div>
+    </>
+  );
+}
+
+function ArmadioForm({ initial, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'' });
+  const [righe, setRighe] = useState(initial?.contenuto || []);
+  const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
+  const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={initial ? 'Modifica armadio' : 'Nuovo armadio'} onBack={onCancel} />
+      <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <PROC_Field label="Numero *"><input style={procInputStyle} value={f.numero} onChange={set('numero')} placeholder="Es. A01" /></PROC_Field>
+          <PROC_Field label="Tipologia"><select style={procInputStyle} value={f.tipologia} onChange={set('tipologia')}>{PROC_ARMADI_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        </div>
+        <PROC_Field label="Posizione"><input style={procInputStyle} value={f.posizione||''} onChange={set('posizione')} placeholder="Es. Piano Terra - Corridoio Nord" /></PROC_Field>
+        <SectionLabel theme={PROC_COLORS}>Contenuto</SectionLabel>
+        {righe.length > 0 && (
+          <div style={{ marginBottom:8 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 36px', gap:6, marginBottom:6 }}>
+              {['Elemento','Qtà','Unità',''].map((h,i) => <span key={i} style={{ fontSize:11, fontWeight:600, color:PROC_COLORS.muted, textTransform:'uppercase' }}>{h}</span>)}
+            </div>
+            {righe.map((r, i) => (
+              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 36px', gap:6, marginBottom:6 }}>
+                <input style={{ ...procInputStyle, padding:'8px 10px', fontSize:13 }} value={r.elemento} onChange={e => setR(i,'elemento',e.target.value)} placeholder="Es. Fusibili 16A" />
+                <input type="number" style={{ ...procInputStyle, padding:'8px 10px', fontSize:13 }} value={r.quantita} onChange={e => setR(i,'quantita',e.target.value)} />
+                <select style={{ ...procInputStyle, padding:'8px 6px', fontSize:13 }} value={r.unita||'pz'} onChange={e => setR(i,'unita',e.target.value)}>{PROC_UNITA.map(u => <option key={u}>{u}</option>)}</select>
+                <button type="button" onClick={() => setRighe(p => p.filter((_,idx) => idx!==i))} style={{ background:'none', border:'none', color:PROC_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button type="button" onClick={() => setRighe(p => [...p, { elemento:'', quantita:'', unita:'pz' }])} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'4px 0', display:'flex', alignItems:'center', gap:5, marginBottom:14 }}><Plus size={14}/> Aggiungi voce</button>
+        <PROC_Field label="Note"><input style={procInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
+      </div>
+      {puoScrivere && (
+        <div style={{ padding:'0 16px' }}>
+          <button onClick={() => onSave({ ...f, contenuto:righe })} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8 }}>Salva armadio</button>
+          {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina armadio</button>}
+        </div>
+      )}
+      {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare armadio ${initial?.numero}?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
+    </>
+  );
+}
+
+/* ---- Modulo Root ---- */
+function ProcedureModule({ onHome }) {
+  const procT  = useSupaTable('procedure_manuali', 'id', []);
+  const ricT   = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione','prossimaScadenza']);
+  const armT   = useSupaTable('armadi', 'id', []);
+  const ready  = procT.ready && ricT.ready && armT.ready;
+  const [tab, setTab]   = useState('procedure');
+  const [view, setView] = useState({ name:'list' });
+  const [toast, setToast] = useState('');
+
+  useBackable(tab, setTab);
+  useBackable(view, setView);
+  useEffect(() => { setView({ name:'list' }); }, [tab]);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
+  const tableOf = { procedure_manuali:procT, manutenzioni_ricorrenti:ricT, armadi:armT };
+
+  async function salva(tbl, record, msg) {
+    const { error } = await tableOf[tbl].save(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash(msg); goBack();
+  }
+  async function elimina(tbl, record, msg) {
+    const { error } = await tableOf[tbl].remove(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash(msg); goBack();
+  }
+
+  if (!ready) return <div style={{ minHeight:'100vh', background:PROC_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:PROC_COLORS.muted }}>Caricamento…</div>;
+
+  let content;
+  if (tab === 'procedure') {
+    const proc = procT.rows;
+    if (view.name === 'detail') { const p = proc.find(x => x.id === view.id); content = p ? <ProceduraDetail procedura={p} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} /> : null; }
+    else if (view.name === 'add') content = <ProceduraForm onSave={r => salva('procedure_manuali', r, 'Procedura salvata')} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <ProceduraForm initial={view.p} onSave={r => salva('procedure_manuali', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('procedure_manuali', r, 'Eliminata')} />;
+    else content = <ProcedureScreen procedure={proc} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
+  } else if (tab === 'ricorrenti') {
+    if (view.name === 'add') content = <RicorrenteForm onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
+    else content = <RicorrentiScreen items={ricT.rows} onOpen={r => setView({ name:'edit', r })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
+  } else {
+    const arm = armT.rows;
+    if (view.name === 'detail') { const a = arm.find(x => x.id === view.id); content = a ? <ArmadioDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', a })} /> : null; }
+    else if (view.name === 'add') content = <ArmadioForm onSave={r => salva('armadi', r, 'Armadio salvato')} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <ArmadioForm initial={view.a} onSave={r => salva('armadi', r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina('armadi', r, 'Eliminato')} />;
+    else content = <ArmadiScreen armadi={arm} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
+  }
+
+  return (
+    <div style={{ minHeight:'100vh', background:PROC_COLORS.bg, fontFamily:'Inter, sans-serif', color:PROC_COLORS.ink, maxWidth:480, margin:'0 auto', position:'relative' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <div style={{ paddingBottom:78 }}>{content}</div>
+      {view.name === 'list' && <BottomNav theme={PROC_COLORS} tab={tab} setTab={setTab} items={PROC_NAV_ITEMS} />}
+      {toast && <div style={{ position:'fixed', bottom:view.name==='list'?92:20, left:'50%', transform:'translateX(-50%)', background:PROC_COLORS.primaryDeep, color:'#fff', padding:'10px 18px', borderRadius:999, fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:7, zIndex:30 }}><Check size={15} /> {toast}</div>}
+    </div>
+  );
+}
+
 const HUB_COLORS = {
   bg: '#EFEDE6',
   surface: '#FFFFFF',
@@ -3543,6 +4034,15 @@ const MODULES = [
     color: '#6E4A2E',
     colorSoft: '#EDE3D6',
     stat: (d) => `${d.camere.length} camere`,
+  },
+  {
+    key: 'procedure',
+    name: 'Procedure',
+    desc: 'Manuali operativi, ricorrenti e armadi',
+    icon: BookOpen,
+    color: '#5E3A8A',
+    colorSoft: '#E8E0F5',
+    stat: () => 'Procedure · Ricorrenti · Armadi',
   },
 ];
 
@@ -3668,6 +4168,7 @@ export default function ManutenzioneApp() {
       {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
       {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
+      {screen === 'procedure' && <ProcedureModule onHome={() => setScreen('hub')} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'profilo' && (
         <ProfiloScreen onHome={() => setScreen('hub')} profile={{ ...profile, email: session.user.email }} onSaved={refreshProfile} />
