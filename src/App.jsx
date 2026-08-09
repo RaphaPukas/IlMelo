@@ -2368,11 +2368,11 @@ const S_MANUTENZIONI = [{"id": "MP001", "cameraZona": "Ascensore Principale", "t
 const S_COSTI = [{"id": "C001", "idIntervento": "SI001", "tipo": "Fattura", "descrizione": "Rifacimento Bagno", "fornitore": "Giuseppe Verdi", "numeroDocumento": "FT-2026-041", "data": "2026-04-04", "importo": 45.0, "statoPagamento": "Pagato", "note": ""}, {"id": "C002", "idIntervento": "SI002", "tipo": "Fattura", "descrizione": "Riparazione abbattitore cucina", "fornitore": "ClimaTech Impianti", "numeroDocumento": "FT-2026-088", "data": "2026-04-12", "importo": 320.0, "statoPagamento": "Pagato", "note": ""}];
 
 /* ---------- Camere ---------- */
-function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome }) {
+function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome, filtroStatoIniziale }) {
   const [q, setQ] = useState('');
   const [filtroPiano, setFiltroPiano] = useState('');
   const [filtroNucleo, setFiltroNucleo] = useState('');
-  const [filtroStato, setFiltroStato] = useState('');
+  const [filtroStato, setFiltroStato] = useState(filtroStatoIniziale || '');
 
   // Tutti i piani disponibili
   const piani = useMemo(() => [...new Set(camere.map(c => c.piano).filter(Boolean))].sort(), [camere]);
@@ -2587,8 +2587,8 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Interventi ---------- */
-function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome }) {
-  const [filtro, setFiltro] = useState(null);
+function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroStatoIniziale }) {
+  const [filtro, setFiltro] = useState(filtroStatoIniziale || null);
   const [filtroTipologia, setFiltroTipologia] = useState('');
   const sorted = [...interventi]
     .filter(i => !filtro || i.stato === filtro)
@@ -3091,17 +3091,44 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
   );
 }
 
-function RepartoForm({ initial, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+function RepartoForm({ initial, reparti, onSave, onCancel, onDelete }) {
+  const { puoScrivere, puoEliminare, isAdmin } = usePermessi();
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', piano: '', responsabile: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  // Categorie dinamiche: base fissa + quelle già usate nei reparti esistenti
+  const categorieUsate = useMemo(() => {
+    const tutte = new Set([...STR_CATEGORIE_REPARTO, ...(reparti || []).map(r => r.categoria).filter(Boolean)]);
+    return [...tutte].sort();
+  }, [reparti]);
+
   return (
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica reparto' : 'Nuovo reparto'} onBack={onCancel} />
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome reparto / zona *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
-        <STR_Field label="Categoria"><select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>{STR_CATEGORIE_REPARTO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
+        <STR_Field label="Categoria">
+          {isAdmin ? (
+            <>
+              <input
+                list="str-categorie"
+                style={strInputStyle}
+                value={f.categoria}
+                onChange={set('categoria')}
+                placeholder="Seleziona o scrivi una nuova tipologia…"
+              />
+              <datalist id="str-categorie">
+                {categorieUsate.map(c => <option key={c} value={c} />)}
+              </datalist>
+              <div style={{ fontSize: 11.5, color: STR_COLORS.muted, marginTop: 4 }}>Puoi scrivere una nuova tipologia non in elenco.</div>
+            </>
+          ) : (
+            <select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>
+              {categorieUsate.map(t => <option key={t}>{t}</option>)}
+            </select>
+          )}
+        </STR_Field>
         <STR_Field label="Piano">
           <select style={strInputStyle} value={f.piano || ''} onChange={set('piano')}>
             <option value="">— non specificato</option>
@@ -3204,7 +3231,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Riepilogo (dashboard) ---------- */
-function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori, onOpenDitte }) {
+function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori, onOpenDitte, onOpenCamereConStato, onOpenInterventiConStato, onOpenScadenze }) {
   const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
   const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
   const aperti = interventi.filter(i => i.stato === 'Aperto').length;
@@ -3222,17 +3249,25 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
   }, [costi]);
   const maxCosto = Math.max(1, ...perTipoCosto.map(([, v]) => v));
 
+  function ClickableStatCard({ label, value, accent, onClick, disabled }) {
+    return (
+      <div onClick={disabled ? undefined : onClick} style={{ cursor: disabled ? 'default' : 'pointer' }}>
+        <StatCard theme={STR_COLORS} label={disabled ? label : `${label} →`} value={value} accent={accent} />
+      </div>
+    );
+  }
+
   return (
     <>
       <TopBar theme={STR_COLORS} title="Riepilogo" subtitle="Struttura · camere e interventi" onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
-          <StatCard theme={STR_COLORS} label="Camere totali" value={camere.length} accent={STR_COLORS.primary} />
-          <StatCard theme={STR_COLORS} label="Fuori servizio" value={fuoriServizio} accent={fuoriServizio ? STR_COLORS.danger : STR_COLORS.ok} />
-          <StatCard theme={STR_COLORS} label="In manutenzione" value={inManutenzioneCamere} accent={inManutenzioneCamere ? STR_COLORS.amber : STR_COLORS.ok} />
-          <StatCard theme={STR_COLORS} label="Interventi aperti" value={aperti + inCorso} accent={(aperti + inCorso) ? STR_COLORS.danger : STR_COLORS.ok} />
-          <StatCard theme={STR_COLORS} label="Scadenze scadute" value={scadute} accent={scadute ? STR_COLORS.danger : STR_COLORS.ok} />
-          <StatCard theme={STR_COLORS} label="In scadenza (7gg)" value={inScadenza} accent={inScadenza ? STR_COLORS.amber : STR_COLORS.ok} />
+          <ClickableStatCard label="Camere totali" value={camere.length} accent={STR_COLORS.primary} onClick={() => onOpenCamereConStato(null)} disabled={!camere.length} />
+          <ClickableStatCard label="Fuori servizio" value={fuoriServizio} accent={fuoriServizio ? STR_COLORS.danger : STR_COLORS.ok} onClick={() => onOpenCamereConStato('Fuori Servizio')} disabled={!fuoriServizio} />
+          <ClickableStatCard label="In manutenzione" value={inManutenzioneCamere} accent={inManutenzioneCamere ? STR_COLORS.amber : STR_COLORS.ok} onClick={() => onOpenCamereConStato('In Manutenzione')} disabled={!inManutenzioneCamere} />
+          <ClickableStatCard label="Interventi aperti" value={aperti + inCorso} accent={(aperti + inCorso) ? STR_COLORS.danger : STR_COLORS.ok} onClick={() => onOpenInterventiConStato('Aperto')} disabled={!(aperti + inCorso)} />
+          <ClickableStatCard label="Scadenze scadute" value={scadute} accent={scadute ? STR_COLORS.danger : STR_COLORS.ok} onClick={onOpenScadenze} disabled={!scadute} />
+          <ClickableStatCard label="In scadenza (7gg)" value={inScadenza} accent={inScadenza ? STR_COLORS.amber : STR_COLORS.ok} onClick={onOpenScadenze} disabled={!inScadenza} />
         </div>
         <div style={{ marginBottom: 6 }}>
           <StatCard theme={STR_COLORS} label="Costo totale registrato" value={fmtEuro(costoTotale)} accent={STR_COLORS.primary} />
@@ -3256,37 +3291,25 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           <Card theme={STR_COLORS} onClick={onOpenTecnici}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Users size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici interni</span>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Users size={17} color={STR_COLORS.primary} /><span style={{ fontWeight: 700, fontSize: 14 }}>Tecnici interni</span></div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Interno').length} →</span>
             </div>
           </Card>
           <Card theme={STR_COLORS} onClick={onOpenFornitori}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Building2 size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Fornitori</span>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Building2 size={17} color={STR_COLORS.primary} /><span style={{ fontWeight: 700, fontSize: 14 }}>Fornitori</span></div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Fornitore').length} →</span>
             </div>
           </Card>
           <Card theme={STR_COLORS} onClick={onOpenDitte}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Wrench size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Ditte esterne</span>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Wrench size={17} color={STR_COLORS.primary} /><span style={{ fontWeight: 700, fontSize: 14 }}>Ditte esterne</span></div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{tecnici.filter(t => t.tipo === 'Esterno').length} →</span>
             </div>
           </Card>
           <Card theme={STR_COLORS} onClick={onOpenCosti}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Wallet size={17} color={STR_COLORS.primary} />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Costi</span>
-              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Wallet size={17} color={STR_COLORS.primary} /><span style={{ fontWeight: 700, fontSize: 14 }}>Costi</span></div>
               <span style={{ fontSize: 12.5, color: STR_COLORS.muted }}>{costi.length} voci · {fmtEuro(costoTotale)} →</span>
             </div>
           </Card>
@@ -3310,17 +3333,18 @@ function StrutturaModule({ onHome }) {
   const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
 
   const [tab, setTab] = useState('camere');
-  const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici'
+  const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici' | ...
   const [view, setView] = useState(LIST_VIEW);
   const [toast, setToast] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [filtroRiepilogo, setFiltroRiepilogo] = useState(null); // { tipo: 'camere_stato'|'interventi_stato', valore }
   useBackable(showMenu, setShowMenu);
 
   useBackable(tab, setTab);
   useBackable(subScreen, setSubScreen);
   useBackable(view, setView);
 
-  useEffect(() => { setView(LIST_VIEW); }, [tab, subScreen]);
+  useEffect(() => { setView(LIST_VIEW); setFiltroRiepilogo(null); }, [tab, subScreen]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -3449,7 +3473,7 @@ function StrutturaModule({ onHome }) {
   if (subScreen === 'tecnici') {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
-    else content = <TecniciStrScreen tecnici={tecnici} onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+    else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Interno')} titolo="Tecnici interni" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
   } else if (subScreen === 'fornitori') {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
@@ -3463,25 +3487,31 @@ function StrutturaModule({ onHome }) {
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c, view.c.codice)} onCancel={() => goBack()} onDelete={deleteCamera} />;
     else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => goBack()} onDelete={deleteInterventoDaCamera} />;
-    else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+    else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'camere_stato' ? filtroRiepilogo.valore : ''} />;
   } else if (tab === 'interventi') {
     if (view.name === 'add') content = <InterventoForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} onDelete={deleteIntervento} />;
-    else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+    else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'interventi_stato' ? filtroRiepilogo.valore : null} />;
   } else if (tab === 'scadenze') {
     if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
     else content = <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'reparti') {
-    if (view.name === 'add') content = <RepartoForm onSave={saveReparto} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <RepartoForm initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
+    if (view.name === 'add') content = <RepartoForm reparti={reparti} onSave={saveReparto} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <RepartoForm reparti={reparti} initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
     else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => goBack()} />;
   } else if (subScreen === 'costi') {
     if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
     else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} onBack={() => setSubScreen(null)} />;
   } else {
-    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome} onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')} onOpenFornitori={() => setSubScreen('fornitori')} onOpenDitte={() => setSubScreen('ditte')} />;
+    content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome}
+      onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')}
+      onOpenFornitori={() => setSubScreen('fornitori')} onOpenDitte={() => setSubScreen('ditte')}
+      onOpenCamereConStato={(stato) => { setFiltroRiepilogo(stato ? { tipo: 'camere_stato', valore: stato } : null); setTab('camere'); }}
+      onOpenInterventiConStato={(stato) => { setFiltroRiepilogo({ tipo: 'interventi_stato', valore: stato }); setTab('interventi'); }}
+      onOpenScadenze={() => setTab('scadenze')}
+    />;
   }
 
   const showBottomNav = view.name === 'list' && !['costi','tecnici','fornitori','ditte'].includes(subScreen);
