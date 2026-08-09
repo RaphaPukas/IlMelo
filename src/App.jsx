@@ -2737,13 +2737,22 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
   );
 }
 
-function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
+function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare, nomeVisualizzato } = usePermessi();
+
+  // Inizializza i selettori a cascata dal valore esistente
   const [f, setF] = useState(initial || {
-    dataSegnalazione: todayISO(), cameraZona: luoghi[0] || '', descrizione: '', priorita: 'Media',
+    dataSegnalazione: todayISO(), cameraZona: '', descrizione: '', priorita: 'Media',
     tecnico: tecnici[0] || '', stato: 'Aperto', dataChiusura: '', costo: '', note: '',
     segnalatoDa: nomeVisualizzato,
   });
+
+  // Stato cascata
+  const [pianoSel, setPianoSel] = useState(initial?.pianoSel || '');
+  const [tipoSel, setTipoSel] = useState(initial?.tipoSel || '');   // 'Camere' | categoria reparto
+  const [nucleoSel, setNucleoSel] = useState(initial?.nucleoSel || '');
+  const [subSel, setSubSel] = useState(initial?.cameraZona || '');
+
   const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
   const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
   const [fotoNuove, setFotoNuove] = useState([]);
@@ -2751,6 +2760,74 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
   const [erroreFoto, setErroreFoto] = useState('');
   const [confermaElimina, setConfermaElimina] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  // ---- Dati per la cascata ----
+  const pianiDisponibili = useMemo(() => {
+    const fromCamere = camere.map(c => c.piano).filter(Boolean);
+    const fromReparti = reparti.map(r => r.piano).filter(Boolean);
+    return [...new Set([...fromCamere, ...fromReparti])].sort();
+  }, [camere, reparti]);
+
+  const tipiPerPiano = useMemo(() => {
+    if (!pianoSel) return [];
+    const tipi = [];
+    const haCamere = camere.some(c => c.piano === pianoSel);
+    if (haCamere) tipi.push('Camere');
+    const categorie = [...new Set(reparti.filter(r => r.piano === pianoSel && r.categoria).map(r => r.categoria))].sort();
+    return [...tipi, ...categorie];
+  }, [camere, reparti, pianoSel]);
+
+  const nucleiPerPiano = useMemo(() => {
+    if (!pianoSel || tipoSel !== 'Camere') return [];
+    return [...new Set(camere.filter(c => c.piano === pianoSel && c.nucleo).map(c => c.nucleo))].sort();
+  }, [camere, pianoSel, tipoSel]);
+
+  const camerePerNucleo = useMemo(() => {
+    if (!pianoSel || tipoSel !== 'Camere' || !nucleoSel) return [];
+    return camere.filter(c => c.piano === pianoSel && c.nucleo === nucleoSel).sort((a, b) => a.codice.localeCompare(b.codice));
+  }, [camere, pianoSel, tipoSel, nucleoSel]);
+
+  const repartiPerTipo = useMemo(() => {
+    if (!pianoSel || tipoSel === 'Camere' || !tipoSel) return [];
+    return reparti.filter(r => r.piano === pianoSel && r.categoria === tipoSel).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [reparti, pianoSel, tipoSel]);
+
+  // Aggiorna cameraZona (il campo salvato) quando la selezione finale cambia
+  useEffect(() => {
+    if (!subSel) return;
+    setF(prev => ({ ...prev, cameraZona: subSel }));
+  }, [subSel]);
+
+  function handlePiano(piano) {
+    setPianoSel(piano); setTipoSel(''); setNucleoSel(''); setSubSel('');
+    setF(prev => ({ ...prev, cameraZona: '' }));
+  }
+  function handleTipo(tipo) {
+    setTipoSel(tipo); setNucleoSel(''); setSubSel('');
+    setF(prev => ({ ...prev, cameraZona: '' }));
+  }
+  function handleNucleo(nucleo) {
+    setNucleoSel(nucleo); setSubSel('');
+    setF(prev => ({ ...prev, cameraZona: '' }));
+  }
+
+  const selectPill = (label, value, options, onChange, placeholder = '— seleziona —') => (
+    <STR_Field label={label}>
+      <select
+        style={strInputStyle}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={options.length === 0}
+      >
+        <option value="">{options.length === 0 ? '—' : placeholder}</option>
+        {options.map(o => (
+          typeof o === 'string'
+            ? <option key={o} value={o}>{o}</option>
+            : <option key={o.codice || o.id} value={o.label || o.nome}>{o.label || o.nome}</option>
+        ))}
+      </select>
+    </STR_Field>
+  );
 
   async function handleSave() {
     if (salvataggio) return;
@@ -2760,11 +2837,9 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
     try {
       if (fotoDaRimuovere.length) await eliminaFoto(fotoDaRimuovere);
       const nuovePaths = [];
-      for (const file of fotoNuove) {
-        nuovePaths.push(await caricaFoto(id, file));
-      }
+      for (const file of fotoNuove) nuovePaths.push(await caricaFoto(id, file));
       const fotoFinali = [...fotoEsistenti, ...nuovePaths];
-      onSave({ ...f, id, costo: f.costo ? Number(f.costo) : 0, foto: fotoFinali });
+      onSave({ ...f, id, costo: f.costo ? Number(f.costo) : 0, foto: fotoFinali, pianoSel, tipoSel, nucleoSel });
     } catch (e) {
       setErroreFoto('Caricamento foto non riuscito: ' + (e.message || 'riprova.'));
       setSalvataggio(false);
@@ -2779,10 +2854,57 @@ function InterventoForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }
           <User size={13} /> Segnalato da <b style={{ color: STR_COLORS.ink }}>{f.segnalatoDa || nomeVisualizzato}</b>
         </div>
         <div style={{ pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
-          <STR_Field label="Camera / Zona *">
-            <input list="str-luoghi" style={strInputStyle} value={f.cameraZona} onChange={set('cameraZona')} />
-            <datalist id="str-luoghi">{luoghi.map(l => <option key={l} value={l} />)}</datalist>
-          </STR_Field>
+
+          {/* ---- Selettore a cascata ---- */}
+          <div style={{ background: STR_COLORS.bg, borderRadius: 12, padding: '12px 14px', marginBottom: 14, border: `1px solid ${STR_COLORS.line}` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Posizione intervento *</div>
+
+            {/* 1. Piano */}
+            {selectPill('Piano', pianoSel, pianiDisponibili, handlePiano, '— seleziona piano —')}
+
+            {/* 2. Tipo area */}
+            {pianoSel && selectPill('Tipo area', tipoSel, tipiPerPiano, handleTipo, '— seleziona tipo —')}
+
+            {/* 3a. Se Camere: Nucleo → Camera */}
+            {tipoSel === 'Camere' && (
+              <>
+                {selectPill('Nucleo', nucleoSel, nucleiPerPiano, handleNucleo, '— seleziona nucleo —')}
+                {nucleoSel && selectPill(
+                  'Camera',
+                  subSel,
+                  camerePerNucleo.map(c => ({ codice: c.codice, label: `Camera ${c.codice}` })),
+                  setSubSel,
+                  '— seleziona camera —'
+                )}
+              </>
+            )}
+
+            {/* 3b. Se reparto/zona: scelta diretta */}
+            {tipoSel && tipoSel !== 'Camere' && (
+              selectPill(
+                tipoSel,
+                subSel,
+                repartiPerTipo.map(r => ({ codice: r.codice, label: r.nome })),
+                setSubSel,
+                `— seleziona ${tipoSel.toLowerCase()} —`
+              )
+            )}
+
+            {/* Riepilogo selezione */}
+            {f.cameraZona && (
+              <div style={{ marginTop: 6, fontSize: 12.5, color: STR_COLORS.primary, fontWeight: 600 }}>
+                ✓ {f.cameraZona}{pianoSel ? ` · ${pianoSel}` : ''}{tipoSel && tipoSel !== 'Camere' ? ` · ${tipoSel}` : ''}{nucleoSel ? ` · ${nucleoSel}` : ''}
+              </div>
+            )}
+
+            {/* Fallback per interventi già esistenti con cameraZona libera */}
+            {!pianoSel && initial?.cameraZona && (
+              <div style={{ fontSize: 12.5, color: STR_COLORS.muted, marginTop: 4 }}>
+                Posizione attuale: <b>{initial.cameraZona}</b>
+              </div>
+            )}
+          </div>
+
           <STR_Field label="Data segnalazione"><input type="date" style={strInputStyle} value={f.dataSegnalazione} onChange={set('dataSegnalazione')} /></STR_Field>
           <STR_Field label="Descrizione problema"><input style={strInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Cosa è successo" /></STR_Field>
           <FotoPicker
@@ -3514,11 +3636,11 @@ function StrutturaModule({ onHome }) {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c, view.c.codice)} onCancel={() => goBack()} onDelete={deleteCamera} />;
-    else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => goBack()} onDelete={deleteInterventoDaCamera} />;
+    else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => goBack()} onDelete={deleteInterventoDaCamera} />;
     else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'camere_stato' ? filtroRiepilogo.valore : ''} />;
   } else if (tab === 'interventi') {
-    if (view.name === 'add') content = <InterventoForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} onDelete={deleteIntervento} />;
+    if (view.name === 'add') content = <InterventoForm luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} onDelete={deleteIntervento} />;
     else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'interventi_stato' ? filtroRiepilogo.valore : null} />;
   } else if (tab === 'scadenze') {
     if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
