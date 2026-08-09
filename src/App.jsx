@@ -3095,9 +3095,10 @@ function RepartoForm({ initial, reparti, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare, isAdmin } = usePermessi();
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', piano: '', responsabile: '', note: '' });
+  const [nuovaCategoria, setNuovaCategoria] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
-  // Categorie dinamiche: base fissa + quelle già usate nei reparti esistenti
+  // Tutte le categorie: fisse + quelle già usate nei reparti esistenti
   const categorieUsate = useMemo(() => {
     const tutte = new Set([...STR_CATEGORIE_REPARTO, ...(reparti || []).map(r => r.categoria).filter(Boolean)]);
     return [...tutte].sort();
@@ -3108,27 +3109,54 @@ function RepartoForm({ initial, reparti, onSave, onCancel, onDelete }) {
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica reparto' : 'Nuovo reparto'} onBack={onCancel} />
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome reparto / zona *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
+
         <STR_Field label="Categoria">
-          {isAdmin ? (
+          {!nuovaCategoria ? (
             <>
-              <input
-                list="str-categorie"
+              <select
                 style={strInputStyle}
                 value={f.categoria}
-                onChange={set('categoria')}
-                placeholder="Seleziona o scrivi una nuova tipologia…"
-              />
-              <datalist id="str-categorie">
-                {categorieUsate.map(c => <option key={c} value={c} />)}
-              </datalist>
-              <div style={{ fontSize: 11.5, color: STR_COLORS.muted, marginTop: 4 }}>Puoi scrivere una nuova tipologia non in elenco.</div>
+                onChange={e => {
+                  if (e.target.value === '__nuova__') {
+                    setNuovaCategoria(true);
+                    setF({ ...f, categoria: '' });
+                  } else {
+                    setF({ ...f, categoria: e.target.value });
+                  }
+                }}
+              >
+                {categorieUsate.map(c => <option key={c} value={c}>{c}</option>)}
+                {isAdmin && <option value="__nuova__">➕ Aggiungi nuova tipologia…</option>}
+              </select>
             </>
           ) : (
-            <select style={strInputStyle} value={f.categoria} onChange={set('categoria')}>
-              {categorieUsate.map(t => <option key={t}>{t}</option>)}
-            </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                style={{ ...strInputStyle, flex: 1 }}
+                value={f.categoria}
+                onChange={set('categoria')}
+                placeholder="Scrivi la nuova tipologia…"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!f.categoria.trim()) setF({ ...f, categoria: categorieUsate[0] || 'Servizi' });
+                  setNuovaCategoria(false);
+                }}
+                style={{ background: STR_COLORS.bg, border: `1.5px solid ${STR_COLORS.line}`, borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: STR_COLORS.muted, whiteSpace: 'nowrap' }}
+              >
+                Annulla
+              </button>
+            </div>
+          )}
+          {nuovaCategoria && (
+            <div style={{ fontSize: 11.5, color: STR_COLORS.muted, marginTop: 4 }}>
+              Questa nuova tipologia sarà disponibile per tutti i reparti da ora in poi.
+            </div>
           )}
         </STR_Field>
+
         <STR_Field label="Piano">
           <select style={strInputStyle} value={f.piano || ''} onChange={set('piano')}>
             <option value="">— non specificato</option>
