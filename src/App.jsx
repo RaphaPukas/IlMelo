@@ -156,6 +156,30 @@ function ConfirmDelete({ theme, message, onConfirm, onCancel }) {
   );
 }
 
+function RenameDialog({ theme, label, currentName, onSave, onCancel }) {
+  const [nuovoNome, setNuovoNome] = useState(currentName);
+  const valido = nuovoNome.trim() && nuovoNome.trim() !== currentName;
+  return (
+    <div onClick={onCancel} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:90, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'#fff', borderRadius:16, padding:20, maxWidth:320, width:'100%' }}>
+        <div style={{ fontWeight:700, fontSize:16, marginBottom:6, color:theme.ink }}>Rinomina {label}</div>
+        <div style={{ fontSize:12.5, color:theme.muted, marginBottom:14 }}>Valore attuale: <b>{currentName}</b><br/>Tutti gli elementi con questo nome verranno aggiornati.</div>
+        <input
+          autoFocus
+          value={nuovoNome}
+          onChange={e => setNuovoNome(e.target.value)}
+          style={{ width:'100%', boxSizing:'border-box', padding:'11px 12px', borderRadius:10, border:`1.5px solid ${theme.line}`, fontSize:15, outline:'none', color:theme.ink, marginBottom:16 }}
+        />
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onCancel} style={{ flex:1, padding:'11px', borderRadius:10, border:`1px solid ${theme.line}`, background:'#fff', color:theme.ink, fontWeight:600, fontSize:14 }}>Annulla</button>
+          <button onClick={() => valido && onSave(nuovoNome.trim())} style={{ flex:1, padding:'11px', borderRadius:10, border:'none', background:theme.primary, color:'#fff', fontWeight:700, fontSize:14, opacity:valido?1:0.4 }}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function SectionLabel({ theme, children }) {
   return <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: theme.primary, margin: '18px 2px 8px' }}>{children}</div>;
 }
@@ -709,7 +733,12 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     return {};
   }
 
-  return { rows, setRows, ready, error, setError, save, remove };
+  async function reload() {
+    const { data, error: err } = await supabase.from(table).select('*');
+    if (!err && data) setRows(data);
+  }
+
+  return { rows, setRows, ready, error, setError, save, remove, reload };
 }
 
 function traduciErroreDati(msg) {
@@ -1901,7 +1930,11 @@ function ControlliScreen({ items, onOpen, onMenu, onHome }) {
 }
 
 /* ---------- Nuclei ---------- */
-function NucleiScreen({ items, onFilter, onMenu, onHome }) {
+function NucleiScreen({ items, onFilter, onMenu, onHome, onRinominaEnd }) {
+  const { isAdmin } = usePermessi();
+  const [rinomina, setRinomina] = useState(null); // nome da rinominare
+  const [busy, setBusy] = useState(false);
+
   const groups = useMemo(() => {
     const map = {};
     items.forEach(w => {
@@ -1917,6 +1950,13 @@ function NucleiScreen({ items, onFilter, onMenu, onHome }) {
     return Object.entries(map).sort((a, b) => b[1].tot - a[1].tot);
   }, [items]);
 
+  async function handleRinomina(vecchioNome, nuovoNome) {
+    setBusy(true);
+    await supabase.from('carrozzine').update({ nucleo: nuovoNome }).eq('nucleo', vecchioNome);
+    setRinomina(null); setBusy(false);
+    if (onRinominaEnd) onRinominaEnd();
+  }
+
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title="Nuclei" subtitle={`${groups.length} nuclei attivi`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
@@ -1926,7 +1966,18 @@ function NucleiScreen({ items, onFilter, onMenu, onHome }) {
             <Card theme={CARROZZINE_COLORS} key={nucleo} onClick={() => onFilter(nucleo)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <NucleoTag nucleo={nucleo === '—' ? null : nucleo} />
-                <span style={{ fontWeight: 800, fontFamily: "'Archivo', sans-serif", fontSize: 16 }}>{g.tot}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isAdmin && nucleo !== '—' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setRinomina(nucleo); }}
+                      style={{ background: 'none', border: 'none', padding: 4, color: CARROZZINE_COLORS.muted }}
+                      title="Rinomina nucleo"
+                    >
+                      ✎
+                    </button>
+                  )}
+                  <span style={{ fontWeight: 800, fontFamily: "'Archivo', sans-serif", fontSize: 16 }}>{g.tot}</span>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {g.disp > 0 && <Pill style={STATO_STYLE['Disponibile']}>{g.disp} disponibili</Pill>}
@@ -1939,6 +1990,16 @@ function NucleiScreen({ items, onFilter, onMenu, onHome }) {
           ))}
         </div>
       </div>
+      {rinomina && (
+        <RenameDialog
+          theme={CARROZZINE_COLORS}
+          label="nucleo"
+          currentName={rinomina}
+          onSave={nuovoNome => handleRinomina(rinomina, nuovoNome)}
+          onCancel={() => setRinomina(null)}
+        />
+      )}
+      {busy && <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.3)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:14 }}>Aggiornamento…</div>}
     </>
   );
 }
@@ -2193,7 +2254,7 @@ function CarrozzineModule({ onHome }) {
   } else if (tab === 'controlli') {
     content = <ControlliScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'nuclei') {
-    content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} />;
+    content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} onRinominaEnd={() => itemsT.reload ? itemsT.reload() : window.location.reload()} />;
   } else {
     content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome}
       onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }}
@@ -3144,18 +3205,29 @@ function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete
 }
 
 /* ---------- Reparti (anagrafica, raggiungibile dal Riepilogo) ---------- */
-function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
+function RepartiStrScreen({ reparti, onOpen, onAdd, onBack, onRinominaEnd }) {
+  const { isAdmin } = usePermessi();
   const [filtroPiano, setFiltroPiano] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [rinominaCategoria, setRinominaCategoria] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const piani = useMemo(() => [...new Set(reparti.map(r => r.piano).filter(Boolean))].sort(), [reparti]);
-  const categorie = STR_CATEGORIE_REPARTO;
+  const categorie = useMemo(() => [...new Set([...STR_CATEGORIE_REPARTO, ...reparti.map(r => r.categoria).filter(Boolean)])].sort(), [reparti]);
 
   const filtered = reparti.filter(r => {
     if (filtroPiano && r.piano !== filtroPiano) return false;
     if (filtroCategoria && r.categoria !== filtroCategoria) return false;
     return true;
   });
+
+  async function handleRinominaCategoria(vecchia, nuova) {
+    setBusy(true);
+    await supabase.from('reparti').update({ categoria: nuova }).eq('categoria', vecchia);
+    if (filtroCategoria === vecchia) setFiltroCategoria(nuova);
+    setRinominaCategoria(null); setBusy(false);
+    if (onRinominaEnd) onRinominaEnd();
+  }
 
   const pillBtn = (label, active, onClick) => (
     <button
@@ -3183,11 +3255,25 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
         </div>
       )}
 
-      {/* Filtro Tipologia */}
+      {/* Filtro Tipologia con rename per admin */}
       <div style={{ padding: '8px 14px 0', borderBottom: `1px solid ${STR_COLORS.line}` }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Tipologia</div>
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10 }}>
-          {categorie.map(c => pillBtn(c, filtroCategoria === c, setFiltroCategoria))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: STR_COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Tipologia</div>
+          {isAdmin && <span style={{ fontSize: 10.5, color: STR_COLORS.muted }}>✎ tocca per rinominare</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10, flexWrap: 'nowrap' }}>
+          {categorie.map(c => (
+            <div key={c} style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+              {pillBtn(c, filtroCategoria === c, setFiltroCategoria)}
+              {isAdmin && (
+                <button
+                  onClick={e => { e.stopPropagation(); setRinominaCategoria(c); }}
+                  style={{ background: 'none', border: 'none', padding: '2px 4px', color: STR_COLORS.muted, fontSize: 13, cursor: 'pointer' }}
+                  title={`Rinomina "${c}"`}
+                >✎</button>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -3209,6 +3295,17 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack }) {
         </div>
       </div>
       <STR_FAB onClick={onAdd} label="Reparto" />
+
+      {rinominaCategoria && (
+        <RenameDialog
+          theme={STR_COLORS}
+          label="tipologia"
+          currentName={rinominaCategoria}
+          onSave={nuova => handleRinominaCategoria(rinominaCategoria, nuova)}
+          onCancel={() => setRinominaCategoria(null)}
+        />
+      )}
+      {busy && <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.3)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:14 }}>Aggiornamento…</div>}
     </>
   );
 }
@@ -3649,7 +3746,7 @@ function StrutturaModule({ onHome }) {
   } else if (tab === 'reparti') {
     if (view.name === 'add') content = <RepartoForm reparti={reparti} onSave={saveReparto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RepartoForm reparti={reparti} initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
-    else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => goBack()} />;
+    else content = <RepartiStrScreen reparti={reparti} onOpen={(r) => setView({ name: 'edit', r })} onAdd={() => setView({ name: 'add' })} onBack={() => goBack()} onRinominaEnd={() => repartiT.reload()} />;
   } else if (subScreen === 'costi') {
     if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
@@ -3804,31 +3901,79 @@ function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
   );
 }
 
-function ProceduraDetail({ procedura, onBack, onEdit }) {
-  const { puoScrivere } = usePermessi();
+function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
+  const { puoScrivere, puoEliminare } = usePermessi();
   const [urls, setUrls] = useState({});
   const [fileUrls, setFileUrls] = useState({});
   const [zoom, setZoom] = useState(null);
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const [erroreUrls, setErroreUrls] = useState('');
+
   useEffect(() => {
     let m = true;
-    urlFirmateProcImmagini(procedura.immagini || []).then(u => { if (m) setUrls(u); });
-    urlFirmateFileProc(procedura.files || []).then(u => { if (m) setFileUrls(u); });
+    if (procedura.immagini?.length) {
+      urlFirmateProcImmagini(procedura.immagini)
+        .then(u => { if (m) setUrls(u); })
+        .catch(() => { if (m) setErroreUrls('Impossibile caricare le immagini. Verificare che il bucket "procedure-files" esista su Supabase.'); });
+    }
+    if (procedura.files?.length) {
+      urlFirmateFileProc(procedura.files)
+        .then(u => { if (m) setFileUrls(u); })
+        .catch(() => {});
+    }
     return () => { m = false; };
-  }, [procedura.id]);
+  }, [procedura.id, procedura.immagini?.length]);
 
   return (
     <>
-      <TopBar theme={PROC_COLORS} title={procedura.titolo} subtitle={procedura.tipologia} onBack={onBack}
-        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
+      <TopBar theme={PROC_COLORS} title={procedura.titolo} subtitle={procedura.tipologia} onBack={onBack} />
       <div style={{ padding:14 }}>
         {procedura.descrizione && <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:14, lineHeight:1.6 }}>{procedura.descrizione}</p></Card>}
         {procedura.steps && (<><SectionLabel theme={PROC_COLORS}>Procedura passo-passo</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><pre style={{ margin:0, fontSize:13.5, lineHeight:1.7, fontFamily:'Inter, sans-serif', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{procedura.steps}</pre></Card></>)}
-        {procedura.immagini?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>Immagini</SectionLabel><div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>{procedura.immagini.map((img, i) => { const url = urls[img.path || img]; return (<div key={i} onClick={() => url && setZoom(url)} style={{ width:90, height:90, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, cursor:url?'pointer':'default', flexShrink:0 }}>{url && <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />}</div>); })}</div></>)}
+
+        {procedura.immagini?.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Immagini ({procedura.immagini.length})</SectionLabel>
+            {erroreUrls && <div style={{ fontSize:12, color:PROC_COLORS.danger, marginBottom:8 }}>{erroreUrls}</div>}
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
+              {procedura.immagini.map((img, i) => {
+                const key = img?.path || img;
+                const url = urls[key];
+                return (
+                  <div key={i} onClick={() => url && setZoom(url)}
+                    style={{ width:90, height:90, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, cursor:url?'pointer':'default', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {url
+                      ? <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                      : <ImageIcon size={22} color={PROC_COLORS.muted} />
+                    }
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
         {procedura.videoLinks?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>Video</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.videoLinks.map((url, i) => (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><ExternalLink size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} /><a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600, wordBreak:'break-all' }}>{url.replace(/^https?:\/\//, '').slice(0,50)}{url.length>55?'…':''}</a></div>))}</Card></>)}
-        {procedura.files?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.files.map((file, i) => { const url = fileUrls[file.path]; return (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><FileText size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} />{url?<a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600 }}>{file.nome}</a>:<span style={{ fontSize:13.5, color:PROC_COLORS.muted }}>{file.nome}</span>}</div>); })}</Card></>)}
-        {procedura.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{procedura.note}</p></Card></>)}
+        {procedura.files?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.files.map((file, i) => { const url = fileUrls[file?.path]; return (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><FileText size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} />{url?<a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600 }}>{file.nome}</a>:<span style={{ fontSize:13.5, color:PROC_COLORS.muted }}>{file.nome}</span>}</div>); })}</Card></>)}
+        {procedura.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{procedura.note}</p></Card></>)}
+
+        {/* Pulsanti modifica/elimina espliciti */}
+        {puoScrivere && (
+          <div style={{ marginTop:8 }}>
+            <button onClick={onEdit} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'13px', fontWeight:700, fontSize:15, marginBottom:10 }}>
+              Modifica procedura
+            </button>
+            {puoEliminare && (
+              <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'4px 0 16px' }}>
+                Elimina procedura
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
       {zoom && (<div onClick={() => setZoom(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}><button onClick={() => setZoom(null)} style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.15)', border:'none', borderRadius:999, width:38, height:38, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={18} /></button><img src={zoom} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:6 }} onClick={e => e.stopPropagation()} /></div>)}
+      {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare "${procedura.titolo}"?`} onConfirm={() => { setConfermaElimina(false); onDelete(procedura); }} onCancel={() => setConfermaElimina(false)} />}
     </>
   );
 }
@@ -4153,7 +4298,7 @@ function ProcedureModule({ onHome }) {
   let content;
   if (tab === 'procedure') {
     const proc = procT.rows;
-    if (view.name === 'detail') { const p = proc.find(x => x.id === view.id); content = p ? <ProceduraDetail procedura={p} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} /> : null; }
+    if (view.name === 'detail') { const p = proc.find(x => x.id === view.id); content = p ? <ProceduraDetail procedura={p} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => elimina('procedure_manuali', r, 'Eliminata')} /> : null; }
     else if (view.name === 'add') content = <ProceduraForm onSave={r => salva('procedure_manuali', r, 'Procedura salvata')} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ProceduraForm initial={view.p} onSave={r => salva('procedure_manuali', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('procedure_manuali', r, 'Eliminata')} />;
     else content = <ProcedureScreen procedure={proc} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
