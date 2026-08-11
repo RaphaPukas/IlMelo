@@ -767,6 +767,76 @@ const TIPI_MANUTENZIONE = [
   'Tagliando Ordinario', 'Cambio Pneumatici', 'Revisione', 'Cambio Freni', 'Cambio Olio',
   'Riparazione Motore', 'Sostituzione Filtri', 'Controllo Climatizzatore', 'Pulizia Interna', 'Autolavaggio',
 ];
+
+const MEZZI_FOTO_BUCKET = 'mezzi-foto';
+
+async function caricaFotoMezzi(recordId, file) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const path = `${recordId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await supabase.storage.from(MEZZI_FOTO_BUCKET).upload(path, file, { upsert: false });
+  if (error) throw error;
+  return path;
+}
+async function eliminaFotoMezzi(paths) {
+  if (!paths?.length) return;
+  try { await supabase.storage.from(MEZZI_FOTO_BUCKET).remove(paths); } catch {}
+}
+async function urlFirmatesMezzi(paths) {
+  if (!paths?.length) return {};
+  const { data } = await supabase.storage.from(MEZZI_FOTO_BUCKET).createSignedUrls(paths, 3600);
+  const map = {};
+  (data || []).forEach(d => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; });
+  return map;
+}
+
+function MezziFotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, onRemoveNuova }) {
+  const [urls, setUrls] = useState({});
+  const [zoom, setZoom] = useState(null);
+  const fileInputRef = useRef(null);
+  const anteprimeNuove = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
+  const chiave = (fotoEsistenti || []).join(',');
+  useEffect(() => {
+    let m = true;
+    urlFirmatesMezzi(fotoEsistenti || []).then(u => { if (m) setUrls(u); });
+    return () => { m = false; };
+  }, [chiave]);
+
+  const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: MEZZI_COLORS.bg, border: `1px solid ${MEZZI_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
+  const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: MEZZI_COLORS.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Fotografie</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {(fotoEsistenti || []).map((p, i) => (
+          <div key={i} style={thumbStyle} onClick={() => urls[p] && setZoom(urls[p])}>
+            {urls[p] && <img src={urls[p]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+            <button type="button" onClick={e => { e.stopPropagation(); onRemoveEsistente(p); }} style={xStyle}><XIcon size={12} /></button>
+          </div>
+        ))}
+        {fotoNuove.map((file, i) => (
+          <div key={`n${i}`} style={thumbStyle} onClick={() => setZoom(anteprimeNuove[i])}>
+            <img src={anteprimeNuove[i]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <button type="button" onClick={e => { e.stopPropagation(); onRemoveNuova(i); }} style={xStyle}><XIcon size={12} /></button>
+          </div>
+        ))}
+        <button type="button" onClick={() => fileInputRef.current?.click()}
+          style={{ width: 72, height: 72, borderRadius: 10, border: `1.5px dashed ${MEZZI_COLORS.line}`, background: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: MEZZI_COLORS.muted, gap: 3, flexShrink: 0 }}>
+          <Plus size={18} /><span style={{ fontSize: 10 }}>Aggiungi</span>
+        </button>
+        <input ref={fileInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          onChange={e => { onAddNuove(Array.from(e.target.files || [])); e.target.value = ''; }} />
+      </div>
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <button onClick={() => setZoom(null)} style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 999, width: 38, height: 38, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><XIcon size={18} /></button>
+          <img src={zoom} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6 }} onClick={e => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATI_MANUTENZIONE = ['Completato', 'In Garanzia', 'Programmato', 'In Attesa Ricambi'];
 const STATI_EFFETTUATI = ['Completato', 'In Garanzia'];
 const STATI_PROGRAMMATI = ['Programmato', 'In Attesa Ricambi'];
@@ -1224,15 +1294,24 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
   );
 }
 
-function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
+function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato', priorita: 'Media' });
+  const [nuovaTipologia, setNuovaTipologia] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const costo = Number(f.costo) || 0;
   const iva = costo * (params.ivaRate / 100);
   const totale = costo + iva;
+
+  // Tipologie disponibili = default + quelle già usate nei record esistenti (escluse segnalazioni)
+  const tipiDisponibili = useMemo(() => {
+    const esistenti = (maints || [])
+      .map(m => m.tipo)
+      .filter(t => t && t !== 'Segnalazione anomalia' && !TIPI_MANUTENZIONE.includes(t));
+    return [...TIPI_MANUTENZIONE, ...new Set(esistenti)];
+  }, [maints]);
 
   return (
     <>
@@ -1247,9 +1326,43 @@ function MaintForm({ initial, vehicles, params, onSave, onCancel, onDelete }) {
           <Field label="Data"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
           <Field label="Km al momento"><input type="number" style={inputStyle} value={f.km} onChange={set('km')} /></Field>
         </div>
+
         <Field label="Tipo manutenzione">
-          <select style={inputStyle} value={f.tipo} onChange={set('tipo')}>{TIPI_MANUTENZIONE.map(t => <option key={t}>{t}</option>)}</select>
+          {!nuovaTipologia ? (
+            <select
+              style={inputStyle}
+              value={tipiDisponibili.includes(f.tipo) ? f.tipo : ''}
+              onChange={e => {
+                if (e.target.value === '__nuova__') {
+                  setNuovaTipologia(true);
+                  setF({ ...f, tipo: '' });
+                } else {
+                  set('tipo')(e);
+                }
+              }}
+            >
+              {tipiDisponibili.map(t => <option key={t} value={t}>{t}</option>)}
+              {isAdmin && <option value="__nuova__">➕ Aggiungi nuova tipologia…</option>}
+            </select>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                autoFocus
+                style={{ ...inputStyle, flex: 1 }}
+                value={f.tipo}
+                onChange={set('tipo')}
+                placeholder="Nuova tipologia…"
+              />
+              <button type="button" onClick={() => {
+                if (!f.tipo.trim()) setF({ ...f, tipo: TIPI_MANUTENZIONE[0] });
+                setNuovaTipologia(false);
+              }} style={{ background: MEZZI_COLORS.bg, border: `1.5px solid ${MEZZI_COLORS.line}`, borderRadius: 8, padding: '10px 10px', fontSize: 12, color: MEZZI_COLORS.muted, whiteSpace: 'nowrap' }}>
+                Annulla
+              </button>
+            </div>
+          )}
         </Field>
+
         <Field label="Descrizione"><input style={inputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Dettagli dell'intervento" /></Field>
         <Field label="Officina / Fornitore"><input style={inputStyle} value={f.officina} onChange={set('officina')} /></Field>
         <Field label="Costo netto (€)"><input type="number" step="0.01" style={inputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></Field>
@@ -1444,9 +1557,27 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
     stato: 'Programmato',
     officina: '', km: '', costo: '',
     segnalatoDa: nomeVisualizzato,
+    foto: [],
   });
+  const [fotoNuove, setFotoNuove] = useState([]);
+  const [salvataggio, setSalvataggio] = useState(false);
+  const [errore, setErrore] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.targa && f.descrizione.trim();
+
+  async function handleSave() {
+    if (!valid || salvataggio) return;
+    setSalvataggio(true); setErrore('');
+    const id = uid();
+    try {
+      const nuovePaths = [];
+      for (const file of fotoNuove) nuovePaths.push(await caricaFotoMezzi(id, file));
+      onSave({ ...f, id, foto: nuovePaths });
+    } catch (e) {
+      setErrore('Errore caricamento foto: ' + (e.message || 'riprova.'));
+      setSalvataggio(false);
+    }
+  }
 
   return (
     <>
@@ -1462,23 +1593,26 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
         </Field>
         <Field label="Data rilevamento"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
         <Field label="Descrizione anomalia *">
-          <textarea
-            style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+          <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
             value={f.descrizione} onChange={set('descrizione')}
-            placeholder="Descrivi il problema nel modo più preciso possibile…"
-          />
+            placeholder="Descrivi il problema nel modo più preciso possibile…" />
         </Field>
+        <MezziFotoPicker
+          fotoEsistenti={[]}
+          onRemoveEsistente={() => {}}
+          fotoNuove={fotoNuove}
+          onAddNuove={(files) => setFotoNuove(prev => [...prev, ...files])}
+          onRemoveNuova={(i) => setFotoNuove(prev => prev.filter((_, idx) => idx !== i))}
+        />
         <Field label="Priorità">
           <select style={inputStyle} value={f.priorita} onChange={set('priorita')}>
             {PRIORITA_MAINT.map(p => <option key={p}>{p}</option>)}
           </select>
         </Field>
-        <button
-          disabled={!valid}
-          onClick={() => onSave({ ...f, id: uid() })}
-          style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 8 }}
-        >
-          Invia segnalazione
+        {errore && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{errore}</div>}
+        <button disabled={!valid || salvataggio} onClick={handleSave}
+          style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 8, opacity: salvataggio ? 0.6 : 1 }}>
+          {salvataggio ? 'Salvataggio…' : 'Invia segnalazione'}
         </button>
       </div>
     </>
@@ -1582,8 +1716,8 @@ function MezziModule({ onHome }) {
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'manutenzioni') {
-    if (view.name === 'add') content = <MaintForm vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
+    if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
     else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
