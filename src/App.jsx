@@ -296,6 +296,219 @@ const GLOBAL_FONTS = `
 /* =========================================================================
    AUTENTICAZIONE E RUOLI (Supabase)
    ========================================================================= */
+// ============================================================
+//  SISTEMA NOTIFICHE
+// ============================================================
+
+const NOTIFICA_TIPI = {
+  intervento_struttura: { label: 'Interventi Struttura', modulo: 'struttura', emoji: '🏥' },
+  anomalia_mezzi:       { label: 'Anomalie Mezzi',       modulo: 'mezzi',     emoji: '🚗' },
+};
+
+async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
+  const id = `N-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const modulo = NOTIFICA_TIPI[tipo]?.modulo || 'sistema';
+  try {
+    await supabase.from('notifiche').insert({ id, tipo, modulo, titolo, corpo, link_id: linkId, inviata_da });
+  } catch {}
+}
+
+function useNotifications(userId) {
+  const [notifiche, setNotifiche] = useState([]);
+  const [lette, setLette] = useState(new Set());
+  const [iscrizioni, setIscrizioni] = useState([]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let mounted = true;
+
+    // Carica iscrizioni dell'utente corrente
+    supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId)
+      .then(({ data }) => { if (mounted && data) setIscrizioni(data.map(r => r.tipo)); });
+
+    // Carica ultime 50 notifiche
+    supabase.from('notifiche').select('*').order('created_at', { ascending: false }).limit(50)
+      .then(({ data }) => { if (mounted && data) setNotifiche(data); });
+
+    // Carica quelle lette
+    supabase.from('notifiche_lette').select('notifica_id').eq('user_id', userId)
+      .then(({ data }) => { if (mounted && data) setLette(new Set(data.map(r => r.notifica_id))); });
+
+    // Realtime: nuova notifica
+    const ch = supabase.channel('notifiche-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifiche' }, (payload) => {
+        if (!mounted) return;
+        setNotifiche(prev => [payload.new, ...prev]);
+        // Notifica browser (se permesso concesso e l'utente è iscritto)
+        supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
+          .then(({ data }) => {
+            if (data?.length > 0 && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification(payload.new.titolo, {
+                body: payload.new.corpo || '',
+                icon: '/apple-touch-icon.png',
+              });
+            }
+          });
+      })
+      .subscribe();
+
+    return () => { mounted = false; supabase.removeChannel(ch); };
+  }, [userId]);
+
+  function markaLetta(notificaId) {
+    if (lette.has(notificaId)) return;
+    setLette(prev => new Set([...prev, notificaId]));
+    supabase.from('notifiche_lette').insert({ user_id: userId, notifica_id: notificaId }).catch(() => {});
+  }
+
+  function markaTutte() {
+    const nuove = notifiche.filter(n => iscrizioni.includes(n.tipo) && !lette.has(n.id));
+    if (!nuove.length) return;
+    setLette(prev => new Set([...prev, ...nuove.map(n => n.id)]));
+    supabase.from('notifiche_lette').insert(nuove.map(n => ({ user_id: userId, notifica_id: n.id }))).catch(() => {});
+  }
+
+  const mie = notifiche.filter(n => iscrizioni.includes(n.tipo));
+  const nonLette = mie.filter(n => !lette.has(n.id)).length;
+
+  return { notifiche: mie, lette, nonLette, iscrizioni, markaLetta, markaTutte, reload: () => {} };
+}
+
+const NotificheContext = createContext(null);
+function useNotificheCtx() { return useContext(NotificheContext); }
+
+function NotificationBell() {
+  const ctx = useNotificheCtx();
+  const [aperto, setAperto] = useState(false);
+
+  function richiediPermesso() {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }
+
+  if (!ctx) return null;
+  const { notifiche, lette, nonLette, markaLetta, markaTutte } = ctx;
+
+  return (
+    <>
+      <button
+        onClick={() => { setAperto(true); richiediPermesso(); }}
+        style={{ position: 'relative', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
+      >
+        🔔
+        {nonLette > 0 && (
+          <span style={{ position: 'absolute', top: -4, right: -4, background: '#C0392B', color: '#fff', fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '2px solid #1C2321' }}>
+            {nonLette > 99 ? '99+' : nonLette}
+          </span>
+        )}
+      </button>
+
+      {aperto && (
+        <div onClick={() => setAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
+            <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
+              <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#5E3A8A', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
+                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#888' }}>✕</button>
+              </div>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
+              {notifiche.length === 0 && <div style={{ padding: '32px 16px', textAlign: 'center', color: '#888', fontSize: 14 }}>Nessuna notifica ricevuta.</div>}
+              {notifiche.map(n => {
+                const isLetta = lette.has(n.id);
+                const info = NOTIFICA_TIPI[n.tipo] || { emoji: '📣' };
+                return (
+                  <div key={n.id} onClick={() => markaLetta(n.id)}
+                    style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2 }}>{n.titolo}</div>
+                      {n.corpo && <div style={{ fontSize: 12.5, color: '#666', marginBottom: 4 }}>{n.corpo}</div>}
+                      <div style={{ fontSize: 11.5, color: '#999' }}>
+                        {n.inviata_da && `Da: ${n.inviata_da} · `}
+                        {new Date(n.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    {!isLetta && <div style={{ width: 8, height: 8, borderRadius: 999, background: '#5E3A8A', flexShrink: 0, marginTop: 6 }} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function GestioneNotificheScreen({ onHome, myUserId }) {
+  const [utenti, setUtenti] = useState([]);
+  const [iscrizioni, setIscrizioni] = useState([]); // [{user_id, tipo}]
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    supabase.from('profiles').select('id,email,nome,cognome,role').order('email')
+      .then(({ data }) => data && setUtenti(data));
+    supabase.from('notifica_iscrizioni').select('*')
+      .then(({ data }) => data && setIscrizioni(data));
+  }, []);
+
+  function isIscritto(userId, tipo) {
+    return iscrizioni.some(r => r.user_id === userId && r.tipo === tipo);
+  }
+
+  async function toggleIscrizione(userId, tipo) {
+    setBusy(true);
+    if (isIscritto(userId, tipo)) {
+      await supabase.from('notifica_iscrizioni').delete().eq('user_id', userId).eq('tipo', tipo);
+      setIscrizioni(prev => prev.filter(r => !(r.user_id === userId && r.tipo === tipo)));
+    } else {
+      await supabase.from('notifica_iscrizioni').insert({ user_id: userId, tipo });
+      setIscrizioni(prev => [...prev, { user_id: userId, tipo }]);
+    }
+    setBusy(false);
+  }
+
+  const tipi = Object.entries(NOTIFICA_TIPI);
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#F2EEF8', fontFamily: 'Inter, sans-serif', color: '#1E1530', maxWidth: 480, margin: '0 auto' }}>
+      <TopBar theme={{ primary: '#5E3A8A', line: '#DDD8EE', ink: '#1E1530', muted: '#7A6A9A', bg: '#F2EEF8' }}
+        title="Gestione notifiche" subtitle="Chi riceve cosa" onBack={onHome} />
+      <div style={{ padding: 16 }}>
+        <div style={{ fontSize: 12.5, color: '#7A6A9A', marginBottom: 14, lineHeight: 1.5 }}>
+          Seleziona per ogni utente quali tipologie di notifica riceverà. Le spunte attive ricevono notifiche push/in-app quando viene inviata una segnalazione.
+        </div>
+        {utenti.map(u => {
+          const nome = (u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : u.email;
+          return (
+            <div key={u.id} style={{ background: '#fff', border: '1px solid #DDD8EE', borderRadius: 14, padding: 14, marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{nome}</div>
+              <div style={{ fontSize: 12, color: '#7A6A9A', marginBottom: 10 }}>{u.email} · {u.role}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {tipi.map(([tipo, info]) => (
+                  <label key={tipo} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={isIscritto(u.id, tipo)}
+                      onChange={() => toggleIscrizione(u.id, tipo)}
+                      disabled={busy}
+                      style={{ width: 18, height: 18, accentColor: '#5E3A8A' }}
+                    />
+                    <span style={{ fontSize: 13.5 }}>{info.emoji} {info.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '' });
 function useRole() { return useContext(RoleContext).role; }
 function useUserEmail() { return useContext(RoleContext).email; }
@@ -1572,7 +1785,7 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
     try {
       const nuovePaths = [];
       for (const file of fotoNuove) nuovePaths.push(await caricaFotoMezzi(id, file));
-      onSave({ ...f, id, foto: nuovePaths });
+      onSave({ ...f, id, foto: nuovePaths, km: f.km ? Number(f.km) : null, costo: f.costo ? Number(f.costo) : null });
     } catch (e) {
       setErrore('Errore caricamento foto: ' + (e.message || 'riprova.'));
       setSalvataggio(false);
@@ -1626,6 +1839,7 @@ function MezziModule({ onHome }) {
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
   const ready = vehiclesT.ready && maintsT.ready;
   const dataError = vehiclesT.error || maintsT.error;
+  const { nomeVisualizzato } = usePermessi();
   const [params] = useState(DEFAULT_PARAMS);
   const [tab, setTab] = useState('veicoli');
   const [view, setView] = useState(LIST_VIEW);
@@ -1648,7 +1862,22 @@ function MezziModule({ onHome }) {
   }
   const saveVehicle = (v) => salvaOTorna(() => vehiclesT.save(v), 'Veicolo salvato');
   const deleteVehicle = (v) => salvaOTorna(() => vehiclesT.remove(v), 'Veicolo eliminato');
-  const saveMaint = (m) => salvaOTorna(() => maintsT.save(m), 'Intervento salvato');
+  const saveMaint = async (m) => {
+    const { error } = await maintsT.save(m);
+    if (error) { flash(error.message); return; }
+    flash(m.tipo === 'Segnalazione anomalia' ? 'Segnalazione inviata' : 'Intervento salvato');
+    if (m.tipo === 'Segnalazione anomalia') {
+      const v = vehicles.find(x => x.targa === m.targa);
+      inviaNotifica({
+        tipo: 'anomalia_mezzi',
+        titolo: `🚗 Mezzi: anomalia ${v ? v.marca + ' ' + v.modello : m.targa}`,
+        corpo: m.descrizione || 'Anomalia segnalata',
+        linkId: m.id,
+        inviata_da: m.segnalatoDa || nomeVisualizzato,
+      });
+    }
+    goBack();
+  };
   const deleteMaint = (m) => salvaOTorna(() => maintsT.remove(m), 'Intervento eliminato');
 
   if (!ready) {
@@ -3712,6 +3941,7 @@ function StrutturaModule({ onHome }) {
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
   const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
   const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
+  const { nomeVisualizzato } = usePermessi();
 
   const [tab, setTab] = useState('camere');
   const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici' | ...
@@ -3779,14 +4009,43 @@ function StrutturaModule({ onHome }) {
   const deleteReparto = (r) => salvaOTorna(() => repartiT.remove(r), 'reparto', 'Reparto eliminato');
   const saveTecnico = (t) => salvaOTorna(() => tecniciT.save(t), 'tecnico', 'Tecnico salvato');
   const deleteTecnico = (t) => salvaOTorna(() => tecniciT.remove(t), 'tecnico', 'Tecnico eliminato');
-  const saveIntervento = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
+  const saveIntervento = async (i) => {
+    const { error } = await interventiT.save(i);
+    if (error) { flash(error.message); return; }
+    flash('Intervento salvato');
+    if (!i.id || !interventi.find(x => x.id === i.id)) {
+      // è nuovo: invia notifica
+      inviaNotifica({
+        tipo: 'intervento_struttura',
+        titolo: `🏥 Struttura: ${i.cameraZona || 'Nuovo intervento'}`,
+        corpo: i.descrizione || 'Nuovo intervento aperto',
+        linkId: i.id,
+        inviata_da: i.segnalatoDa || nomeVisualizzato,
+      });
+    }
+    goBack();
+  };
   const deleteIntervento = (i) => salvaOTorna(async () => { await eliminaFoto(i.foto); return interventiT.remove(i); }, 'intervento', 'Intervento eliminato');
   const saveManutenzione = (m) => salvaOTorna(() => manutenzioniT.save(m), 'manutenzione', 'Scadenza salvata');
   const deleteManutenzione = (m) => salvaOTorna(() => manutenzioniT.remove(m), 'manutenzione', 'Scadenza eliminata');
   const saveCosto = (c) => salvaOTorna(() => costiT.save(c), 'costo', 'Costo salvato');
   const deleteCosto = (c) => salvaOTorna(() => costiT.remove(c), 'costo', 'Costo eliminato');
-  // Intervento aperto dal dettaglio di una camera: torna al dettaglio invece che alla lista
-  const saveInterventoDaCamera = (i) => salvaOTorna(() => interventiT.save(i), 'intervento', 'Intervento salvato');
+  // Intervento aperto dal dettaglio di una camera
+  const saveInterventoDaCamera = async (i) => {
+    const { error } = await interventiT.save(i);
+    if (error) { flash(error.message); return; }
+    flash('Intervento salvato');
+    if (!i.id || !interventi.find(x => x.id === i.id)) {
+      inviaNotifica({
+        tipo: 'intervento_struttura',
+        titolo: `🏥 Struttura: ${i.cameraZona || 'Camera'}`,
+        corpo: i.descrizione || 'Nuovo intervento aperto',
+        linkId: i.id,
+        inviata_da: i.segnalatoDa || nomeVisualizzato,
+      });
+    }
+    goBack();
+  };
   const deleteInterventoDaCamera = (i) => salvaOTorna(async () => { await eliminaFoto(i.foto); return interventiT.remove(i); }, 'intervento', 'Intervento eliminato');
 
   const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
@@ -4505,7 +4764,7 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenProfilo }) {
+function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenProfilo, onOpenNotifiche }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -4515,9 +4774,15 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
             <WrenchHub size={24} />
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            <NotificationBell />
             {role === 'admin' && (
               <button onClick={onOpenUsers} title="Gestione utenti" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <UserCog size={17} />
+              </button>
+            )}
+            {role === 'admin' && (
+              <button onClick={onOpenNotifiche} title="Gestione notifiche" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16 }}>
+                🔕
               </button>
             )}
             <button onClick={onSignOut} title="Esci" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
@@ -4585,9 +4850,10 @@ export default function ManutenzioneApp() {
     );
   }
 
-  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo'
+  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo' | 'notifiche'
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
+  const notificheCtx = useNotifications(session?.user?.id || null);
 
   useHardwareBack();
   useBackable(screen, setScreen);
@@ -4623,12 +4889,14 @@ export default function ManutenzioneApp() {
   const cognome = profile?.cognome || '';
 
   return (
+    <NotificheContext.Provider value={notificheCtx}>
     <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome }}>
       {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
       {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
       {screen === 'procedure' && <ProcedureModule onHome={() => setScreen('hub')} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
+      {screen === 'gestione-notifiche' && <GestioneNotificheScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'profilo' && (
         <ProfiloScreen onHome={() => setScreen('hub')} profile={{ ...profile, email: session.user.email }} onSaved={refreshProfile} />
       )}
@@ -4641,8 +4909,10 @@ export default function ManutenzioneApp() {
           onSignOut={signOut}
           onOpenUsers={() => setScreen('utenti')}
           onOpenProfilo={() => setScreen('profilo')}
+          onOpenNotifiche={() => setScreen('gestione-notifiche')}
         />
       )}
     </RoleContext.Provider>
+    </NotificheContext.Provider>
   );
 }
