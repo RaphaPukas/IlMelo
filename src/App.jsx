@@ -436,9 +436,9 @@ function NotificationBell() {
                     style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2 }}>{n.titolo}</div>
-                      {n.corpo && <div style={{ fontSize: 12.5, color: '#666', marginBottom: 4 }}>{n.corpo}</div>}
-                      <div style={{ fontSize: 11.5, color: '#999' }}>
+                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#111' }}>{n.titolo}</div>
+                      {n.corpo && <div style={{ fontSize: 12.5, color: '#444', marginBottom: 4 }}>{n.corpo}</div>}
+                      <div style={{ fontSize: 11.5, color: '#555' }}>
                         {n.inviata_da && `Da: ${n.inviata_da} · `}
                         {new Date(n.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </div>
