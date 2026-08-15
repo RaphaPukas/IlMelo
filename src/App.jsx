@@ -309,8 +309,19 @@ async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
   const id = `N-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const modulo = NOTIFICA_TIPI[tipo]?.modulo || 'sistema';
   try {
+    // 1. Salva nel database
     await supabase.from('notifiche').insert({ id, tipo, modulo, titolo, corpo, link_id: linkId, inviata_da });
+    // 2. Chiama la Edge Function per spedire le push (anche app chiuse)
+    await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({ record: { id, tipo, titolo, corpo, link_id: linkId } })
+    });
   } catch {}
+}
 }
 
 function useNotifications(userId) {
