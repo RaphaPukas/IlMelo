@@ -352,6 +352,7 @@ function useNotifications(userId) {
         setNotifiche(prev => [payload.new, ...prev]);
         playNotificationSound();
         playNotificationSound();
+        playNotificationSound();
         // Notifica browser (se permesso concesso e l'utente è iscritto)
         supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
           .then(({ data }) => {
@@ -947,6 +948,7 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     dateFields.forEach((f) => { if (pulito[f] === '') pulito[f] = null; });
     delete pulito.days;
     delete pulito.days;
+    delete pulito.days;
     const { data, error } = await supabase.from(table).upsert(pulito).select().single();
     if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
     setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
@@ -1022,6 +1024,7 @@ function MezziFotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuo
   const [zoom, setZoom] = useState(null);
   const fileInputRef = useRef(null);
   const anteprimeNuove = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   const chiave = (fotoEsistenti || []).join(',');
@@ -3130,6 +3133,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
   const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
 
   const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
   const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
@@ -4421,6 +4425,7 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
   const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
   useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
+  useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
 
   async function handleSave() {
@@ -4983,6 +4988,60 @@ function playNotificationSound() {
   } catch {}
 }
 
+/* ============================================================
+   NOTIFICHE PUSH — Service Worker + Web Push
+   ============================================================ */
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
+  try {
+    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const json = subscription.toJSON();
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  } catch (e) {
+    console.error('Push registration failed:', e);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch {}
+}
+
 export default function ManutenzioneApp() {
   if (!supabaseConfigured) {
     return (
@@ -5002,6 +5061,10 @@ export default function ManutenzioneApp() {
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null);
+
+  useEffect(() => {
+    if (session?.user?.id) registerPush(session.user.id);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (session?.user?.id) registerPush(session.user.id);
