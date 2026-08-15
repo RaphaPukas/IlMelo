@@ -419,7 +419,7 @@ function NotificationBell() {
 
       {aperto && (
         <div onClick={() => setAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', color: '#111', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a2e', color: '#fff', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -437,9 +437,9 @@ function NotificationBell() {
                     style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#111' }}>{n.titolo}</div>
+                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#fff' }}>{n.titolo}</div>
                       {n.corpo && <div style={{ fontSize: 12.5, color: '#444', marginBottom: 4 }}>{n.corpo}</div>}
-                      <div style={{ fontSize: 11.5, color: '#555' }}>
+                      <div style={{ fontSize: 11.5, color: '#aaa' }}>
                         {n.inviata_da && `Da: ${n.inviata_da} · `}
                         {new Date(n.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </div>
