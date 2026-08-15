@@ -339,6 +339,7 @@ function useNotifications(userId) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifiche' }, (payload) => {
         if (!mounted) return;
         setNotifiche(prev => [payload.new, ...prev]);
+        playNotificationSound();
         // Notifica browser (se permesso concesso e l'utente è iscritto)
         supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
           .then(({ data }) => {
@@ -1008,6 +1009,7 @@ function MezziFotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuo
   const [zoom, setZoom] = useState(null);
   const fileInputRef = useRef(null);
   const anteprimeNuove = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   const chiave = (fotoEsistenti || []).join(',');
   useEffect(() => {
     let m = true;
@@ -1142,7 +1144,7 @@ const MEZZI_NAV_ITEMS = [
 
 /* ---------- helpers ---------- */
 const uid = () => Math.random().toString(36).slice(2, 10);
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const fmtEuro = (n) => n == null || n === '' ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 const fmtKm = (n) => n == null || n === '' ? '—' : `${Number(n).toLocaleString('it-IT')} km`;
 const daysUntil = (iso) => { if (!iso) return null; const d = new Date(iso + 'T00:00:00'); const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((d - t) / 86400000); };
@@ -3108,6 +3110,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
   }, [chiave]);
 
   const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
 
   const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
   const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
@@ -4389,6 +4392,7 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
   const [errore, setErrore] = useState('');
   const imgRef = useRef(null); const fileRef = useRef(null);
   const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
+  useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
 
   async function handleSave() {
@@ -4840,6 +4844,60 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
    APP RADICE — passa dall'Hub ai moduli, mantenendo ciascuno indipendente
    ========================================================================= */
 
+/* ============================================================
+   NOTIFICHE PUSH — Service Worker + Web Push
+   ============================================================ */
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const json = subscription.toJSON();
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  } catch (e) {
+    console.error('Push registration failed:', e);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch {}
+}
+
 export default function ManutenzioneApp() {
   if (!supabaseConfigured) {
     return (
@@ -4860,24 +4918,29 @@ export default function ManutenzioneApp() {
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null);
 
+  useEffect(() => {
+    if (session?.user?.id) registerPush(session.user.id);
+  }, [session?.user?.id]);
+
   useHardwareBack();
   useBackable(screen, setScreen);
 
-  // Tengo aggiornati i conteggi mostrati sull'Hub leggendo lo storage al volo
+  // Carica conteggi reali da Supabase per l'Hub
   useEffect(() => {
-    if (!session) return;
-    (async () => {
-      let v, c, ca;
-      try { v = JSON.parse((await storage.get('vehicles')).value); } catch { v = null; }
-      try { c = JSON.parse((await storage.get('carrozzine')).value); } catch { c = null; }
-      try { ca = JSON.parse((await storage.get('struttura-camere')).value); } catch { ca = null; }
-      setCounts({
-        vehicles: v && v.length ? v : SEED_VEHICLES,
-        carrozzine: c && c.length ? c : SEED,
-        camere: ca && ca.length ? ca : S_CAMERE,
-      });
-    })();
-  }, [screen, session]);
+      if (!session) return;
+      (async () => {
+        const [{ count: vc }, { count: cc }, { count: ca }] = await Promise.all([
+          supabase.from('vehicles').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
+          supabase.from('carrozzine').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
+          supabase.from('camere').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
+        ]);
+        setCounts({
+          vehicles: Array(vc || 0).fill(null),
+          carrozzine: Array(cc || 0).fill(null),
+          camere: Array(ca || 0).fill(null),
+        });
+      })();
+    }, [screen, session]);
 
   if (authLoading) {
     return (
