@@ -2172,7 +2172,8 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
 }
 
 function CarrozzinaDetail({ w, onBack, onUpdate }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
@@ -2972,7 +2973,8 @@ function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) 
 }
 
 function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: '', piano: piani[0] || 'Piano Terra', nucleo: nuclei[0] || '', tipo: 'Singola', stato: 'Attiva', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -3061,7 +3063,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroSta
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
-                  <div style={{ fontSize: 12, color: STR_COLORS.muted, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}{i.tipologia ? ' · ' + i.tipologia : ''}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.ink, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}{i.tipologia ? ' · ' + i.tipologia : ''}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
                     {i.foto?.length > 0 && (
@@ -3177,7 +3179,8 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 }
 
 function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare, nomeVisualizzato } = usePermessi();
+  const { isAdmin, puoEliminare, nomeVisualizzato } = usePermessi();
+  const puoScrivere = isAdmin || (initial?.segnalatoDa === nomeVisualizzato);
 
   // Inizializza i selettori a cascata dal valore esistente
   const [f, setF] = useState(initial || {
@@ -3439,7 +3442,8 @@ function ScadenzeStrScreen({ manutenzioni, onOpen, onAdd, onMenu, onHome }) {
 }
 
 function ManutenzioneForm({ initial, luoghi, tecnici, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || {
     cameraZona: luoghi[0] || '', tipoManutenzione: STR_TIPI_MANUTENZIONE[0], frequenza: STR_FREQUENZE[1],
@@ -3532,7 +3536,8 @@ function CostiStrScreen({ costi, onOpen, onAdd, onMenu, onHome, onBack }) {
 }
 
 function CostoForm({ initial, interventiIds, tecnici, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || {
     idIntervento: '', tipo: 'Preventivo', descrizione: '', fornitore: tecnici[0] || '',
@@ -3693,7 +3698,8 @@ function RepartiStrScreen({ reparti, onOpen, onAdd, onBack, onRinominaEnd }) {
 }
 
 function RepartoForm({ initial, reparti, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare, isAdmin } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { codice: uid(), nome: '', categoria: 'Servizi', piano: '', responsabile: '', note: '' });
   const [nuovaCategoria, setNuovaCategoria] = useState(false);
@@ -3818,7 +3824,8 @@ function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack, titolo }) {
 }
 
 function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', indirizzo: '', telefono: '', email: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -4314,7 +4321,8 @@ function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
 }
 
 function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [urls, setUrls] = useState({});
   const [fileUrls, setFileUrls] = useState({});
   const [zoom, setZoom] = useState(null);
@@ -4523,7 +4531,8 @@ function RicorrentiScreen({ items, onOpen, onAdd, onHome }) {
 }
 
 function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(() => { if (initial) { const { days, ...clean } = initial; return clean; } return { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' }; });
   const set = (k) => (e) => {
@@ -4633,7 +4642,8 @@ function ArmadioDetail({ armadio, onBack, onEdit }) {
 }
 
 function ArmadioForm({ initial, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'' });
   const [righe, setRighe] = useState(initial?.contenuto || []);
