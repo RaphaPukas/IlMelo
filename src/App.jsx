@@ -4860,7 +4860,7 @@ function urlBase64ToUint8Array(base64String) {
 async function registerPush(userId) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
   try {
-    const registration = await navigator.serviceWorker.register('/sw.js');
+    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
     await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
     if (existing) return;
