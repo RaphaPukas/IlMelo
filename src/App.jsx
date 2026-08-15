@@ -932,6 +932,7 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     // deve arrivare come NULL, altrimenti Postgres la rifiuta.
     const pulito = { ...record };
     dateFields.forEach((f) => { if (pulito[f] === '') pulito[f] = null; });
+    delete pulito.days;
     const { data, error } = await supabase.from(table).upsert(pulito).select().single();
     if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
     setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
@@ -3263,7 +3264,11 @@ function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onC
       const nuovePaths = [];
       for (const file of fotoNuove) nuovePaths.push(await caricaFoto(id, file));
       const fotoFinali = [...fotoEsistenti, ...nuovePaths];
-      onSave({ ...f, id, costo: f.costo ? Number(f.costo) : 0, foto: fotoFinali, pianoSel, tipoSel, nucleoSel });
+      const recordPulito = { ...f, id, costo: f.costo ? Number(f.costo) : 0, foto: fotoFinali };
+      delete recordPulito.pianoSel;
+      delete recordPulito.tipoSel;
+      delete recordPulito.nucleoSel;
+      onSave(recordPulito);
     } catch (e) {
       setErroreFoto('Caricamento foto non riuscito: ' + (e.message || 'riprova.'));
       setSalvataggio(false);
@@ -4505,7 +4510,7 @@ function RicorrentiScreen({ items, onOpen, onAdd, onHome }) {
 function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   const { puoScrivere, puoEliminare } = usePermessi();
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' });
+  const [f, setF] = useState(() => { if (initial) { const { days, ...clean } = initial; return clean; } return { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' }; });
   const set = (k) => (e) => {
     const v = e.target.value;
     setF(prev => {
