@@ -351,6 +351,7 @@ function useNotifications(userId) {
         if (!mounted) return;
         setNotifiche(prev => [payload.new, ...prev]);
         playNotificationSound();
+        playNotificationSound();
         // Notifica browser (se permesso concesso e l'utente è iscritto)
         supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
           .then(({ data }) => {
@@ -418,7 +419,7 @@ function NotificationBell() {
 
       {aperto && (
         <div onClick={() => setAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', color: '#111', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -945,6 +946,7 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     const pulito = { ...record };
     dateFields.forEach((f) => { if (pulito[f] === '') pulito[f] = null; });
     delete pulito.days;
+    delete pulito.days;
     const { data, error } = await supabase.from(table).upsert(pulito).select().single();
     if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
     setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
@@ -1020,6 +1022,7 @@ function MezziFotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuo
   const [zoom, setZoom] = useState(null);
   const fileInputRef = useRef(null);
   const anteprimeNuove = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   const chiave = (fotoEsistenti || []).join(',');
   useEffect(() => {
@@ -2764,7 +2767,8 @@ const strInputStyle = {
   background: '#FCFBF7', color: STR_COLORS.ink, outline: 'none',
 };
 function STR_FAB({ onClick, label }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   if (!puoScrivere) return null;
   return (
     <button
@@ -2929,7 +2933,8 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome, filtroStatoInizia
 }
 
 function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   const own = interventi.filter(i => i.cameraZona === camera.codice).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
   return (
     <>
@@ -3123,6 +3128,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
   }, [chiave]);
 
   const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
   useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
 
   const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
@@ -4240,7 +4246,8 @@ function PROC_Field({ label, children }) {
 const procInputStyle = { width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${PROC_COLORS.line}`, fontSize: 15, background: '#FAFAFE', fontFamily: 'Inter, sans-serif', outline: 'none', color: PROC_COLORS.ink };
 
 function PROC_FAB({ onClick, label = 'Aggiungi' }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   if (!puoScrivere) return null;
   return <button onClick={onClick} style={{ position:'fixed', right:18, bottom:84, background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:999, height:52, padding:'0 20px 0 16px', display:'flex', alignItems:'center', gap:7, fontWeight:700, fontSize:14.5, boxShadow:`0 6px 16px ${PROC_COLORS.primary}66`, zIndex:20 }}><Plus size={20} strokeWidth={2.6} />{label}</button>;
 }
@@ -4399,7 +4406,8 @@ function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
 }
 
 function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
-  const { puoScrivere, puoEliminare } = usePermessi();
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { id:uid(), titolo:'', tipologia:PROC_TIPOLOGIE[0], descrizione:'', steps:'', videoLinks:[], files:[], immagini:[], note:'' });
   const [nuoveImmagini, setNuoveImmagini] = useState([]);
@@ -4411,6 +4419,7 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
   const [errore, setErrore] = useState('');
   const imgRef = useRef(null); const fileRef = useRef(null);
   const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
+  useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
 
@@ -4608,7 +4617,8 @@ function ArmadiScreen({ armadi, onOpen, onAdd, onHome }) {
 }
 
 function ArmadioDetail({ armadio, onBack, onEdit }) {
-  const { puoScrivere } = usePermessi();
+  const { isAdmin } = usePermessi();
+  const puoScrivere = isAdmin;
   return (
     <>
       <TopBar theme={PROC_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia||armadio.posizione} onBack={onBack}
@@ -4919,6 +4929,60 @@ function playNotificationSound() {
   } catch {}
 }
 
+/* ============================================================
+   NOTIFICHE PUSH — Service Worker + Web Push
+   ============================================================ */
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
+  try {
+    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const json = subscription.toJSON();
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  } catch (e) {
+    console.error('Push registration failed:', e);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch {}
+}
+
 export default function ManutenzioneApp() {
   if (!supabaseConfigured) {
     return (
@@ -4938,6 +5002,10 @@ export default function ManutenzioneApp() {
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null);
+
+  useEffect(() => {
+    if (session?.user?.id) registerPush(session.user.id);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (session?.user?.id) registerPush(session.user.id);
