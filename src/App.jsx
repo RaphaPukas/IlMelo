@@ -1836,7 +1836,7 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 
   return (
     <>
-      <TopBar theme={MEZZI_COLORS} title="Segnala anomalia" subtitle="Descrivi il problema riscontrato" onBack={onCancel} />
+      <TopBar theme={MEZZI_COLORS} title="Segnala anomalia" subtitle="Descrivi il problema riscontrato" onBack={onCancel} backIcon={Home} />
       <div style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14, fontSize: 12.5, color: MEZZI_COLORS.muted, background: MEZZI_COLORS.bg, borderRadius: 10, padding: '8px 12px' }}>
           <User size={13} /> Segnalato da <b style={{ color: MEZZI_COLORS.ink }}>{f.segnalatoDa}</b>
@@ -2025,7 +2025,7 @@ function MezziModule({ onHome }) {
               })}
             </div>
           </div>
-          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" visible />
         </div>
       );
     }
@@ -2605,7 +2605,7 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title="Segnala problema" onBack={onCancel} />
+      <TopBar theme={CARROZZINE_COLORS} title="Segnala problema" onBack={onCancel} backIcon={Home} />
       <div style={{ padding: 14 }}>
         <Field label="Carrozzina">
           <select value={f.carrozzinaId} onChange={set('carrozzinaId')} style={{ ...inputStyle, background: '#FCFBF7' }}>
@@ -2745,11 +2745,11 @@ content = <SegnalazioneCarrozzinaForm
     } else {
       content = (
         <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg }}>
-          <TopBar theme={CARROZZINE_COLORS} title='Segnalazioni' subtitle='Invia un problema' onMenu={onMenu} onHome={onHome} />
+          <TopBar theme={CARROZZINE_COLORS} title='Segnalazioni' subtitle='Invia un problema' onMenu={onMenu} onHome={onHome} backIcon={Home} />
           <div style={{ padding: 14, textAlign: 'center', color: CARROZZINE_COLORS.muted, marginTop: 40 }}>
             Tocca il pulsante + per segnalare un problema su una carrozzina.
           </div>
-          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" visible />
         </div>
       );
     }
@@ -2885,8 +2885,7 @@ const strInputStyle = {
 };
 function STR_FAB({ onClick, label, visible }) {
   const { isAdmin } = usePermessi();
-  const puoScrivere = isAdmin;
-  if (!puoScrivere) return null;
+  if (!isAdmin && !visible) return null;
   return (
     <button
       onClick={onClick}
@@ -4363,10 +4362,9 @@ function PROC_Field({ label, children }) {
 }
 const procInputStyle = { width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${PROC_COLORS.line}`, fontSize: 15, background: '#FAFAFE', fontFamily: 'Inter, sans-serif', outline: 'none', color: PROC_COLORS.ink };
 
-function PROC_FAB({ onClick, label = 'Aggiungi' }) {
+function PROC_FAB({ onClick, label = 'Aggiungi', visible }) {
   const { isAdmin } = usePermessi();
-  const puoScrivere = isAdmin;
-  if (!puoScrivere) return null;
+  if (!isAdmin && !visible) return null;
   return <button onClick={onClick} style={{ position:'fixed', right:18, bottom:84, background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:999, height:52, padding:'0 20px 0 16px', display:'flex', alignItems:'center', gap:7, fontWeight:700, fontSize:14.5, boxShadow:`0 6px 16px ${PROC_COLORS.primary}66`, zIndex:20 }}><Plus size={20} strokeWidth={2.6} />{label}</button>;
 }
 
