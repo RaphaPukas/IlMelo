@@ -2638,6 +2638,19 @@ function CarrozzineModule({ onHome }) {
     content = <ControlliScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} onHome={onHome} />;
   } else if (tab === 'nuclei') {
     content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} onRinominaEnd={() => itemsT.reload ? itemsT.reload() : window.location.reload()} />;
+  } else if (tab === 'segnalazioni') {
+    if (view.name === 'add') {
+      content = <SegnalazioneCarrozzinaForm items={items} onSave={(seg) => { inviaNotifica({ tipo: 'segnalazione_carrozzine', titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}), corpo: seg.descrizione, linkId: seg.carrozzinaId, inviata_da: seg.segnalatoDa }); setToast('Segnalazione inviata'); goBack(); }} onCancel={() => goBack()} />;
+    } else {
+      content = (
+        <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg }}>
+          <TopBar theme={CARROZZINE_COLORS} title='Segnalazioni' subtitle='Invia un problema' onMenu={onMenu} onHome={onHome} />
+          <div style={{ padding: 14, textAlign: 'center', color: CARROZZINE_COLORS.muted, marginTop: 40 }}>
+            Tocca il pulsante + per segnalare un problema su una carrozzina.
+          </div>
+        </div>
+      );
+    }
   } else {
     content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome}
       onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }}
@@ -2655,6 +2668,7 @@ function CarrozzineModule({ onHome }) {
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
       {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} />}
+      {tab === 'segnalazioni' && !openItem && <FAB onClick={() => setView({ name: 'add' })} label='Segnala' visible />}
       {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
