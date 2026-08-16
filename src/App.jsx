@@ -2643,6 +2643,8 @@ function CarrozzineModule({ onHome }) {
   const [showMenu, setShowMenu] = useState(false);
   const [view, setView] = useState(LIST_VIEW);
   const interventiT = useSupaTable('interventi', 'id', [], ['dataSegnalazione', 'dataChiusura']);
+  const segnalazioniCarrozzine = interventiT.rows.filter(i => i.tipologia === 'carrozzina');
+  const segnalazioniAperte = segnalazioniCarrozzine.filter(i => i.stato !== 'Chiuso');
   useBackable(showMenu, setShowMenu);
   useBackable(view, setView);
   const [toast, setToast] = useState('');
@@ -2703,56 +2705,119 @@ function CarrozzineModule({ onHome }) {
     content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} onRinominaEnd={() => itemsT.reload ? itemsT.reload() : window.location.reload()} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
-content = <SegnalazioneCarrozzinaForm
-  items={items}
-  onSave={async (seg) => {
-    const id = uid();
-    const { error } = await interventiT.save({
-      id,
-      dataSegnalazione: todayISO(),
-      cameraZona: '',
-      descrizione: seg.descrizione,
-      priorita: seg.priorita,
-      tecnico: '',
-      stato: 'Programmato',
-      dataChiusura: null,
-      costo: null,
-      note: '',
-      segnalatoDa: seg.segnalatoDa,
-      foto: [],
-      tipologia: 'carrozzina',
-      carrozzinaId: seg.carrozzinaId,
-    });
-
-    if (error) {
-      setToast('Errore: ' + error.message);
-      return;
-    }
-
-    inviaNotifica({
-      tipo: 'segnalazione_carrozzine',
-      titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}),
-      corpo: seg.descrizione,
-      linkId: id,
-      inviata_da: seg.segnalatoDa,
-    });
-
-    setToast('Segnalazione inviata');
-    goBack();
-  }}
-  onCancel={() => goBack()}
-/>;
+      content = <SegnalazioneCarrozzinaForm
+        items={items}
+        onSave={async (seg) => {
+          const id = uid();
+          const { error } = await interventiT.save({
+            id,
+            dataSegnalazione: todayISO(),
+            cameraZona: '',
+            descrizione: seg.descrizione,
+            priorita: seg.priorita,
+            tecnico: '',
+            stato: 'Programmato',
+            dataChiusura: null,
+            costo: null,
+            note: '',
+            segnalatoDa: seg.segnalatoDa,
+            foto: seg.foto || [],
+            tipologia: 'carrozzina',
+            carrozzinaId: seg.carrozzinaId,
+          });
+          if (error) {
+            setToast('Errore: ' + error.message);
+            return;
+          }
+          inviaNotifica({
+            tipo: 'segnalazione_carrozzine',
+            titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}),
+            corpo: seg.descrizione,
+            linkId: id,
+            inviata_da: seg.segnalatoDa,
+          });
+          setToast('Segnalazione inviata');
+          goBack();
+        }}
+        onCancel={() => goBack()}
+      />;
+    } else if (view.name === 'detail' && view.segnalazione) {
+      const s = view.segnalazione;
+      const w = items.find(x => x.id === s.carrozzinaId);
+      content = (
+        <>
+          <TopBar theme={CARROZZINE_COLORS} title="Segnalazione" onBack={() => goBack()} backIcon={Home} />
+          <div style={{ padding: 14 }}>
+            <Card theme={CARROZZINE_COLORS}>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{s.descrizione || '—'}</div>
+              <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 6 }}>
+                {fmtDate(s.dataSegnalazione)} · Stato: <b>{s.stato}</b>
+              </div>
+              {w && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 10 }}>Carrozzina: {labelOf(w)} ({fmtCarrozzinaId(w.id)})</div>}
+              {s.segnalatoDa && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 10 }}>Da: {s.segnalatoDa}</div>}
+              {s.foto?.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  {s.foto.map((p, i) => (
+                    <div key={i} style={{ width: 64, height: 64, borderRadius: 8, overflow: 'hidden', background: CARROZZINE_COLORS.bg, border: `1px solid ${CARROZZINE_COLORS.line}` }}>
+                      <img src={p} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {s.stato !== 'Chiuso' && (
+                <button onClick={async () => {
+                  const { error } = await interventiT.save({ ...s, stato: 'Chiuso', dataChiusura: todayISO() });
+                  if (error) { setToast('Errore: ' + error.message); return; }
+                  setToast('Segnalazione chiusa');
+                  goBack();
+                }} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.ok, color: '#fff', fontWeight: 700 }}>
+                  Chiudi segnalazione
+                </button>
+              )}
+            </Card>
+          </div>
+        </>
+      );
     } else {
       content = (
-        <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg }}>
-          <TopBar theme={CARROZZINE_COLORS} title='Segnalazioni' subtitle='Invia un problema' onMenu={onMenu} onHome={onHome} backIcon={Home} />
-          <div style={{ padding: 14, textAlign: 'center', color: CARROZZINE_COLORS.muted, marginTop: 40 }}>
-            Tocca il pulsante + per segnalare un problema su una carrozzina.
+        <>
+          <TopBar theme={CARROZZINE_COLORS} title='Segnalazioni' subtitle={`${segnalazioniCarrozzine.length} segnalazioni · ${segnalazioniAperte.length} aperte`} onMenu={onMenu} onBack={onHome} backIcon={Home} />
+          <div style={{ padding: 14 }}>
+            {segnalazioniCarrozzine.length === 0 && <Empty theme={CARROZZINE_COLORS} icon={AlertTriangle} text="Nessuna segnalazione ancora." />}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {segnalazioniCarrozzine.map(i => {
+                const w = items.find(x => x.id === i.carrozzinaId);
+                const isAperta = i.stato !== 'Chiuso';
+                return (
+                  <Card theme={CARROZZINE_COLORS} key={i.id} onClick={() => setView({ name: 'detail', segnalazione: i })}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                          <Pill style={PRIORITA_STYLE[i.priorita] || PRIORITA_STYLE.Media}>{i.priorita || 'Media'}</Pill>
+                          <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted }}>{fmtDate(i.dataSegnalazione)}</span>
+                          {!isAperta && <Pill style={{ bg: '#E7F3EC', fg: '#3C7A5C' }}>Chiuso</Pill>}
+                        </div>
+                        <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
+                        {w && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginTop: 3 }}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</div>}
+                        {i.segnalatoDa && <div style={{ fontSize: 11, color: CARROZZINE_COLORS.muted, marginTop: 3 }}>Da: {i.segnalatoDa}</div>}
+                        {i.foto?.length > 0 && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: CARROZZINE_COLORS.muted, marginTop: 4 }}>
+                            <ImageIcon size={12} /> {i.foto.length} foto
+                          </span>
+                        )}
+                      </div>
+                      {isAperta && <div style={{ width: 8, height: 8, borderRadius: 999, background: CARROZZINE_COLORS.danger, flexShrink: 0 }} />}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
           </div>
           <FAB onClick={() => setView({ name: 'add' })} label="Segnala" visible />
-        </div>
+        </>
       );
     }
+
   } else {
     content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome}
       onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }}
@@ -2769,7 +2834,7 @@ content = <SegnalazioneCarrozzinaForm
         select { cursor: pointer; }
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
-      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} />}
+      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} badges={{ segnalazioni: segnalazioniAperte.length }} />}
       {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
@@ -3152,6 +3217,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroSta
   const [filtro, setFiltro] = useState(filtroStatoIniziale || null);
   const [filtroTipologia, setFiltroTipologia] = useState('');
   const sorted = [...interventi]
+    .filter(i => i.tipologia !== 'carrozzina')
     .filter(i => !filtro || i.stato === filtro)
     .filter(i => !filtroTipologia || i.tipologia === filtroTipologia)
     .sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
@@ -3993,7 +4059,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
 function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni, costi, onMenu, onHome, onOpenTecnici, onOpenCosti, onOpenFornitori, onOpenDitte, onOpenCamereConStato, onOpenInterventiConStato, onOpenScadenze }) {
   const fuoriServizio = camere.filter(c => c.stato === 'Fuori Servizio').length;
   const inManutenzioneCamere = camere.filter(c => c.stato === 'In Manutenzione').length;
-  const aperti = interventi.filter(i => i.stato === 'Aperto').length;
+  const aperti = interventi.filter(i => i.tipologia !== 'carrozzina' && i.stato === 'Aperto').length;
   const inCorso = interventi.filter(i => i.stato === 'In corso').length;
   const withAlert = manutenzioni.map(m => strAlertStatus(daysUntil(m.prossimaScadenza)));
   const scadute = withAlert.filter(s => s === 'SCADUTO').length;
@@ -4313,7 +4379,7 @@ function StrutturaModule({ onHome }) {
         input:focus, select:focus, textarea:focus { border-color: ${STR_COLORS.primary} !important; }
       `}</style>
       <div style={{ paddingBottom: showBottomNav ? 78 : 20 }}>{content}</div>
-      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} badges={{ interventi: interventi.filter(i => i.stato === 'Aperto').length }} />}
+      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} badges={{ interventi: interventi.filter(i => i.tipologia !== 'carrozzina' && i.stato === 'Aperto').length }} />}
       {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: showBottomNav ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: STR_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
