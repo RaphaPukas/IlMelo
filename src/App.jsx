@@ -537,7 +537,7 @@ function usePermessi() {
     nome: ctx.nome,
     cognome: ctx.cognome,
     nomeVisualizzato: nomeVisualizzato(ctx),
-    puoScrivere: ctx.role === 'admin' || ctx.role === 'operatore',
+    puoScrivere: true,
     puoEliminare: ctx.role === 'admin',
     isAdmin: ctx.role === 'admin',
   };
