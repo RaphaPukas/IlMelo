@@ -18,7 +18,6 @@ self.addEventListener('push', (event) => {
     tag: data.id || 'default',
     requireInteraction: true,
     data: { url: data.link || '/' },
-    // NOTA: il suono è gestito dal sistema operativo, non personalizzabile via web push
   };
   event.waitUntil(
     self.registration.showNotification(data.titolo || 'IlMelo', options)
