@@ -1220,9 +1220,9 @@ const inputStyle = {
   background: '#FCFBF7', color: MEZZI_COLORS.ink, outline: 'none',
 };
 
-function FAB({ onClick, label }) {
+function FAB({ onClick, label, visible }) {
   const { isAdmin } = usePermessi();
-  if (!isAdmin) return null;
+  if (!isAdmin && !visible) return null;
   return (
     <button
       onClick={onClick}
@@ -1521,7 +1521,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
           ))}
         </div>
       </div>
-      <FAB onClick={onAdd} label="Intervento" />
+      <FAB onClick={onAdd} label="Intervento" visible />
     </>
   );
 }
@@ -2002,7 +2002,7 @@ function MezziModule({ onHome }) {
               })}
             </div>
           </div>
-          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" visible />
         </div>
       );
     }
@@ -2768,7 +2768,7 @@ const strInputStyle = {
   border: `1.5px solid ${STR_COLORS.line}`, fontSize: 15, fontFamily: 'Inter, sans-serif',
   background: '#FCFBF7', color: STR_COLORS.ink, outline: 'none',
 };
-function STR_FAB({ onClick, label }) {
+function STR_FAB({ onClick, label, visible }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   if (!puoScrivere) return null;
@@ -3089,7 +3089,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroSta
           ))}
         </div>
       </div>
-      <STR_FAB onClick={onAdd} label="Intervento" />
+      <STR_FAB onClick={onAdd} label="Intervento" visible />
     </>
   );
 }
