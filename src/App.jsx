@@ -2684,6 +2684,7 @@ function CarrozzineModule({ onHome }) {
           <div style={{ padding: 14, textAlign: 'center', color: CARROZZINE_COLORS.muted, marginTop: 40 }}>
             Tocca il pulsante + per segnalare un problema su una carrozzina.
           </div>
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
         </div>
       );
     }
