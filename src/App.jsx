@@ -302,63 +302,26 @@ const GLOBAL_FONTS = `
 
 const NOTIFICA_TIPI = {
   intervento_struttura: { label: 'Interventi Struttura', modulo: 'struttura', emoji: '🏥' },
-  anomalia_mezzi:       { label: 'Anomalie Mezzi', modulo: 'mezzi', emoji: '🚗' },
-  segnalazione_carrozzine: { label: 'Segnalazioni Carrozzine', modulo: 'carrozzine', emoji: '♿' },
+  anomalia_mezzi:       { label: 'Anomalie Mezzi',       modulo: 'mezzi',     emoji: '🚗' },
 };
 
 async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
   const id = `N-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const modulo = NOTIFICA_TIPI[tipo]?.modulo || 'sistema';
-
   try {
-    const { error: dbError } = await supabase
-      .from('notifiche')
-      .insert({
-        id,
-        tipo,
-        modulo,
-        titolo,
-        corpo,
-        link_id: linkId,
-        inviata_da
-      });
-
-    if (dbError) {
-      console.error('Errore salvataggio notifica:', dbError);
-      return { error: dbError };
-    }
-
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notification`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({
-          record: {
-            id,
-            tipo,
-            titolo,
-            corpo,
-            link_id: linkId
-          }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Errore Push:', response.status, text);
-      return { error: new Error(`Push notification: ${response.status}`) };
-    }
-
-    return { data: { id } };
-
-  } catch (error) {
-    console.error('Errore inviaNotifica:', error);
-    return { error };
+    // 1. Salva nel database
+    await supabase.from('notifiche').insert({ id, tipo, modulo, titolo, corpo, link_id: linkId, inviata_da });
+    // 2. Chiama la Edge Function per spedire le push (anche app chiuse)
+    await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({ record: { id, tipo, titolo, corpo, link_id: linkId } })
+    });
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('inviaNotifica failed:', e);
   }
 }
 
@@ -415,7 +378,7 @@ async function markaLetta(notificaId) {
       .from('notifiche_lette')
       .insert({ user_id: userId, notifica_id: notificaId });
   } catch (e) {
-    // La notifica resta marcata localmente anche se il salvataggio fallisce.
+    if (process.env.NODE_ENV === 'development') console.warn('markaLetta failed:', e);
   }
 }
 
@@ -484,8 +447,8 @@ function NotificationBell() {
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#5E3A8A', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
-                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#5E3A8A' }}>✕</button>
+                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
+                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#fff' }}>✕</button>
               </div>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
@@ -1007,8 +970,6 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     const pulito = { ...record };
     dateFields.forEach((f) => { if (pulito[f] === '') pulito[f] = null; });
     delete pulito.days;
-    delete pulito.days;
-    delete pulito.days;
     const { data, error } = await supabase.from(table).upsert(pulito).select().single();
     if (error) { const msg = traduciErroreDati(error.message); setError(msg); return { error: { message: msg } }; }
     setRows((prev) => (prev.some((r) => r[idKey] === data[idKey]) ? prev.map((r) => (r[idKey] === data[idKey] ? data : r)) : [...prev, data]));
@@ -1071,7 +1032,7 @@ async function eliminaFotoMezzi(paths) {
   if (!paths?.length) return;
   try { await supabase.storage.from(MEZZI_FOTO_BUCKET).remove(paths); } catch {}
 }
-async function urlFirmatesMezzi(paths) {
+async function urlFirmateMezzi(paths) {
   if (!paths?.length) return {};
   const { data } = await supabase.storage.from(MEZZI_FOTO_BUCKET).createSignedUrls(paths, 3600);
   const map = {};
@@ -1084,13 +1045,13 @@ function MezziFotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuo
   const [zoom, setZoom] = useState(null);
   const fileInputRef = useRef(null);
   const anteprimeNuove = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
+  useEffect(() => {
+    return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); };
+  }, [anteprimeNuove]);
   const chiave = (fotoEsistenti || []).join(',');
   useEffect(() => {
     let m = true;
-    urlFirmatesMezzi(fotoEsistenti || []).then(u => { if (m) setUrls(u); });
+    urlFirmateMezzi(fotoEsistenti || []).then(u => { if (m) setUrls(u); });
     return () => { m = false; };
   }, [chiave]);
 
@@ -2763,7 +2724,7 @@ content = <SegnalazioneCarrozzinaForm
       return;
     }
 
-        const notificaResult = await inviaNotifica({
+    inviaNotifica({
       tipo: 'segnalazione_carrozzine',
       titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}),
       corpo: seg.descrizione,
@@ -2771,13 +2732,7 @@ content = <SegnalazioneCarrozzinaForm
       inviata_da: seg.segnalatoDa,
     });
 
-    if (notificaResult?.error) {
-      console.error('Errore invio notifica:', notificaResult.error);
-      setToast('Segnalazione salvata, ma notifica non inviata');
-      return;
-    }
-
-    setToast('Segnalazione e notifica inviate');
+    setToast('Segnalazione inviata');
     goBack();
   }}
   onCancel={() => goBack()}
@@ -3285,9 +3240,9 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
   }, [chiave]);
 
   const anteprimeNuove = useMemo(() => fotoNuove.map((f) => URL.createObjectURL(f)), [fotoNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
-  useEffect(() => { return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeNuove]);
+  useEffect(() => {
+    return () => { anteprimeNuove.forEach(url => URL.revokeObjectURL(url)); };
+  }, [anteprimeNuove]);
 
   const thumbStyle = { position: 'relative', width: 72, height: 72, borderRadius: 10, overflow: 'hidden', background: STR_COLORS.bg, border: `1px solid ${STR_COLORS.line}`, flexShrink: 0, cursor: 'pointer' };
   const xStyle = { position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: 999, width: 20, height: 20, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' };
@@ -5041,22 +4996,29 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+  try {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('Invalid VAPID key:', e);
+    return null;
+  }
 }
 
 async function registerPush(userId) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
   try {
+    const vapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+    if (!vapidKey) return;
     const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
     await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
     if (existing) return;
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      applicationServerKey: vapidKey
     });
     const json = subscription.toJSON();
     await supabase.from('push_subscriptions').upsert({
@@ -5066,7 +5028,7 @@ async function registerPush(userId) {
       auth: json.keys.auth,
     }, { onConflict: 'endpoint' });
   } catch (e) {
-    console.error('Push registration failed:', e);
+    if (process.env.NODE_ENV === 'development') console.error('Push registration failed:', e);
   }
 }
 
@@ -5085,7 +5047,9 @@ function playNotificationSound() {
     osc.start();
     osc.stop(ctx.currentTime + 0.4);
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-  } catch {}
+  } catch (e) {
+    if (process.env.NODE_ENV === 'development') console.warn('playNotificationSound failed:', e);
+  }
 }
 
 export default function ManutenzioneApp() {
@@ -5104,7 +5068,7 @@ export default function ManutenzioneApp() {
   }
 
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo' | 'notifiche'
-  const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
+  const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null);
 
@@ -5117,20 +5081,26 @@ export default function ManutenzioneApp() {
 
   // Carica conteggi reali da Supabase per l'Hub
   useEffect(() => {
-      if (!session) return;
-      (async () => {
-        const [{ count: vc }, { count: cc }, { count: ca }] = await Promise.all([
-          supabase.from('vehicles').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
-          supabase.from('carrozzine').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
-          supabase.from('camere').select('*', { count: 'exact', head: true }).catch(() => ({ count: 0 })),
-        ]);
-        setCounts({
-          vehicles: Array(vc || 0).fill(null),
-          carrozzine: Array(cc || 0).fill(null),
-          camere: Array(ca || 0).fill(null),
-        });
-      })();
-    }, [screen, session]);
+    if (!session) return;
+    let mounted = true;
+    (async () => {
+      const [vRes, cRes, caRes] = await Promise.all([
+        supabase.from('vehicles').select('*', { count: 'exact', head: true }),
+        supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
+        supabase.from('camere').select('*', { count: 'exact', head: true }),
+      ]);
+      if (!mounted) return;
+      const vc = vRes.count ?? 0;
+      const cc = cRes.count ?? 0;
+      const ca = caRes.count ?? 0;
+      setCounts({
+        vehicles: Array(vc || 0).fill(null),
+        carrozzine: Array(cc || 0).fill(null),
+        camere: Array(ca || 0).fill(null),
+      });
+    })();
+    return () => { mounted = false; };
+  }, [session]);
 
   if (authLoading) {
     return (
