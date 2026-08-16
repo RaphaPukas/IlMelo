@@ -4982,114 +4982,6 @@ function playNotificationSound() {
   } catch {}
 }
 
-/* ============================================================
-   NOTIFICHE PUSH — Service Worker + Web Push
-   ============================================================ */
-
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-}
-
-async function registerPush(userId) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
-  try {
-    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
-    await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    if (existing) return;
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-    const json = subscription.toJSON();
-    await supabase.from('push_subscriptions').upsert({
-      user_id: userId,
-      endpoint: subscription.endpoint,
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-    }, { onConflict: 'endpoint' });
-  } catch (e) {
-    console.error('Push registration failed:', e);
-  }
-}
-
-function playNotificationSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-  } catch {}
-}
-
-/* ============================================================
-   NOTIFICHE PUSH — Service Worker + Web Push
-   ============================================================ */
-
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-}
-
-async function registerPush(userId) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
-  try {
-    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
-    await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    if (existing) return;
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-    });
-    const json = subscription.toJSON();
-    await supabase.from('push_subscriptions').upsert({
-      user_id: userId,
-      endpoint: subscription.endpoint,
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-    }, { onConflict: 'endpoint' });
-  } catch (e) {
-    console.error('Push registration failed:', e);
-  }
-}
-
-function playNotificationSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-  } catch {}
-}
-
 export default function ManutenzioneApp() {
   if (!supabaseConfigured) {
     return (
@@ -5109,14 +5001,6 @@ export default function ManutenzioneApp() {
   const [counts, setCounts] = useState({ vehicles: SEED_VEHICLES, carrozzine: SEED, camere: S_CAMERE });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null);
-
-  useEffect(() => {
-    if (session?.user?.id) registerPush(session.user.id);
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    if (session?.user?.id) registerPush(session.user.id);
-  }, [session?.user?.id]);
 
   useEffect(() => {
     if (session?.user?.id) registerPush(session.user.id);
@@ -5183,3 +5067,4 @@ export default function ManutenzioneApp() {
     </RoleContext.Provider>
     </NotificheContext.Provider>
   );
+}
