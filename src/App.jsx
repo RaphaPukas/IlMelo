@@ -1528,7 +1528,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
 
 function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
-  const puoScrivere = isAdmin;
+  const puoScrivere = isAdmin || !initial;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato', priorita: 'Media' });
   const [nuovaTipologia, setNuovaTipologia] = useState(false);
@@ -2178,7 +2178,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
 
 function CarrozzinaDetail({ w, onBack, onUpdate }) {
   const { isAdmin } = usePermessi();
-  const puoScrivere = isAdmin;
+  const puoScrivere = isAdmin || !w?.id;
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
@@ -3188,8 +3188,8 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 }
 
 function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onCancel, onDelete }) {
-  const { isAdmin, puoEliminare, nomeVisualizzato } = usePermessi();
-  const puoScrivere = isAdmin || (initial?.segnalatoDa === nomeVisualizzato);
+  const { isAdmin, puoEliminare } = usePermessi();
+  const puoScrivere = isAdmin || !initial;
 
   // Inizializza i selettori a cascata dal valore esistente
   const [f, setF] = useState(initial || {
