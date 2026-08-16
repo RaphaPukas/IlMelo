@@ -419,27 +419,27 @@ function NotificationBell() {
 
       {aperto && (
         <div onClick={() => setAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a2e', color: '#fff', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a2e', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#5E3A8A', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
-                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#888' }}>✕</button>
+                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
+                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#fff' }}>✕</button>
               </div>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
-              {notifiche.length === 0 && <div style={{ padding: '32px 16px', textAlign: 'center', color: '#888', fontSize: 14 }}>Nessuna notifica ricevuta.</div>}
+              {notifiche.length === 0 && <div style={{ padding: '32px 16px', textAlign: 'center', color: '#ccc', fontSize: 14 }}>Nessuna notifica ricevuta.</div>}
               {notifiche.map(n => {
                 const isLetta = lette.has(n.id);
                 const info = NOTIFICA_TIPI[n.tipo] || { emoji: '📣' };
                 return (
                   <div key={n.id} onClick={() => markaLetta(n.id)}
-                    style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start', color: '#111' }}>
                     <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#fff' }}>{n.titolo}</div>
+                      <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#111' }}>{n.titolo}</div>
                       {n.corpo && <div style={{ fontSize: 12.5, color: '#444', marginBottom: 4 }}>{n.corpo}</div>}
-                      <div style={{ fontSize: 11.5, color: '#aaa' }}>
+                      <div style={{ fontSize: 11.5, color: '#555' }}>
                         {n.inviata_da && `Da: ${n.inviata_da} · `}
                         {new Date(n.created_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </div>
