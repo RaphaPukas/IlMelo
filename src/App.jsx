@@ -322,6 +322,7 @@ async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
     });
   } catch {}
 }
+}
 
 function useNotifications(userId) {
   const [notifiche, setNotifiche] = useState([]);
@@ -419,7 +420,7 @@ function NotificationBell() {
 
       {aperto && (
         <div onClick={() => setAperto(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#1a1a2e', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', color: '#111', borderRadius: '20px 20px 0 0', maxHeight: '75vh', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, sans-serif' }}>
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -428,13 +429,13 @@ function NotificationBell() {
               </div>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
-              {notifiche.length === 0 && <div style={{ padding: '32px 16px', textAlign: 'center', color: '#ccc', fontSize: 14 }}>Nessuna notifica ricevuta.</div>}
+              {notifiche.length === 0 && <div style={{ padding: '32px 16px', textAlign: 'center', color: '#888', fontSize: 14 }}>Nessuna notifica ricevuta.</div>}
               {notifiche.map(n => {
                 const isLetta = lette.has(n.id);
                 const info = NOTIFICA_TIPI[n.tipo] || { emoji: '📣' };
                 return (
                   <div key={n.id} onClick={() => markaLetta(n.id)}
-                    style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start', color: '#111' }}>
+                    style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: isLetta ? 500 : 700, fontSize: 14, marginBottom: 2, color: '#111' }}>{n.titolo}</div>
@@ -1528,7 +1529,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
 
 function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
-  const puoScrivere = isAdmin || !initial;
+  const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { targa: vehicles[0]?.targa || '', data: todayISO(), km: '', tipo: TIPI_MANUTENZIONE[0], descrizione: '', officina: '', costo: '', stato: 'Programmato', priorita: 'Media' });
   const [nuovaTipologia, setNuovaTipologia] = useState(false);
@@ -2002,7 +2003,7 @@ function MezziModule({ onHome }) {
               })}
             </div>
           </div>
-          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" visible />
+          <FAB onClick={() => setView({ name: 'add' })} label="Segnala" />
         </div>
       );
     }
@@ -2089,6 +2090,7 @@ const CARROZZINE_NAV_ITEMS = [
   ['controlli', ClipboardList, 'Controlli'],
   ['nuclei', Layers, 'Nuclei'],
   ['riepilogo', BarChart3, 'Riepilogo'],
+  ['segnalazioni', AlertTriangle, 'Segnala'],
 ];
 
 /* ---------- helpers ---------- */
@@ -2178,7 +2180,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
 
 function CarrozzinaDetail({ w, onBack, onUpdate }) {
   const { isAdmin } = usePermessi();
-  const puoScrivere = isAdmin || !w?.id;
+  const puoScrivere = isAdmin;
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
@@ -2573,6 +2575,41 @@ const SEED = [
 {id:113,data:"",marca:"Wimed",modello:"Reclining",seriale:"",tipologia:"Reclinabile",fornitore:"Melo",nucleo:"IKEA",stanza:"",ospite:"",stato:"",c:{gomme:"",mozzi:"",freni:"",pedalini:"",braccioli:"",portaborraccia:"",tavolino:"",manopole:"",seduta:"",poggiatesta:"",pulizia:""},note:""},
 {id:114,data:"",marca:"OSD",modello:"Millennium II",seriale:"",tipologia:"Standard",fornitore:"Melo",nucleo:"IKEA",stanza:"",ospite:"",stato:"",c:{gomme:"",mozzi:"",freni:"",pedalini:"",braccioli:"",portaborraccia:"",tavolino:"",manopole:"",seduta:"",poggiatesta:"",pulizia:""},note:""}
 ];/* ---------- Root ---------- */
+
+function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
+  const { nomeVisualizzato } = usePermessi();
+  const [f, setF] = useState({ carrozzinaId: items[0]?.id || '', descrizione: '', priorita: 'Media' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <>
+      <TopBar theme={CARROZZINE_COLORS} title="Segnala problema" onBack={onCancel} />
+      <div style={{ padding: 14 }}>
+        <Field label="Carrozzina">
+          <select value={f.carrozzinaId} onChange={set('carrozzinaId')} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {items.map(w => (
+              <option key={w.id} value={w.id}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Descrizione problema">
+          <textarea value={f.descrizione} onChange={set('descrizione')} rows={4} placeholder="Descrivi il problema..."
+            style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} />
+        </Field>
+        <Field label="Priorita">
+          <select value={f.priorita} onChange={set('priorita')} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {['Alta', 'Media', 'Bassa'].map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </Field>
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Annulla</button>
+          <button onClick={() => { if (!f.descrizione.trim()) return; onSave({ carrozzinaId: f.carrozzinaId, descrizione: f.descrizione, priorita: f.priorita, segnalatoDa: nomeVisualizzato }); }} style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700 }}>Invia segnalazione</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function CarrozzineModule({ onHome }) {
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
@@ -2668,7 +2705,6 @@ function CarrozzineModule({ onHome }) {
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
       {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} />}
-      {tab === 'segnalazioni' && !openItem && <FAB onClick={() => setView({ name: 'add' })} label='Segnala' visible />}
       {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
@@ -3202,8 +3238,8 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 }
 
 function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onCancel, onDelete }) {
-  const { isAdmin, puoEliminare } = usePermessi();
-  const puoScrivere = isAdmin || !initial;
+  const { isAdmin, puoEliminare, nomeVisualizzato } = usePermessi();
+  const puoScrivere = isAdmin || (initial?.segnalatoDa === nomeVisualizzato);
 
   // Inizializza i selettori a cascata dal valore esistente
   const [f, setF] = useState(initial || {
@@ -4947,7 +4983,113 @@ function playNotificationSound() {
   } catch {}
 }
 
+/* ============================================================
+   NOTIFICHE PUSH — Service Worker + Web Push
+   ============================================================ */
 
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
+  try {
+    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const json = subscription.toJSON();
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  } catch (e) {
+    console.error('Push registration failed:', e);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch {}
+}
+
+/* ============================================================
+   NOTIFICHE PUSH — Service Worker + Web Push
+   ============================================================ */
+
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+async function registerPush(userId) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
+  try {
+    const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
+    await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const json = subscription.toJSON();
+    await supabase.from('push_subscriptions').upsert({
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }, { onConflict: 'endpoint' });
+  } catch (e) {
+    console.error('Push registration failed:', e);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch {}
+}
 
 export default function ManutenzioneApp() {
   if (!supabaseConfigured) {
