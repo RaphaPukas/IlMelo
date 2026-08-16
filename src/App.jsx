@@ -301,8 +301,9 @@ const GLOBAL_FONTS = `
 // ============================================================
 
 const NOTIFICA_TIPI = {
-  intervento_struttura: { label: 'Interventi Struttura', modulo: 'struttura', emoji: '🏥' },
-  anomalia_mezzi:       { label: 'Anomalie Mezzi',       modulo: 'mezzi',     emoji: '🚗' },
+  intervento_struttura:  { label: 'Interventi Struttura',  modulo: 'struttura',  emoji: '🏥' },
+  anomalia_mezzi:        { label: 'Anomalie Mezzi',        modulo: 'mezzi',      emoji: '🚗' },
+  segnalazione_carrozzine: { label: 'Segnalazione Carrozzine', modulo: 'carrozzine', emoji: '♿' },
 };
 
 async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
@@ -2640,13 +2641,17 @@ function CarrozzineModule({ onHome }) {
   const [openId, setOpenId] = useState(null);
   const [filtro, setFiltro] = useState(null); // { tipo: 'nucleo'|'stato', valore }
   const [showMenu, setShowMenu] = useState(false);
+  const [view, setView] = useState(LIST_VIEW);
+  const interventiT = useSupaTable('interventi', 'id', [], ['dataSegnalazione', 'dataChiusura']);
   useBackable(showMenu, setShowMenu);
+  useBackable(view, setView);
   const [toast, setToast] = useState('');
 
   useBackable(tab, setTab);
   useBackable(openId, setOpenId);
 
   useEffect(() => { setOpenId(null); }, [tab]);
+  useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
