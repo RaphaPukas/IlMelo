@@ -368,18 +368,42 @@ function useNotifications(userId) {
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [userId]);
 
-  function markaLetta(notificaId) {
-    if (lette.has(notificaId)) return;
-    setLette(prev => new Set([...prev, notificaId]));
-    supabase.from('notifiche_lette').insert({ user_id: userId, notifica_id: notificaId }).catch(() => {});
-  }
+async function markaLetta(notificaId) {
+  if (lette.has(notificaId)) return;
 
-  function markaTutte() {
-    const nuove = notifiche.filter(n => iscrizioni.includes(n.tipo) && !lette.has(n.id));
-    if (!nuove.length) return;
-    setLette(prev => new Set([...prev, ...nuove.map(n => n.id)]));
-    supabase.from('notifiche_lette').insert(nuove.map(n => ({ user_id: userId, notifica_id: n.id }))).catch(() => {});
+  setLette(prev => new Set([...prev, notificaId]));
+
+  try {
+    await supabase
+      .from('notifiche_lette')
+      .insert({ user_id: userId, notifica_id: notificaId });
+  } catch (e) {
+    // La notifica resta marcata localmente anche se il salvataggio fallisce.
   }
+}
+
+async function markaTutte() {
+  const nuove = notifiche.filter(
+    n => iscrizioni.includes(n.tipo) && !lette.has(n.id)
+  );
+
+  if (!nuove.length) return;
+
+  setLette(prev => new Set([...prev, ...nuove.map(n => n.id)]));
+
+  try {
+    await supabase
+      .from('notifiche_lette')
+      .insert(
+        nuove.map(n => ({
+          user_id: userId,
+          notifica_id: n.id,
+        }))
+      );
+  } catch (e) {
+    // Evita che un errore di persistenza blocchi l'interfaccia.
+  }
+}
 
   const mie = notifiche.filter(n => iscrizioni.includes(n.tipo));
   const nonLette = mie.filter(n => !lette.has(n.id)).length;
