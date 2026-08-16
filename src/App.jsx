@@ -302,25 +302,64 @@ const GLOBAL_FONTS = `
 
 const NOTIFICA_TIPI = {
   intervento_struttura: { label: 'Interventi Struttura', modulo: 'struttura', emoji: '🏥' },
-  anomalia_mezzi:       { label: 'Anomalie Mezzi',       modulo: 'mezzi',     emoji: '🚗' },
+  anomalia_mezzi:       { label: 'Anomalie Mezzi', modulo: 'mezzi', emoji: '🚗' },
+  segnalazione_carrozzine: { label: 'Segnalazioni Carrozzine', modulo: 'carrozzine', emoji: '♿' },
 };
 
 async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
   const id = `N-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const modulo = NOTIFICA_TIPI[tipo]?.modulo || 'sistema';
+
   try {
-    // 1. Salva nel database
-    await supabase.from('notifiche').insert({ id, tipo, modulo, titolo, corpo, link_id: linkId, inviata_da });
-    // 2. Chiama la Edge Function per spedire le push (anche app chiuse)
-    await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notification`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({ record: { id, tipo, titolo, corpo, link_id: linkId } })
-    });
-  } catch {}
+    const { error: dbError } = await supabase
+      .from('notifiche')
+      .insert({
+        id,
+        tipo,
+        modulo,
+        titolo,
+        corpo,
+        link_id: linkId,
+        inviata_da
+      });
+
+    if (dbError) {
+      console.error('Errore salvataggio notifica:', dbError);
+      return { error: dbError };
+    }
+
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/push-notification`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          record: {
+            id,
+            tipo,
+            titolo,
+            corpo,
+            link_id: linkId
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('Errore Push:', response.status, text);
+      return { error: new Error(`Push notification: ${response.status}`) };
+    }
+
+    return { data: { id } };
+
+  } catch (error) {
+    console.error('Errore inviaNotifica:', error);
+    return { error };
+  }
 }
 
 function useNotifications(userId) {
@@ -349,8 +388,6 @@ function useNotifications(userId) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifiche' }, (payload) => {
         if (!mounted) return;
         setNotifiche(prev => [payload.new, ...prev]);
-        playNotificationSound();
-        playNotificationSound();
         playNotificationSound();
         // Notifica browser (se permesso concesso e l'utente è iscritto)
         supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
@@ -447,8 +484,8 @@ function NotificationBell() {
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
-                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#fff' }}>✕</button>
+                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#5E3A8A', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
+                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#5E3A8A' }}>✕</button>
               </div>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
@@ -2726,7 +2763,7 @@ content = <SegnalazioneCarrozzinaForm
       return;
     }
 
-    inviaNotifica({
+        const notificaResult = await inviaNotifica({
       tipo: 'segnalazione_carrozzine',
       titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}),
       corpo: seg.descrizione,
@@ -2734,7 +2771,13 @@ content = <SegnalazioneCarrozzinaForm
       inviata_da: seg.segnalatoDa,
     });
 
-    setToast('Segnalazione inviata');
+    if (notificaResult?.error) {
+      console.error('Errore invio notifica:', notificaResult.error);
+      setToast('Segnalazione salvata, ma notifica non inviata');
+      return;
+    }
+
+    setToast('Segnalazione e notifica inviate');
     goBack();
   }}
   onCancel={() => goBack()}
