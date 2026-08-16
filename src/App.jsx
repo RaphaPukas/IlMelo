@@ -2676,7 +2676,45 @@ function CarrozzineModule({ onHome }) {
     content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} onRinominaEnd={() => itemsT.reload ? itemsT.reload() : window.location.reload()} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
-      content = <SegnalazioneCarrozzinaForm items={items} onSave={(seg) => { inviaNotifica({ tipo: 'segnalazione_carrozzine', titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}), corpo: seg.descrizione, linkId: seg.carrozzinaId, inviata_da: seg.segnalatoDa }); setToast('Segnalazione inviata'); goBack(); }} onCancel={() => goBack()} />;
+content = <SegnalazioneCarrozzinaForm
+  items={items}
+  onSave={async (seg) => {
+    const id = uid();
+    const { error } = await interventiT.save({
+      id,
+      dataSegnalazione: todayISO(),
+      cameraZona: '',
+      descrizione: seg.descrizione,
+      priorita: seg.priorita,
+      tecnico: '',
+      stato: 'Programmato',
+      dataChiusura: null,
+      costo: null,
+      note: '',
+      segnalatoDa: seg.segnalatoDa,
+      foto: [],
+      tipologia: 'carrozzina',
+      carrozzinaId: seg.carrozzinaId,
+    });
+
+    if (error) {
+      setToast('Errore: ' + error.message);
+      return;
+    }
+
+    inviaNotifica({
+      tipo: 'segnalazione_carrozzine',
+      titolo: 'Problema carrozzina ' + labelOf(items.find(w => w.id === seg.carrozzinaId) || {}),
+      corpo: seg.descrizione,
+      linkId: id,
+      inviata_da: seg.segnalatoDa,
+    });
+
+    setToast('Segnalazione inviata');
+    goBack();
+  }}
+  onCancel={() => goBack()}
+/>;
     } else {
       content = (
         <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg }}>
