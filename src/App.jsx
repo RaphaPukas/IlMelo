@@ -322,7 +322,6 @@ async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
     });
   } catch {}
 }
-}
 
 function useNotifications(userId) {
   const [notifiche, setNotifiche] = useState([]);
