@@ -878,6 +878,197 @@ function UtentiScreen({ onHome, myUserId }) {
   );
 }
 
+
+function GruppiScreen({ onHome }) {
+  const [gruppi, setGruppi] = useState([]);
+  const [utenti, setUtenti] = useState([]);
+  const [permessi, setPermessi] = useState([]);
+  const [membri, setMembri] = useState([]);
+  const [gruppiPermessi, setGruppiPermessi] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [nuovoNome, setNuovoNome] = useState('');
+  const [nuovaDescrizione, setNuovaDescrizione] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function loadAll() {
+    setError('');
+    const [g, u, p, m, gp] = await Promise.all([
+      supabase.from('gruppi').select('*').order('nome'),
+      supabase.from('profiles').select('id,email,nome,cognome,role').order('email'),
+      supabase.from('permessi').select('*').order('nome'),
+      supabase.from('gruppi_utenti').select('*'),
+      supabase.from('gruppi_permessi').select('*'),
+    ]);
+    const firstError = [g, u, p, m, gp].find(r => r.error)?.error;
+    if (firstError) { setError(firstError.message); return; }
+    setGruppi(g.data || []);
+    setUtenti(u.data || []);
+    setPermessi(p.data || []);
+    setMembri(m.data || []);
+    setGruppiPermessi(gp.data || []);
+  }
+
+  useEffect(() => { loadAll(); }, []);
+
+  const selected = gruppi.find(g => g.id === selectedId) || null;
+  const selectedMembers = new Set(membri.filter(m => m.gruppo_id === selectedId).map(m => m.user_id));
+  const selectedPermissions = new Set(gruppiPermessi.filter(gp => gp.gruppo_id === selectedId).map(gp => gp.permesso_chiave));
+
+  async function creaGruppo() {
+    const nome = nuovoNome.trim();
+    if (!nome) return;
+    setBusy(true); setError('');
+    const { data, error } = await supabase.from('gruppi').insert({ nome, descrizione: nuovaDescrizione.trim() || null }).select().single();
+    if (error) setError(error.message);
+    else {
+      setGruppi(prev => [...prev, data].sort((a,b) => a.nome.localeCompare(b.nome)));
+      setSelectedId(data.id);
+      setNuovoNome(''); setNuovaDescrizione('');
+    }
+    setBusy(false);
+  }
+
+  async function toggleUtente(userId) {
+    if (!selectedId || busy) return;
+    setBusy(true); setError('');
+    const exists = membri.some(m => m.gruppo_id === selectedId && m.user_id === userId);
+    const result = exists
+      ? await supabase.from('gruppi_utenti').delete().eq('gruppo_id', selectedId).eq('user_id', userId)
+      : await supabase.from('gruppi_utenti').insert({ gruppo_id: selectedId, user_id: userId });
+    if (result.error) setError(result.error.message);
+    else setMembri(prev => exists
+      ? prev.filter(m => !(m.gruppo_id === selectedId && m.user_id === userId))
+      : [...prev, { gruppo_id: selectedId, user_id: userId }]
+    );
+    setBusy(false);
+  }
+
+  async function togglePermesso(chiave) {
+    if (!selectedId || busy) return;
+    setBusy(true); setError('');
+    const exists = gruppiPermessi.some(gp => gp.gruppo_id === selectedId && gp.permesso_chiave === chiave);
+    const result = exists
+      ? await supabase.from('gruppi_permessi').delete().eq('gruppo_id', selectedId).eq('permesso_chiave', chiave)
+      : await supabase.from('gruppi_permessi').insert({ gruppo_id: selectedId, permesso_chiave: chiave });
+    if (result.error) setError(result.error.message);
+    else setGruppiPermessi(prev => exists
+      ? prev.filter(gp => !(gp.gruppo_id === selectedId && gp.permesso_chiave === chiave))
+      : [...prev, { gruppo_id: selectedId, permesso_chiave: chiave }]
+    );
+    setBusy(false);
+  }
+
+  async function salvaGruppo() {
+    if (!selected) return;
+    setBusy(true); setError('');
+    const { data, error } = await supabase.from('gruppi').update({
+      nome: selected.nome.trim(),
+      descrizione: selected.descrizione?.trim() || null,
+    }).eq('id', selected.id).select().single();
+    if (error) setError(error.message);
+    else setGruppi(prev => prev.map(g => g.id === data.id ? data : g).sort((a,b) => a.nome.localeCompare(b.nome)));
+    setBusy(false);
+  }
+
+  async function eliminaGruppo() {
+    if (!selected) return;
+    if (!window.confirm(`Eliminare il gruppo "${selected.nome}"? Gli utenti non verranno eliminati.`)) return;
+    setBusy(true); setError('');
+    const { error } = await supabase.from('gruppi').delete().eq('id', selected.id);
+    if (error) setError(error.message);
+    else {
+      setGruppi(prev => prev.filter(g => g.id !== selected.id));
+      setMembri(prev => prev.filter(m => m.gruppo_id !== selected.id));
+      setGruppiPermessi(prev => prev.filter(gp => gp.gruppo_id !== selected.id));
+      setSelectedId(null);
+    }
+    setBusy(false);
+  }
+
+  const nomeUtente = (u) => ((u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : u.email);
+
+  return (
+    <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <TopBar theme={HUB_COLORS} title="Gruppi e permessi" subtitle={`${gruppi.length} gruppi`} onBack={onHome} backIcon={Home} />
+      <div style={{ padding: 14 }}>
+        {error && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
+
+        <Card theme={HUB_COLORS} style={{ marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Nuovo gruppo</div>
+          <input value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} placeholder="Es. Manutentori"
+            style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:8, outline:'none' }} />
+          <input value={nuovaDescrizione} onChange={e => setNuovaDescrizione(e.target.value)} placeholder="Descrizione (facoltativa)"
+            style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:10, outline:'none' }} />
+          <button onClick={creaGruppo} disabled={!nuovoNome.trim() || busy}
+            style={{ width:'100%', padding:11, border:0, borderRadius:10, background:'#1C2321', color:'#fff', fontWeight:700, opacity:(!nuovoNome.trim() || busy)?0.5:1 }}>
+            <Plus size={15} style={{ verticalAlign:'-2px', marginRight:5 }} /> Crea gruppo
+          </button>
+        </Card>
+
+        {gruppi.length > 0 && (
+          <div style={{ display:'flex', gap:7, overflowX:'auto', paddingBottom:10 }}>
+            {gruppi.map(g => (
+              <button key={g.id} onClick={() => setSelectedId(g.id)}
+                style={{ flexShrink:0, border:`1.5px solid ${selectedId===g.id ? '#1C2321' : HUB_COLORS.line}`, borderRadius:999, padding:'7px 12px', background:selectedId===g.id ? '#1C2321' : '#fff', color:selectedId===g.id ? '#fff' : HUB_COLORS.ink, fontWeight:700, fontSize:12 }}>
+                {g.nome}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selected && (
+          <>
+            <Card theme={HUB_COLORS} style={{ marginBottom:12 }}>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:8 }}>Impostazioni gruppo</div>
+              <input value={selected.nome} onChange={e => setGruppi(prev => prev.map(g => g.id===selected.id ? {...g,nome:e.target.value} : g))}
+                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:8, outline:'none' }} />
+              <textarea value={selected.descrizione || ''} onChange={e => setGruppi(prev => prev.map(g => g.id===selected.id ? {...g,descrizione:e.target.value} : g))}
+                rows={2} placeholder="Descrizione"
+                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:10, outline:'none', resize:'vertical' }} />
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={salvaGruppo} disabled={busy} style={{ flex:1, padding:10, border:0, borderRadius:10, background:'#1C2321', color:'#fff', fontWeight:700 }}>Salva</button>
+                <button onClick={eliminaGruppo} disabled={busy} style={{ padding:'10px 14px', border:0, borderRadius:10, background:'#C0392B', color:'#fff', fontWeight:700 }}>Elimina</button>
+              </div>
+            </Card>
+
+            <Card theme={HUB_COLORS} style={{ marginBottom:12 }}>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Utenti del gruppo</div>
+              <div style={{ fontSize:12, color:HUB_COLORS.muted, marginBottom:10 }}>Un utente può appartenere a più gruppi.</div>
+              {utenti.map(u => (
+                <label key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
+                  <input type="checkbox" checked={selectedMembers.has(u.id)} onChange={() => toggleUtente(u.id)} disabled={busy} style={{ width:18, height:18 }} />
+                  <span style={{ flex:1, fontSize:13.5 }}>
+                    <b>{nomeUtente(u)}</b>
+                    <span style={{ color:HUB_COLORS.muted }}> · {RUOLO_LABEL[u.role] || u.role}</span>
+                  </span>
+                </label>
+              ))}
+            </Card>
+
+            <Card theme={HUB_COLORS}>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Permessi del gruppo</div>
+              <div style={{ fontSize:12, color:HUB_COLORS.muted, marginBottom:10 }}>Questi permessi sono la base per i futuri blocchi del cruscotto.</div>
+              {permessi.map(p => (
+                <label key={p.chiave} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
+                  <input type="checkbox" checked={selectedPermissions.has(p.chiave)} onChange={() => togglePermesso(p.chiave)} disabled={busy} style={{ width:18, height:18 }} />
+                  <span style={{ flex:1, fontSize:13.5 }}>
+                    <b>{p.nome}</b>
+                    {p.descrizione && <span style={{ display:'block', fontSize:11.5, color:HUB_COLORS.muted, marginTop:2 }}>{p.descrizione}</span>}
+                  </span>
+                </label>
+              ))}
+            </Card>
+          </>
+        )}
+
+        {gruppi.length === 0 && <Empty theme={HUB_COLORS} icon={Users} text="Nessun gruppo creato. Crea il primo gruppo, ad esempio “Manutentori”." />}
+      </div>
+    </div>
+  );
+}
+
 function ProfiloScreen({ onHome, profile, onSaved }) {
   const [nome, setNome] = useState(profile?.nome || '');
   const [cognome, setCognome] = useState(profile?.cognome || '');
@@ -5007,7 +5198,7 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenProfilo, onOpenNotifiche }) {
+function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -5021,6 +5212,11 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
             {role === 'admin' && (
               <button onClick={onOpenUsers} title="Gestione utenti" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <UserCog size={17} />
+              </button>
+            )}
+            {role === 'admin' && (
+              <button onClick={onOpenGruppi} title="Gruppi e permessi" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                <Users size={17} />
               </button>
             )}
             {role === 'admin' && (
@@ -5174,7 +5370,7 @@ export default function ManutenzioneApp() {
     );
   }
 
-  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo' | 'notifiche'
+  const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'gruppi' | 'profilo' | 'notifiche'
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
@@ -5231,6 +5427,7 @@ export default function ManutenzioneApp() {
       {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
       {screen === 'procedure' && <ProcedureModule onHome={() => setScreen('hub')} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
+      {screen === 'gruppi' && <GruppiScreen onHome={() => setScreen('hub')} />}
       {screen === 'gestione-notifiche' && <GestioneNotificheScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'profilo' && (
         <ProfiloScreen onHome={() => setScreen('hub')} profile={{ ...profile, email: session.user.email }} onSaved={refreshProfile} />
@@ -5243,6 +5440,7 @@ export default function ManutenzioneApp() {
           role={role}
           onSignOut={signOut}
           onOpenUsers={() => setScreen('utenti')}
+          onOpenGruppi={() => setScreen('gruppi')}
           onOpenProfilo={() => setScreen('profilo')}
           onOpenNotifiche={() => setScreen('gestione-notifiche')}
         />
