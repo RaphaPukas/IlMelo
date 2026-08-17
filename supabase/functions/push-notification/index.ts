@@ -26,12 +26,21 @@ serve(async (req) => {
       VAPID_PRIVATE_KEY
     );
 
-    const subsRes = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?select=*`, {
-      headers: {
-        'apikey': SUPABASE_SERVICE_ROLE_KEY,
-        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    // Fetch subscriptions, excluding the sender (inviata_da) so the operator
+    // who created the report doesn't receive their own push.
+    const senderFilter = record.inviata_da
+      ? `&user_id=neq.${encodeURIComponent(record.inviata_da)}`
+      : '';
+
+    const subsRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/push_subscriptions?select=*${senderFilter}`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        }
       }
-    });
+    );
 
     if (!subsRes.ok) throw new Error(`Fetch subs failed: ${subsRes.status}`);
     const subs = await subsRes.json();
@@ -62,6 +71,7 @@ serve(async (req) => {
       })
     );
 
+    // Clean expired subscriptions (HTTP 410)
     const expired = results
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => r.status === 'rejected' && r.reason?.statusCode === 410)
