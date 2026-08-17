@@ -2857,13 +2857,20 @@ function CarrozzineModule({ onHome, initialNotification }) {
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
   // Apertura diretta da una notifica.
-  useEffect(() => {
-    if (!initialNotification || !ready) return;
-    if (initialNotification.tipo === 'segnalazione_carrozzine') {
-      const s = segnalazioniCarrozzine.find(x => x.id === initialNotification.link_id);
-      if (s) { setTab('segnalazioni'); setView({ name: 'detail', segnalazione: s }); }
+useEffect(() => {
+  if (!initialNotification || !ready || !interventiT.ready) return;
+
+  if (initialNotification.tipo === 'segnalazione_carrozzine') {
+    const s = segnalazioniCarrozzine.find(
+      x => x.id === initialNotification.link_id
+    );
+
+    if (s) {
+      setTab('segnalazioni');
+      setView({ name: 'detail', segnalazione: s });
     }
-  }, [ready]);
+  }
+}, [initialNotification, ready, interventiT.ready, segnalazioniCarrozzine]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -5227,7 +5234,7 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
+function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -5284,7 +5291,30 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 16.5, marginBottom: 2 }}>{m.name}</div>
                 <div style={{ fontSize: 12.5, color: HUB_COLORS.muted, marginBottom: 6 }}>{m.desc}</div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.colorSoft, padding: '2.5px 8px', borderRadius: 999 }}>{m.stat(counts)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+  <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.colorSoft, padding: '2.5px 8px', borderRadius: 999 }}>
+    {m.stat(counts)}
+  </span>
+
+  {alertCounts?.[m.key] > 0 && (
+    <span style={{
+      minWidth: 21,
+      height: 21,
+      padding: '0 6px',
+      borderRadius: 999,
+      background: '#C62828',
+      color: '#fff',
+      fontSize: 11,
+      fontWeight: 800,
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxSizing: 'border-box'
+    }}>
+      {alertCounts[m.key]}
+    </span>
+  )}
+</div>
               </div>
               <ChevronRight size={19} color={HUB_COLORS.muted} />
             </div>
@@ -5402,6 +5432,7 @@ export default function ManutenzioneApp() {
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'gruppi' | 'profilo' | 'notifiche'
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
+  const [alertCounts, setAlertCounts] = useState({ vehicles: 0, carrozzine: 0, camere: 0 });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
@@ -5429,11 +5460,39 @@ export default function ManutenzioneApp() {
     if (!session) return;
     let mounted = true;
     (async () => {
-      const [vRes, cRes, caRes] = await Promise.all([
-        supabase.from('vehicles').select('*', { count: 'exact', head: true }),
-        supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
-        supabase.from('camere').select('*', { count: 'exact', head: true }),
-      ]);
+const [
+  vRes,
+  cRes,
+  caRes,
+  vAlertRes,
+  cAlertRes,
+  caAlertRes
+] = await Promise.all([
+  supabase.from('vehicles').select('*', { count: 'exact', head: true }),
+  supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
+  supabase.from('camere').select('*', { count: 'exact', head: true }),
+
+  // Segnalazioni aperte Mezzi
+  supabase
+    .from('maints')
+    .select('*', { count: 'exact', head: true })
+    .eq('tipo', 'Segnalazione anomalia')
+    .neq('stato', 'Chiuso'),
+
+  // Segnalazioni aperte Carrozzine
+  supabase
+    .from('interventi')
+    .select('*', { count: 'exact', head: true })
+    .eq('tipologia', 'carrozzina')
+    .neq('stato', 'Chiuso'),
+
+  // Interventi aperti Struttura
+  supabase
+    .from('interventi')
+    .select('*', { count: 'exact', head: true })
+    .neq('tipologia', 'carrozzina')
+    .neq('stato', 'Chiuso'),
+]);
       if (!mounted) return;
       const vc = vRes.count ?? 0;
       const cc = cRes.count ?? 0;
@@ -5443,6 +5502,12 @@ export default function ManutenzioneApp() {
         carrozzine: Array(cc || 0).fill(null),
         camere: Array(ca || 0).fill(null),
       });
+
+setAlertCounts({
+  vehicles: vAlertRes.count ?? 0,
+  carrozzine: cAlertRes.count ?? 0,
+  camere: caAlertRes.count ?? 0,
+});
     })();
     return () => { mounted = false; };
   }, [session]);
@@ -5478,6 +5543,7 @@ export default function ManutenzioneApp() {
         <HubScreen
           onOpen={setScreen}
           counts={counts}
+          alertCounts={alertCounts}
           nomeVisualizzato={nomeVisualizzato({ nome, cognome, email: session.user.email })}
           role={role}
           onSignOut={signOut}
