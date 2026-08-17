@@ -2629,6 +2629,7 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
 }
 
 function CarrozzineModule({ onHome }) {
+  const { isAdmin } = usePermessi();
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
   const ready = itemsT.ready;
@@ -2768,6 +2769,17 @@ function CarrozzineModule({ onHome }) {
                   goBack();
                 }} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.ok, color: '#fff', fontWeight: 700 }}>
                   Chiudi segnalazione
+                </button>
+              )}
+              {isAdmin && (
+                <button onClick={async () => {
+                  if (!window.confirm('Eliminare definitivamente questa segnalazione?')) return;
+                  const { error } = await supabase.from('interventi').delete().eq('id', s.id);
+                  if (error) { setToast('Errore: ' + error.message); return; }
+                  setToast('Segnalazione eliminata');
+                  goBack();
+                }} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.danger, color: '#fff', fontWeight: 700, marginTop: 10 }}>
+                  Elimina segnalazione
                 </button>
               )}
             </Card>
