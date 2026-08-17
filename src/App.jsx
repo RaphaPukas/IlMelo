@@ -5074,19 +5074,30 @@ async function registerPush(userId) {
     if (!vapidKey) return;
     const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
     await navigator.serviceWorker.ready;
+
     const existing = await registration.pushManager.getSubscription();
-    if (existing) return;
-    const subscription = await registration.pushManager.subscribe({
+    const subscription = existing || await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: vapidKey
     });
+
     const json = subscription.toJSON();
-    await supabase.from('push_subscriptions').upsert({
-      user_id: userId,
-      endpoint: subscription.endpoint,
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-    }, { onConflict: 'endpoint' });
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+      throw new Error('Subscription push non valida');
+    }
+
+    const { error } = await supabase
+      .from('push_subscriptions')
+      .upsert({
+        user_id: userId,
+        endpoint: json.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+      }, { onConflict: 'endpoint' });
+
+    if (error) {
+      if (process.env.NODE_ENV === 'development') console.error('Errore salvataggio subscription push:', error);
+    }
   } catch (e) {
     if (process.env.NODE_ENV === 'development') console.error('Push registration failed:', e);
   }
