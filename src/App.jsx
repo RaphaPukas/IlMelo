@@ -5485,6 +5485,7 @@ export default function ManutenzioneApp() {
           onOpenGruppi={() => setScreen('gruppi')}
           onOpenProfilo={() => setScreen('profilo')}
           onOpenNotifiche={() => setScreen('gestione-notifiche')}
+          onOpenNotification={openNotificationTarget}
         />
       )}
     </RoleContext.Provider>
