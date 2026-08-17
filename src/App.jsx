@@ -321,14 +321,15 @@ async function inviaNotifica({ tipo, titolo, corpo, linkId, inviata_da }) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ record: { id, tipo, titolo, corpo, link_id: linkId } })
+      body: JSON.stringify({ record: { id, tipo, titolo, corpo, link_id: linkId, inviata_da } })
     });
   } catch (e) {
     if (process.env.NODE_ENV === 'development') console.warn('inviaNotifica failed:', e);
   }
 }
 
-function useNotifications(userId) {
+function useNotifications(userId, role) {
+  const isAdmin = role === 'admin';
   const [notifiche, setNotifiche] = useState([]);
   const [lette, setLette] = useState(new Set());
   const [iscrizioni, setIscrizioni] = useState([]);
@@ -354,61 +355,49 @@ function useNotifications(userId) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifiche' }, (payload) => {
         if (!mounted) return;
         setNotifiche(prev => [payload.new, ...prev]);
+        // NON mostrare notifica browser al mittente stesso
+        if (payload.new.inviata_da === userId) return;
         playNotificationSound();
-        // Notifica browser (se permesso concesso e l'utente è iscritto)
-        supabase.from('notifica_iscrizioni').select('tipo').eq('user_id', userId).eq('tipo', payload.new.tipo)
-          .then(({ data }) => {
-            if (data?.length > 0 && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              new Notification(payload.new.titolo, {
-                body: payload.new.corpo || '',
-                icon: '/apple-touch-icon.png',
-              });
-            }
+        // Notifica browser (admin vede sempre; altri solo se iscritti)
+        const shouldNotify = isAdmin || iscrizioni.includes(payload.new.tipo);
+        if (shouldNotify && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(payload.new.titolo, {
+            body: payload.new.corpo || '',
+            icon: '/apple-touch-icon.png',
           });
+        }
       })
       .subscribe();
 
     return () => { mounted = false; supabase.removeChannel(ch); };
-  }, [userId]);
+  }, [userId, isAdmin]);
 
-async function markaLetta(notificaId) {
-  if (lette.has(notificaId)) return;
-
-  setLette(prev => new Set([...prev, notificaId]));
-
-  try {
-    await supabase
-      .from('notifiche_lette')
-      .insert({ user_id: userId, notifica_id: notificaId });
-  } catch (e) {
-    if (process.env.NODE_ENV === 'development') console.warn('markaLetta failed:', e);
+  async function markaLetta(notificaId) {
+    if (lette.has(notificaId)) return;
+    setLette(prev => new Set([...prev, notificaId]));
+    try {
+      await supabase.from('notifiche_lette').insert({ user_id: userId, notifica_id: notificaId });
+    } catch (e) {
+      if (process.env.NODE_ENV === 'development') console.warn('markaLetta failed:', e);
+    }
   }
-}
 
-async function markaTutte() {
-  const nuove = notifiche.filter(
-    n => iscrizioni.includes(n.tipo) && !lette.has(n.id)
-  );
-
-  if (!nuove.length) return;
-
-  setLette(prev => new Set([...prev, ...nuove.map(n => n.id)]));
-
-  try {
-    await supabase
-      .from('notifiche_lette')
-      .insert(
-        nuove.map(n => ({
-          user_id: userId,
-          notifica_id: n.id,
-        }))
+  async function markaTutte() {
+    const target = notifiche.filter(
+      n => (isAdmin || iscrizioni.includes(n.tipo)) && !lette.has(n.id)
+    );
+    if (!target.length) return;
+    setLette(prev => new Set([...prev, ...target.map(n => n.id)]));
+    try {
+      await supabase.from('notifiche_lette').insert(
+        target.map(n => ({ user_id: userId, notifica_id: n.id }))
       );
-  } catch (e) {
-    // Evita che un errore di persistenza blocchi l'interfaccia.
+    } catch (e) {
+      if (process.env.NODE_ENV === 'development') console.warn('markaTutte failed:', e);
+    }
   }
-}
 
-  const mie = notifiche.filter(n => iscrizioni.includes(n.tipo));
+  const mie = notifiche.filter(n => isAdmin || iscrizioni.includes(n.tipo));
   const nonLette = mie.filter(n => !lette.has(n.id)).length;
 
   return { notifiche: mie, lette, nonLette, iscrizioni, markaLetta, markaTutte, reload: () => {} };
@@ -5141,7 +5130,7 @@ export default function ManutenzioneApp() {
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'profilo' | 'notifiche'
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
-  const notificheCtx = useNotifications(session?.user?.id || null);
+  const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
   useEffect(() => {
     if (session?.user?.id) registerPush(session.user.id);
