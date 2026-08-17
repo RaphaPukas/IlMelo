@@ -5227,7 +5227,7 @@ const MODULES = [
   },
 ];
 
-function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche }) {
+function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
