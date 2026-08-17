@@ -444,8 +444,8 @@ function NotificationBell() {
             <div style={{ padding: '16px 16px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #EEE' }}>
               <span style={{ fontWeight: 700, fontSize: 16 }}>Notifiche</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {nonLette > 0 && <button onClick={markaTutte} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 12.5, fontWeight: 600 }}>Segna tutte lette</button>}
-                <button onClick={() => setAperto(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#fff' }}>✕</button>
+                {nonLette > 0 && <button onClick={markaTutte} style={{ background: '#F1EEF8', border: '1px solid #DDD5EA', borderRadius: 8, padding: '6px 9px', color: '#5E3A8A', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Segna tutte lette</button>}
+                <button onClick={() => setAperto(false)} aria-label="Chiudi notifiche" style={{ background: '#F1EEF8', border: '1px solid #DDD5EA', borderRadius: 8, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#3E3150', cursor: 'pointer' }}>✕</button>
               </div>
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
@@ -4812,8 +4812,6 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
   const [errore, setErrore] = useState('');
   const imgRef = useRef(null); const fileRef = useRef(null);
   const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
-  useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
-  useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
 
