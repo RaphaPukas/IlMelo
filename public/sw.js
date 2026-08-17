@@ -1,9 +1,7 @@
-// public/sw.js — Service Worker notifiche push IlMelo
-
-const APP_URL = 'https://raphapukas.github.io/IlMelo/';
+// public/sw.js — Service Worker per notifiche push
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -13,25 +11,16 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
-  let data;
-
-  try {
-    data = event.data.json();
-  } catch {
-    data = {
-      title: 'IlMelo',
-      body: event.data.text()
-    };
-  }
+  const data = event.data.json();
 
   const options = {
     body: data.body || 'Nuova notifica',
-    icon: data.icon || `${APP_URL}apple-touch-icon.png`,
-    badge: data.badge || `${APP_URL}apple-touch-icon.png`,
+    icon: data.icon || 'https://raphapukas.github.io/IlMelo/apple-touch-icon.png',
+    badge: data.badge || 'https://raphapukas.github.io/IlMelo/apple-touch-icon.png',
     tag: data.tag || 'default',
     requireInteraction: true,
     data: data.data || {
-      url: APP_URL
+      url: 'https://raphapukas.github.io/IlMelo/'
     }
   };
 
@@ -46,23 +35,22 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const targetUrl =
-    event.notification.data?.url || APP_URL;
+  const url =
+    event.notification.data?.url ||
+    'https://raphapukas.github.io/IlMelo/';
 
   event.waitUntil(
     self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true
-    }).then(async (clients) => {
-
+    }).then((clients) => {
       for (const client of clients) {
-        if (client.url.startsWith(APP_URL)) {
-          await client.navigate(targetUrl);
+        if (client.url.startsWith('https://raphapukas.github.io/IlMelo/')) {
           return client.focus();
         }
       }
 
-      return self.clients.openWindow(targetUrl);
+      return self.clients.openWindow(url);
     })
   );
 });
