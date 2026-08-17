@@ -406,7 +406,7 @@ function useNotifications(userId, role) {
 const NotificheContext = createContext(null);
 function useNotificheCtx() { return useContext(NotificheContext); }
 
-function NotificationBell() {
+function NotificationBell({ onOpenNotification }) {
   const ctx = useNotificheCtx();
   const [aperto, setAperto] = useState(false);
 
@@ -454,7 +454,11 @@ function NotificationBell() {
                 const isLetta = lette.has(n.id);
                 const info = NOTIFICA_TIPI[n.tipo] || { emoji: '📣' };
                 return (
-                  <div key={n.id} onClick={() => markaLetta(n.id)}
+                  <div key={n.id} onClick={async () => {
+                    await markaLetta(n.id);
+                    setAperto(false);
+                    if (onOpenNotification) onOpenNotification(n);
+                  }}
                     style={{ padding: '12px 16px', borderBottom: '1px solid #F5F5F5', background: isLetta ? '#fff' : '#F8F4FF', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <span style={{ fontSize: 22, flexShrink: 0 }}>{info.emoji}</span>
                     <div style={{ minWidth: 0 }}>
@@ -2062,7 +2066,7 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 }
 
 /* ---------- Root ---------- */
-function MezziModule({ onHome }) {
+function MezziModule({ onHome, initialNotification }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
@@ -2080,6 +2084,15 @@ function MezziModule({ onHome }) {
   useBackable(view, setView);
 
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
+
+  // Apertura diretta da una notifica.
+  useEffect(() => {
+    if (!initialNotification || !ready) return;
+    if (initialNotification.tipo === 'anomalia_mezzi') {
+      const m = maints.find(x => x.id === initialNotification.link_id);
+      if (m) { setTab('manutenzioni'); setView({ name: 'edit', m }); }
+    }
+  }, [ready]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -2819,7 +2832,7 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
   );
 }
 
-function CarrozzineModule({ onHome }) {
+function CarrozzineModule({ onHome, initialNotification }) {
   const { isAdmin } = usePermessi();
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
@@ -2842,6 +2855,15 @@ function CarrozzineModule({ onHome }) {
 
   useEffect(() => { setOpenId(null); }, [tab]);
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
+
+  // Apertura diretta da una notifica.
+  useEffect(() => {
+    if (!initialNotification || !ready) return;
+    if (initialNotification.tipo === 'segnalazione_carrozzine') {
+      const s = segnalazioniCarrozzine.find(x => x.id === initialNotification.link_id);
+      if (s) { setTab('segnalazioni'); setView({ name: 'detail', segnalazione: s }); }
+    }
+  }, [ready]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -4356,7 +4378,7 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
 }
 
 /* ---------- Root ---------- */
-function StrutturaModule({ onHome }) {
+function StrutturaModule({ onHome, initialNotification }) {
   const camereT = useSupaTable('camere', 'codice', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
   const tecniciT = useSupaTable('tecnici', 'id', S_TECNICI);
@@ -4382,6 +4404,15 @@ function StrutturaModule({ onHome }) {
   useBackable(view, setView);
 
   useEffect(() => { setView(LIST_VIEW); setFiltroRiepilogo(null); }, [tab, subScreen]);
+
+  // Apertura diretta da una notifica.
+  useEffect(() => {
+    if (!initialNotification || !ready) return;
+    if (initialNotification.tipo === 'intervento_struttura') {
+      const i = interventi.find(x => x.id === initialNotification.link_id);
+      if (i) { setTab('interventi'); setView({ name: 'edit', i }); }
+    }
+  }, [ready]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -5091,7 +5122,7 @@ function ArmadioForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---- Modulo Root ---- */
-function ProcedureModule({ onHome }) {
+function ProcedureModule({ onHome, initialNotification }) {
   const procT  = useSupaTable('procedure_manuali', 'id', []);
   const ricT   = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione','prossimaScadenza']);
   const armT   = useSupaTable('armadi', 'id', []);
@@ -5206,7 +5237,7 @@ function HubScreen({ onOpen, counts, nomeVisualizzato, role, onSignOut, onOpenUs
             <WrenchHub size={24} />
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <NotificationBell />
+            <NotificationBell onOpenNotification={onOpenNotification} />
             {role === 'admin' && (
               <button onClick={onOpenUsers} title="Gestione utenti" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                 <UserCog size={17} />
@@ -5369,6 +5400,7 @@ export default function ManutenzioneApp() {
   }
 
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'gruppi' | 'profilo' | 'notifiche'
+  const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
@@ -5379,6 +5411,18 @@ export default function ManutenzioneApp() {
 
   useHardwareBack();
   useBackable(screen, setScreen);
+
+  const goHome = () => {
+    setNotificationTarget(null);
+    setScreen('hub');
+  };
+
+  const openNotificationTarget = (n) => {
+    const modulo = NOTIFICA_TIPI[n?.tipo]?.modulo;
+    if (!modulo || !n?.link_id) return;
+    setNotificationTarget(n);
+    setScreen(modulo);
+  };
 
   // Carica conteggi reali da Supabase per l'Hub
   useEffect(() => {
@@ -5420,10 +5464,10 @@ export default function ManutenzioneApp() {
   return (
     <NotificheContext.Provider value={notificheCtx}>
     <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome }}>
-      {screen === 'mezzi' && <MezziModule onHome={() => setScreen('hub')} />}
-      {screen === 'carrozzine' && <CarrozzineModule onHome={() => setScreen('hub')} />}
-      {screen === 'struttura' && <StrutturaModule onHome={() => setScreen('hub')} />}
-      {screen === 'procedure' && <ProcedureModule onHome={() => setScreen('hub')} />}
+      {screen === 'mezzi' && <MezziModule onHome={goHome} initialNotification={notificationTarget} />}
+      {screen === 'carrozzine' && <CarrozzineModule onHome={goHome} initialNotification={notificationTarget} />}
+      {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} />}
+      {screen === 'procedure' && <ProcedureModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'gruppi' && <GruppiScreen onHome={() => setScreen('hub')} />}
       {screen === 'gestione-notifiche' && <GestioneNotificheScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
