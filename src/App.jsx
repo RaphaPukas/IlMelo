@@ -2774,8 +2774,20 @@ function CarrozzineModule({ onHome }) {
               {isAdmin && (
                 <button onClick={async () => {
                   if (!window.confirm('Eliminare definitivamente questa segnalazione?')) return;
-                  const { error } = await supabase.from('interventi').delete().eq('id', s.id);
-                  if (error) { setToast('Errore: ' + error.message); return; }
+                  const { data, error } = await supabase
+                    .from('interventi')
+                    .delete()
+                    .eq('id', s.id)
+                    .select();
+                  if (process.env.NODE_ENV === 'development') console.log('DELETE SEGNALAZIONE:', { data, error, id: s.id });
+                  if (error) {
+                    setToast('Errore eliminazione: ' + error.message);
+                    return;
+                  }
+                  if (!data || data.length === 0) {
+                    setToast('Eliminazione non autorizzata o segnalazione non trovata');
+                    return;
+                  }
                   setToast('Segnalazione eliminata');
                   goBack();
                 }} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.danger, color: '#fff', fontWeight: 700, marginTop: 10 }}>
