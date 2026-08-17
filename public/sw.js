@@ -3,7 +3,7 @@
 const APP_URL = 'https://raphapukas.github.io/IlMelo/';
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
@@ -55,8 +55,6 @@ self.addEventListener('notificationclick', (event) => {
       includeUncontrolled: true
     }).then(async (clients) => {
 
-      // Se l'app è già aperta, aggiorna la pagina con l'URL
-      // della notifica invece di limitarsi a fare focus.
       for (const client of clients) {
         if (client.url.startsWith(APP_URL)) {
           await client.navigate(targetUrl);
@@ -64,27 +62,7 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
 
-      // App non aperta: aprila direttamente sull'URL della notifica.
       return self.clients.openWindow(targetUrl);
-    })
-  );
-});
-  const url =
-    event.notification.data?.url ||
-    'https://raphapukas.github.io/IlMelo/';
-
-  event.waitUntil(
-    self.clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true
-    }).then((clients) => {
-      for (const client of clients) {
-        if (client.url.startsWith('https://raphapukas.github.io/IlMelo/')) {
-          return client.focus();
-        }
-      }
-
-      return self.clients.openWindow(url);
     })
   );
 });
