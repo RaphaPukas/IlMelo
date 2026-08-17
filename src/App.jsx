@@ -2086,13 +2086,19 @@ function MezziModule({ onHome, initialNotification }) {
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
   // Apertura diretta da una notifica.
+  const notificationHandledRef = useRef(null);
   useEffect(() => {
     if (!initialNotification || !ready) return;
+    const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
+    if (notificationHandledRef.current === notificationKey) return;
     if (initialNotification.tipo === 'anomalia_mezzi') {
       const m = maints.find(x => x.id === initialNotification.link_id);
-      if (m) { setTab('manutenzioni'); setView({ name: 'edit', m }); }
+      if (m) {
+        notificationHandledRef.current = notificationKey;
+        setTab('manutenzioni'); setView({ name: 'edit', m });
+      }
     }
-  }, [ready]);
+  }, [initialNotification, ready, maints]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
@@ -2857,8 +2863,12 @@ function CarrozzineModule({ onHome, initialNotification }) {
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
   // Apertura diretta da una notifica.
+const notificationHandledRef = useRef(null);
 useEffect(() => {
   if (!initialNotification || !ready || !interventiT.ready) return;
+
+  const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
+  if (notificationHandledRef.current === notificationKey) return;
 
   if (initialNotification.tipo === 'segnalazione_carrozzine') {
     const s = segnalazioniCarrozzine.find(
@@ -2866,6 +2876,7 @@ useEffect(() => {
     );
 
     if (s) {
+      notificationHandledRef.current = notificationKey;
       setTab('segnalazioni');
       setView({ name: 'detail', segnalazione: s });
     }
@@ -4413,13 +4424,19 @@ function StrutturaModule({ onHome, initialNotification }) {
   useEffect(() => { setView(LIST_VIEW); setFiltroRiepilogo(null); }, [tab, subScreen]);
 
   // Apertura diretta da una notifica.
+  const notificationHandledRef = useRef(null);
   useEffect(() => {
     if (!initialNotification || !ready) return;
+    const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
+    if (notificationHandledRef.current === notificationKey) return;
     if (initialNotification.tipo === 'intervento_struttura') {
       const i = interventi.find(x => x.id === initialNotification.link_id);
-      if (i) { setTab('interventi'); setView({ name: 'edit', i }); }
+      if (i) {
+        notificationHandledRef.current = notificationKey;
+        setTab('interventi'); setView({ name: 'edit', i });
+      }
     }
-  }, [ready]);
+  }, [initialNotification, ready, interventi]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
