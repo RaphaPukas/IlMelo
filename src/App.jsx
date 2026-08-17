@@ -410,9 +410,14 @@ function NotificationBell() {
   const ctx = useNotificheCtx();
   const [aperto, setAperto] = useState(false);
 
-  function richiediPermesso() {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission();
+  async function richiediPermesso() {
+    if (typeof Notification === 'undefined') return;
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      permission = await Notification.requestPermission();
+    }
+    if (permission === 'granted' && typeof registerPush === 'function') {
+      await registerPush();
     }
   }
 
@@ -3360,7 +3365,7 @@ function FotoPicker({ fotoEsistenti, onRemoveEsistente, fotoNuove, onAddNuove, o
 
 function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare, nomeVisualizzato } = usePermessi();
-  const puoScrivere = isAdmin || (initial?.segnalatoDa === nomeVisualizzato);
+  const puoScrivere = !initial || isAdmin || initial.tecnico === nomeVisualizzato;
 
   // Inizializza i selettori a cascata dal valore esistente
   const [f, setF] = useState(initial || {
@@ -5070,6 +5075,13 @@ function urlBase64ToUint8Array(base64String) {
 async function registerPush(userId) {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !VAPID_PUBLIC_KEY) return;
   try {
+    // Se userId non passato, ottieni dalla sessione attiva
+    if (!userId) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      userId = sessionData?.session?.user?.id;
+    }
+    if (!userId) return;
+
     const vapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
     if (!vapidKey) return;
     const registration = await navigator.serviceWorker.register((import.meta.env.BASE_URL || '/') + 'sw.js');
