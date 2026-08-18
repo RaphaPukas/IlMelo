@@ -2346,6 +2346,16 @@ const CONTROLLO_STATO_STYLE = {
   annullato: { bg: '#EAE7DC', fg: '#6E7972', label: 'Annullato' },
 };
 
+// Colori "accento" (saturi) usati SOLO per i pallini dei titoli sezione nell'agenda
+// e per i badge evidenziati nella scheda carrozzina. Non tocca CONTROLLO_STATO_STYLE,
+// che resta invariato per i pill di stato nelle righe/dettaglio controllo.
+const CONTROLLO_ACCENT = {
+  scaduto: '#8B0000',
+  in_scadenza: '#FF8C00',
+  programmato: '#FFD700',
+  effettuato: CONTROLLO_STATO_STYLE.effettuato.bg, // "il verde gia' utilizzato"
+};
+
 // Classifica un controllo in una delle categorie della UI, a partire dallo stato e dalla data.
 function classificaControllo(c) {
   if (c.stato === 'Effettuato') return 'effettuato';
@@ -2509,19 +2519,17 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 10 }}>Controlli periodici</div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 999, background: CONTROLLO_STATO_STYLE.effettuato.fg, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Ultimo controllo effettuato</span>
+          <div style={{ display: 'inline-block', padding: '5px 11px', borderRadius: 8, background: CONTROLLO_ACCENT.effettuato }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#000' }}>Ultimo controllo effettuato</span>
           </div>
-          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginLeft: 17, marginTop: 2, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginTop: 5, marginBottom: 14 }}>
             {ultimoControllo ? `${fmtDate(ultimoControllo.data_effettuata)}${ultimoControllo.esito ? ' · ' + ultimoControllo.esito : ''}` : 'Mai controllata'}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 999, background: prossimoControllo ? CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)].fg : CARROZZINE_COLORS.muted, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Controllo programmato</span>
+          <div style={{ display: 'inline-block', padding: '5px 11px', borderRadius: 8, background: prossimoControllo ? CONTROLLO_ACCENT[classificaControllo(prossimoControllo)] : CARROZZINE_COLORS.line }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#000' }}>Controllo programmato</span>
           </div>
-          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginLeft: 17, marginTop: 2 }}>
+          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginTop: 5 }}>
             {prossimoControllo ? fmtDate(prossimoControllo.data_programmata) : 'Nessun controllo programmato'}
           </div>
         </Card>
@@ -2623,9 +2631,9 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
 
   const Gruppo = ({ titolo, colore, rows }) => rows.length === 0 ? null : (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '14px 2px 8px' }}>
-        <span style={{ width: 8, height: 8, borderRadius: 999, background: colore, flexShrink: 0 }} />
-        <span style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: CARROZZINE_COLORS.ink }}>{titolo}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '16px 2px 9px' }}>
+        <span style={{ width: 16, height: 16, borderRadius: 999, background: colore, flexShrink: 0, boxShadow: '0 0 0 1px rgba(0,0,0,0.08)' }} />
+        <span style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: CARROZZINE_COLORS.ink }}>{titolo}</span>
         <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted }}>({rows.length})</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -2685,9 +2693,9 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
             {!controlliReady && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, padding: '6px 2px 20px' }}>Caricamento controlli…</div>}
             {nessunControllo && <Empty theme={CARROZZINE_COLORS} icon={ClipboardList} text="Nessun controllo periodico programmato." />}
 
-            <Gruppo titolo="Scaduti" colore={CONTROLLO_STATO_STYLE.scaduto.fg} rows={scaduti} />
-            <Gruppo titolo="In scadenza" colore={CONTROLLO_STATO_STYLE.in_scadenza.fg} rows={inScadenza} />
-            <Gruppo titolo="Programmati" colore={CONTROLLO_STATO_STYLE.programmato.fg} rows={programmati} />
+            <Gruppo titolo="Scaduti" colore={CONTROLLO_ACCENT.scaduto} rows={scaduti} />
+            <Gruppo titolo="In scadenza" colore={CONTROLLO_ACCENT.in_scadenza} rows={inScadenza} />
+            <Gruppo titolo="Programmati" colore={CONTROLLO_ACCENT.programmato} rows={programmati} />
 
             {storicoEffettuati.length > 0 && (
               <>
