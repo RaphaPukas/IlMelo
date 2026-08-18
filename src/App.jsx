@@ -811,6 +811,8 @@ function UtentiScreen({ onHome, myUserId }) {
   const [profiles, setProfiles] = useState(null);
   const [error, setError] = useState('');
   const [savingId, setSavingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -831,6 +833,32 @@ function UtentiScreen({ onHome, myUserId }) {
     setSavingId(null);
   }
 
+  async function eliminaUtente(user) {
+    setError('');
+    setDeletingId(user.id);
+    setConfirmDeleteId(null);
+
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('delete-user', {
+        body: { user_id: user.id }
+      });
+
+      if (invokeError) {
+        setError('Errore nell\'eliminazione: ' + (invokeError.message || JSON.stringify(invokeError)));
+        setDeletingId(null);
+        return;
+      }
+
+      // Successo: rimuovi dalla lista locale
+      setProfiles((p) => p.filter((u) => u.id !== user.id));
+      setError('');
+      setDeletingId(null);
+    } catch (err) {
+      setError('Errore: ' + (err.message || String(err)));
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
@@ -845,6 +873,7 @@ function UtentiScreen({ onHome, myUserId }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {profiles && profiles.map((u) => {
             const isMe = u.id === myUserId;
+            const canDelete = myUserId && !isMe; // Solo se admin (controllato dal componente padre) e non è se stesso
             return (
               <div key={u.id} style={{ background: HUB_COLORS.surface, border: `1px solid ${HUB_COLORS.line}`, borderRadius: 14, padding: 14 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -872,11 +901,84 @@ function UtentiScreen({ onHome, myUserId }) {
                       {RUOLO_LABEL[r]}
                     </button>
                   ))}
+                  {canDelete && (
+                    <button
+                      disabled={deletingId === u.id}
+                      onClick={() => setConfirmDeleteId(u.id)}
+                      style={{
+                        border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                        cursor: 'pointer',
+                        background: '#F7DCD9',
+                        color: '#A3352A',
+                        opacity: deletingId === u.id ? 0.5 : 1,
+                      }}
+                    >
+                      {deletingId === u.id ? 'Eliminando…' : 'Elimina'}
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
+
+        {/* Modal di conferma eliminazione */}
+        {confirmDeleteId && profiles && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 14
+          }}>
+            <div style={{
+              background: HUB_COLORS.surface, borderRadius: 16, padding: 20,
+              maxWidth: 360, boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: HUB_COLORS.ink }}>
+                Elimina account?
+              </div>
+              {(() => {
+                const u = profiles.find(x => x.id === confirmDeleteId);
+                return u ? (
+                  <>
+                    <div style={{ fontSize: 13, color: HUB_COLORS.muted, marginBottom: 4 }}>
+                      {(u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : '(senza nome)'}
+                    </div>
+                    <div style={{ fontSize: 13, color: HUB_COLORS.muted, marginBottom: 14 }}>
+                      {u.email}
+                    </div>
+                  </>
+                ) : null;
+              })()}
+              <div style={{ fontSize: 12.5, color: '#A3352A', background: '#F7DCD9', padding: 10, borderRadius: 8, marginBottom: 16, lineHeight: 1.4 }}>
+                ⚠️ L'eliminazione dell'account è definitiva e non può essere annullata.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  disabled={deletingId === confirmDeleteId}
+                  style={{
+                    flex: 1, padding: 12, borderRadius: 10, border: `1.5px solid ${HUB_COLORS.line}`,
+                    background: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer'
+                  }}
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={() => eliminaUtente(profiles.find(x => x.id === confirmDeleteId))}
+                  disabled={deletingId === confirmDeleteId}
+                  style={{
+                    flex: 1, padding: 12, borderRadius: 10, border: 'none',
+                    background: '#A3352A', color: '#fff', fontWeight: 700, fontSize: 13,
+                    cursor: deletingId === confirmDeleteId ? 'not-allowed' : 'pointer',
+                    opacity: deletingId === confirmDeleteId ? 0.6 : 1
+                  }}
+                >
+                  {deletingId === confirmDeleteId ? 'Eliminando…' : 'Elimina'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
