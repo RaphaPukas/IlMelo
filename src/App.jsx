@@ -2447,11 +2447,19 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   );
 }
 
-function CarrozzinaDetail({ w, onBack, onUpdate }) {
+function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   const set = (patch) => onUpdate({ ...w, ...patch });
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
+
+  const controlliCarrozzina = (controlli || []).filter(c => c.carrozzina_id === w.id);
+  const ultimoControllo = controlliCarrozzina
+    .filter(c => c.stato === 'Effettuato')
+    .sort((a, b) => (b.data_effettuata || '').localeCompare(a.data_effettuata || ''))[0] || null;
+  const prossimoControllo = controlliCarrozzina
+    .filter(c => c.stato === 'Programmato')
+    .sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''))[0] || null;
 
   const inputInlineStyle = {
     width: '100%', boxSizing: 'border-box', padding: '5px 8px', borderRadius: 7,
@@ -2494,6 +2502,34 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
                 <option value="">—</option>
                 {STATI_CARROZZINA.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
+            </div>
+          </div>
+        </Card>
+
+        <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 8 }}>Controlli periodici</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 3 }}>Ultimo controllo</div>
+              {ultimoControllo ? (
+                <>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{fmtDate(ultimoControllo.data_effettuata)}</div>
+                  {ultimoControllo.esito && <div style={{ marginTop: 4 }}><Pill style={ESITO_STYLE[ultimoControllo.esito] || ESITO_STYLE.OK}>{ultimoControllo.esito}</Pill></div>}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, fontStyle: 'italic' }}>Mai controllata</div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 3 }}>Prossimo controllo</div>
+              {prossimoControllo ? (
+                <>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{fmtDate(prossimoControllo.data_programmata)}</div>
+                  <div style={{ marginTop: 4 }}><Pill style={CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)]}>{CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)].label}</Pill></div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, fontStyle: 'italic' }}>Nessun controllo programmato</div>
+              )}
             </div>
           </div>
         </Card>
@@ -2584,6 +2620,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
               {cat === 'scaduto' && giorni != null && ` · ${Math.abs(giorni)} giorni di ritardo`}
             </div>
             {c.esito && <div style={{ marginTop: 6 }}><Pill style={ESITO_STYLE[c.esito] || ESITO_STYLE.OK}>{c.esito}</Pill></div>}
+            {c.note && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Note: {c.note}</div>}
           </div>
           <Pill style={style}>{style.label}</Pill>
         </div>
@@ -2648,7 +2685,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
           <>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
               <button onClick={onNuovoControllo} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.primary, fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 2px' }}>
-                <Plus size={14} /> Programma
+                <Plus size={14} /> Programma controllo
               </button>
             </div>
 
@@ -3087,7 +3124,6 @@ function CarrozzineModule({ onHome, initialNotification }) {
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
   const ready = itemsT.ready;
-  const dataError = itemsT.error;
   const [tab, setTab] = useState('carrozzine');
   const [openId, setOpenId] = useState(null);
   const [filtro, setFiltro] = useState(null); // { tipo: 'nucleo'|'stato', valore }
@@ -3099,6 +3135,7 @@ function CarrozzineModule({ onHome, initialNotification }) {
   const controlliT = useSupaTable('controlli_carrozzine', 'id', [], ['data_programmata', 'data_effettuata']);
   const controlli = controlliT.rows;
   const controlliUrgenti = controlli.filter(c => c.stato === 'Programmato' && ['scaduto', 'in_scadenza'].includes(classificaControllo(c))).length;
+  const dataError = itemsT.error || interventiT.error || controlliT.error;
   useBackable(showMenu, setShowMenu);
   useBackable(view, setView);
   const [toast, setToast] = useState('');
@@ -3138,6 +3175,15 @@ useEffect(() => {
   };
 
   const creaControllo = async ({ carrozzinaId, dataProgrammata, periodicita }) => {
+    const duplicato = controlliT.rows.some(c =>
+      c.carrozzina_id === carrozzinaId &&
+      c.stato === 'Programmato' &&
+      c.data_programmata === dataProgrammata
+    );
+    if (duplicato) {
+      flash('Esiste gia\' un controllo programmato per questa carrozzina in questa data.');
+      return;
+    }
     const { error } = await controlliT.save({
       id: uid(),
       carrozzina_id: carrozzinaId,
@@ -3231,7 +3277,7 @@ useEffect(() => {
 
   let content;
   if (openItem) {
-    content = <CarrozzinaDetail w={openItem} onBack={() => goBack()} onUpdate={updateItem} />;
+    content = <CarrozzinaDetail w={openItem} controlli={controlli} onBack={() => goBack()} onUpdate={updateItem} />;
   } else if (tab === 'carrozzine') {
     content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
