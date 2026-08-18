@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
 import {
-  Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft,
+  Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown,
   Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical,
   FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle,
   MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
@@ -2339,10 +2339,10 @@ const PERIODICITA_OPZIONI = [3, 6, 12];
 const CONTROLLO_FINESTRA_SCADENZA_GIORNI = 30;
 
 const CONTROLLO_STATO_STYLE = {
-  scaduto: { bg: '#F7DCD9', fg: '#A3352A', label: 'Scaduto' },
-  in_scadenza: { bg: '#FBEDD2', fg: '#8A5A00', label: 'In scadenza' },
-  programmato: { bg: '#DCE8F0', fg: '#1E4D73', label: 'Programmato' },
-  effettuato: { bg: '#DCEEE3', fg: '#1F6B45', label: 'Effettuato' },
+  scaduto: { bg: '#F7DCD9', fg: '#A3352A', label: 'Scaduto' },        // rosso
+  in_scadenza: { bg: '#FBE3C7', fg: '#B15C00', label: 'In scadenza' }, // arancio
+  programmato: { bg: '#FDF3D0', fg: '#8A6000', label: 'Programmato' }, // ambra/giallo caldo
+  effettuato: { bg: '#DCEEE3', fg: '#1F6B45', label: 'Effettuato' },   // verde
   annullato: { bg: '#EAE7DC', fg: '#6E7972', label: 'Annullato' },
 };
 
@@ -2507,30 +2507,22 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
         </Card>
 
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 8 }}>Controlli periodici</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 3 }}>Ultimo controllo</div>
-              {ultimoControllo ? (
-                <>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{fmtDate(ultimoControllo.data_effettuata)}</div>
-                  {ultimoControllo.esito && <div style={{ marginTop: 4 }}><Pill style={ESITO_STYLE[ultimoControllo.esito] || ESITO_STYLE.OK}>{ultimoControllo.esito}</Pill></div>}
-                </>
-              ) : (
-                <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, fontStyle: 'italic' }}>Mai controllata</div>
-              )}
-            </div>
-            <div>
-              <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 3 }}>Prossimo controllo</div>
-              {prossimoControllo ? (
-                <>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{fmtDate(prossimoControllo.data_programmata)}</div>
-                  <div style={{ marginTop: 4 }}><Pill style={CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)]}>{CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)].label}</Pill></div>
-                </>
-              ) : (
-                <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, fontStyle: 'italic' }}>Nessun controllo programmato</div>
-              )}
-            </div>
+          <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 10 }}>Controlli periodici</div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: CONTROLLO_STATO_STYLE.effettuato.fg, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Ultimo controllo effettuato</span>
+          </div>
+          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginLeft: 17, marginTop: 2, marginBottom: 12 }}>
+            {ultimoControllo ? `${fmtDate(ultimoControllo.data_effettuata)}${ultimoControllo.esito ? ' · ' + ultimoControllo.esito : ''}` : 'Mai controllata'}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: prossimoControllo ? CONTROLLO_STATO_STYLE[classificaControllo(prossimoControllo)].fg : CARROZZINE_COLORS.muted, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Controllo programmato</span>
+          </div>
+          <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginLeft: 17, marginTop: 2 }}>
+            {prossimoControllo ? fmtDate(prossimoControllo.data_programmata) : 'Nessun controllo programmato'}
           </div>
         </Card>
 
@@ -2591,6 +2583,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
 /* ---------- Controlli ---------- */
 function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenControllo, onNuovoControllo, onMenu, onHome }) {
   const [subTab, setSubTab] = useState('componenti');
+  const [storicoAperto, setStoricoAperto] = useState(false);
   const attenzione = items.filter(needsAttention);
   const carrozzinaOf = (c) => items.find(w => w.id === c.carrozzina_id);
 
@@ -2598,8 +2591,8 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
   const scaduti = attivi.filter(c => classificaControllo(c) === 'scaduto').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
   const inScadenza = attivi.filter(c => classificaControllo(c) === 'in_scadenza').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
   const programmati = attivi.filter(c => classificaControllo(c) === 'programmato').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
-  const ultimiEffettuati = controlli.filter(c => c.stato === 'Effettuato').sort((a, b) => (b.data_effettuata || '').localeCompare(a.data_effettuata || '')).slice(0, 8);
-  const nessunControllo = controlliReady && scaduti.length === 0 && inScadenza.length === 0 && programmati.length === 0 && ultimiEffettuati.length === 0;
+  const storicoEffettuati = controlli.filter(c => c.stato === 'Effettuato').sort((a, b) => (b.data_effettuata || '').localeCompare(a.data_effettuata || ''));
+  const nessunControllo = controlliReady && scaduti.length === 0 && inScadenza.length === 0 && programmati.length === 0 && storicoEffettuati.length === 0;
   const controlliTotali = scaduti.length + inScadenza.length + programmati.length;
 
   const RigaControllo = ({ c }) => {
@@ -2695,7 +2688,27 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
             <Gruppo titolo="Scaduti" colore={CONTROLLO_STATO_STYLE.scaduto.fg} rows={scaduti} />
             <Gruppo titolo="In scadenza" colore={CONTROLLO_STATO_STYLE.in_scadenza.fg} rows={inScadenza} />
             <Gruppo titolo="Programmati" colore={CONTROLLO_STATO_STYLE.programmato.fg} rows={programmati} />
-            <Gruppo titolo="Ultimi controlli" colore={CONTROLLO_STATO_STYLE.effettuato.fg} rows={ultimiEffettuati} />
+
+            {storicoEffettuati.length > 0 && (
+              <>
+                <button onClick={() => setStoricoAperto(v => !v)} style={{
+                  display: 'flex', alignItems: 'center', gap: 7, width: '100%', margin: '14px 0 8px',
+                  padding: 0, background: 'none', border: 'none', cursor: 'pointer',
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: CONTROLLO_STATO_STYLE.effettuato.fg, flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: CARROZZINE_COLORS.ink }}>Storico controlli effettuati</span>
+                  <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted }}>({storicoEffettuati.length})</span>
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                    {storicoAperto ? <ChevronDown size={16} color={CARROZZINE_COLORS.muted} /> : <ChevronRight size={16} color={CARROZZINE_COLORS.muted} />}
+                  </span>
+                </button>
+                {storicoAperto && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                    {storicoEffettuati.map(c => <RigaControllo key={c.id} c={c} />)}
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>
