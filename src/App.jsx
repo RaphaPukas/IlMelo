@@ -5449,7 +5449,7 @@ export default function ManutenzioneApp() {
   const [screen, setScreen] = useState('hub'); // 'hub' | 'mezzi' | 'carrozzine' | 'struttura' | 'utenti' | 'gruppi' | 'profilo' | 'notifiche'
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
-  const [alertCounts, setAlertCounts] = useState({ vehicles: 0, carrozzine: 0, camere: 0 });
+  const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
   const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
@@ -5507,8 +5507,8 @@ const [
   supabase
     .from('interventi')
     .select('*', { count: 'exact', head: true })
-    .neq('tipologia', 'carrozzina')
-    .neq('stato', 'Chiuso'),
+    .neq('stato', 'Chiuso')
+    .or('tipologia.is.null,tipologia.neq.carrozzina'),
 ]);
       if (!mounted) return;
       const vc = vRes.count ?? 0;
@@ -5521,9 +5521,9 @@ const [
       });
 
 setAlertCounts({
-  vehicles: vAlertRes.count ?? 0,
+  mezzi: vAlertRes.count ?? 0,
   carrozzine: cAlertRes.count ?? 0,
-  camere: caAlertRes.count ?? 0,
+  struttura: caAlertRes.count ?? 0,
 });
     })();
     return () => { mounted = false; };
