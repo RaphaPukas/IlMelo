@@ -2554,6 +2554,7 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
 
 /* ---------- Controlli ---------- */
 function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenControllo, onNuovoControllo, onMenu, onHome }) {
+  const [subTab, setSubTab] = useState('componenti');
   const attenzione = items.filter(needsAttention);
   const carrozzinaOf = (c) => items.find(w => w.id === c.carrozzina_id);
 
@@ -2563,6 +2564,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
   const programmati = attivi.filter(c => classificaControllo(c) === 'programmato').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
   const ultimiEffettuati = controlli.filter(c => c.stato === 'Effettuato').sort((a, b) => (b.data_effettuata || '').localeCompare(a.data_effettuata || '')).slice(0, 8);
   const nessunControllo = controlliReady && scaduti.length === 0 && inScadenza.length === 0 && programmati.length === 0 && ultimiEffettuati.length === 0;
+  const controlliTotali = scaduti.length + inScadenza.length + programmati.length;
 
   const RigaControllo = ({ c }) => {
     const w = carrozzinaOf(c);
@@ -2605,45 +2607,60 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title="Controlli" subtitle={`${attenzione.length} componenti da sistemare · ${scaduti.length + inScadenza.length} controlli in scadenza`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
-      <div style={{ padding: 14 }}>
-        <SectionLabel theme={CARROZZINE_COLORS}>Componenti da sistemare</SectionLabel>
-        {attenzione.length === 0 ? (
-          <Empty theme={CARROZZINE_COLORS} icon={Check} text="Nessuna carrozzina segnalata. Tutto a posto." />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {attenzione.map(w => (
-              <Card theme={CARROZZINE_COLORS} key={w.id} onClick={() => onOpen(w)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{labelOf(w)}</div>
-                    <NucleoTag nucleo={w.nucleo} />
-                  </div>
-                  <ChevronRight size={18} color={CARROZZINE_COLORS.muted} />
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').map(([k, label]) => (
-                    <Pill key={k} style={COND_STYLE[w.c[k]]}>{label}: {w.c[k]}</Pill>
-                  ))}
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22 }}>
-          <SectionLabel theme={CARROZZINE_COLORS}>Controlli periodici</SectionLabel>
-          <button onClick={onNuovoControllo} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.primary, fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 2px' }}>
-            <Plus size={14} /> Programma
+      {/* Tab switcher */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${CARROZZINE_COLORS.line}`, background: '#fff' }}>
+        {[['componenti', `Componenti (${attenzione.length})`], ['periodici', `Controlli periodici (${controlliTotali})`]].map(([key, label]) => (
+          <button key={key} onClick={() => setSubTab(key)}
+            style={{ flex: 1, padding: '11px 4px', border: 'none', background: 'none', fontWeight: subTab === key ? 700 : 500, fontSize: 13,
+              color: subTab === key ? CARROZZINE_COLORS.primary : CARROZZINE_COLORS.muted,
+              borderBottom: subTab === key ? `2.5px solid ${CARROZZINE_COLORS.primary}` : '2.5px solid transparent' }}>
+            {label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        {!controlliReady && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, padding: '6px 2px 20px' }}>Caricamento controlli…</div>}
-        {nessunControllo && <Empty theme={CARROZZINE_COLORS} icon={ClipboardList} text="Nessun controllo periodico programmato." />}
+      <div style={{ padding: 14 }}>
+        {subTab === 'componenti' ? (
+          attenzione.length === 0 ? (
+            <Empty theme={CARROZZINE_COLORS} icon={Check} text="Nessuna carrozzina segnalata. Tutto a posto." />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {attenzione.map(w => (
+                <Card theme={CARROZZINE_COLORS} key={w.id} onClick={() => onOpen(w)}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{labelOf(w)}</div>
+                      <NucleoTag nucleo={w.nucleo} />
+                    </div>
+                    <ChevronRight size={18} color={CARROZZINE_COLORS.muted} />
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').map(([k, label]) => (
+                      <Pill key={k} style={COND_STYLE[w.c[k]]}>{label}: {w.c[k]}</Pill>
+                    ))}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+              <button onClick={onNuovoControllo} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.primary, fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 2px' }}>
+                <Plus size={14} /> Programma
+              </button>
+            </div>
 
-        <Gruppo titolo="Scaduti" colore={CONTROLLO_STATO_STYLE.scaduto.fg} rows={scaduti} />
-        <Gruppo titolo="In scadenza" colore={CONTROLLO_STATO_STYLE.in_scadenza.fg} rows={inScadenza} />
-        <Gruppo titolo="Programmati" colore={CONTROLLO_STATO_STYLE.programmato.fg} rows={programmati} />
-        <Gruppo titolo="Ultimi controlli" colore={CONTROLLO_STATO_STYLE.effettuato.fg} rows={ultimiEffettuati} />
+            {!controlliReady && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, padding: '6px 2px 20px' }}>Caricamento controlli…</div>}
+            {nessunControllo && <Empty theme={CARROZZINE_COLORS} icon={ClipboardList} text="Nessun controllo periodico programmato." />}
+
+            <Gruppo titolo="Scaduti" colore={CONTROLLO_STATO_STYLE.scaduto.fg} rows={scaduti} />
+            <Gruppo titolo="In scadenza" colore={CONTROLLO_STATO_STYLE.in_scadenza.fg} rows={inScadenza} />
+            <Gruppo titolo="Programmati" colore={CONTROLLO_STATO_STYLE.programmato.fg} rows={programmati} />
+            <Gruppo titolo="Ultimi controlli" colore={CONTROLLO_STATO_STYLE.effettuato.fg} rows={ultimiEffettuati} />
+          </>
+        )}
       </div>
     </>
   );
