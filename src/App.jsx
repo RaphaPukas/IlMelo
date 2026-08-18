@@ -2526,9 +2526,26 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
             {ultimoControllo ? `${fmtDate(ultimoControllo.data_effettuata)}${ultimoControllo.esito ? ' · ' + ultimoControllo.esito : ''}` : 'Mai controllata'}
           </div>
 
-          <div style={{ display: 'inline-block', padding: '5px 11px', borderRadius: 8, background: prossimoControllo ? CONTROLLO_ACCENT[classificaControllo(prossimoControllo)] : CARROZZINE_COLORS.line }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#000' }}>Controllo programmato</span>
-          </div>
+          <div style={{
+  display: 'inline-block',
+  padding: '5px 11px',
+  borderRadius: 8,
+  background: prossimoControllo
+    ? classificaControllo(prossimoControllo) === 'scaduto'
+      ? '#F7DCD9'
+      : CONTROLLO_ACCENT[classificaControllo(prossimoControllo)]
+    : CARROZZINE_COLORS.line
+}}>
+  <span style={{
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: prossimoControllo && classificaControllo(prossimoControllo) === 'scaduto'
+      ? '#A3352A'
+      : '#000'
+  }}>
+    Controllo programmato
+  </span>
+</div>
           <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginTop: 5 }}>
             {prossimoControllo ? fmtDate(prossimoControllo.data_programmata) : 'Nessun controllo programmato'}
           </div>
