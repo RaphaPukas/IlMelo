@@ -2353,7 +2353,7 @@ const CONTROLLO_ACCENT = {
   scaduto: '#8B0000',
   in_scadenza: '#FF8C00',
   programmato: '#FFD700',
-  effettuato: CONTROLLO_STATO_STYLE.effettuato.bg, // "il verde gia' utilizzato"
+  effettuato: '#228B22',
 };
 
 // Classifica un controllo in una delle categorie della UI, a partire dallo stato e dalla data.
@@ -2703,7 +2703,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
                   display: 'flex', alignItems: 'center', gap: 7, width: '100%', margin: '14px 0 8px',
                   padding: 0, background: 'none', border: 'none', cursor: 'pointer',
                 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 999, background: CONTROLLO_STATO_STYLE.effettuato.fg, flexShrink: 0 }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 999, background: CONTROLLO_ACCENT.effettuato, flexShrink: 0 }} />
                   <span style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: CARROZZINE_COLORS.ink }}>Storico controlli effettuati</span>
                   <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted }}>({storicoEffettuati.length})</span>
                   <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
