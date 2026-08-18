@@ -3185,7 +3185,6 @@ useEffect(() => {
       return;
     }
     const { error } = await controlliT.save({
-      id: uid(),
       carrozzina_id: carrozzinaId,
       data_programmata: dataProgrammata,
       data_effettuata: null,
@@ -3221,7 +3220,6 @@ useEffect(() => {
     );
     if (!esisteGia) {
       await controlliT.save({
-        id: uid(),
         carrozzina_id: controllo.carrozzina_id,
         data_programmata: prossimaData,
         data_effettuata: null,
