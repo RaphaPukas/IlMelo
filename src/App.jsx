@@ -2327,6 +2327,47 @@ const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemar
 const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Carrozzina senza marca';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
 
+/* ---------- Controlli periodici ---------- */
+const ESITI_CONTROLLO = ['OK', 'OK con osservazioni', 'Problema rilevato', 'Non effettuato'];
+const ESITO_STYLE = {
+  'OK': { bg: '#DCEEE3', fg: '#1F6B45' },
+  'OK con osservazioni': { bg: '#FBEDD2', fg: '#8A5A00' },
+  'Problema rilevato': { bg: '#F7DCD9', fg: '#A3352A' },
+  'Non effettuato': { bg: '#EAE7DC', fg: '#6E7972' },
+};
+const PERIODICITA_OPZIONI = [3, 6, 12];
+const CONTROLLO_FINESTRA_SCADENZA_GIORNI = 30;
+
+const CONTROLLO_STATO_STYLE = {
+  scaduto: { bg: '#F7DCD9', fg: '#A3352A', label: 'Scaduto' },
+  in_scadenza: { bg: '#FBEDD2', fg: '#8A5A00', label: 'In scadenza' },
+  programmato: { bg: '#DCE8F0', fg: '#1E4D73', label: 'Programmato' },
+  effettuato: { bg: '#DCEEE3', fg: '#1F6B45', label: 'Effettuato' },
+  annullato: { bg: '#EAE7DC', fg: '#6E7972', label: 'Annullato' },
+};
+
+// Classifica un controllo in una delle categorie della UI, a partire dallo stato e dalla data.
+function classificaControllo(c) {
+  if (c.stato === 'Effettuato') return 'effettuato';
+  if (c.stato === 'Annullato') return 'annullato';
+  const giorni = daysUntil(c.data_programmata);
+  if (giorni != null && giorni < 0) return 'scaduto';
+  if (giorni != null && giorni <= CONTROLLO_FINESTRA_SCADENZA_GIORNI) return 'in_scadenza';
+  return 'programmato';
+}
+
+// Aggiunge N mesi a una data ISO, riportando il giorno all'ultimo del mese se necessario
+// (es. 31/01 + 1 mese non deve "scavalcare" a marzo).
+function aggiungiMesi(iso, mesi) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const totMesi = (m - 1) + Number(mesi || 6);
+  const annoTarget = y + Math.floor(totMesi / 12);
+  const meseTarget = ((totMesi % 12) + 12) % 12; // 0-based
+  const ultimoGiorno = new Date(annoTarget, meseTarget + 1, 0).getDate();
+  const giorno = Math.min(d, ultimoGiorno);
+  return `${annoTarget}-${String(meseTarget + 1).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`;
+}
+
 /* ---------- small UI atoms ---------- */
 function NucleoTag({ nucleo }) {
   if (!nucleo) return <span style={{ fontSize: 12, color: CARROZZINE_COLORS.muted }}>Nucleo n.d.</span>;
@@ -2512,31 +2553,97 @@ function CarrozzinaDetail({ w, onBack, onUpdate }) {
 }
 
 /* ---------- Controlli ---------- */
-function ControlliScreen({ items, onOpen, onMenu, onHome }) {
-  const rows = items.filter(needsAttention);
+function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenControllo, onNuovoControllo, onMenu, onHome }) {
+  const attenzione = items.filter(needsAttention);
+  const carrozzinaOf = (c) => items.find(w => w.id === c.carrozzina_id);
+
+  const attivi = controlli.filter(c => c.stato === 'Programmato');
+  const scaduti = attivi.filter(c => classificaControllo(c) === 'scaduto').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
+  const inScadenza = attivi.filter(c => classificaControllo(c) === 'in_scadenza').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
+  const programmati = attivi.filter(c => classificaControllo(c) === 'programmato').sort((a, b) => (a.data_programmata || '').localeCompare(b.data_programmata || ''));
+  const ultimiEffettuati = controlli.filter(c => c.stato === 'Effettuato').sort((a, b) => (b.data_effettuata || '').localeCompare(a.data_effettuata || '')).slice(0, 8);
+  const nessunControllo = controlliReady && scaduti.length === 0 && inScadenza.length === 0 && programmati.length === 0 && ultimiEffettuati.length === 0;
+
+  const RigaControllo = ({ c }) => {
+    const w = carrozzinaOf(c);
+    const cat = classificaControllo(c);
+    const style = CONTROLLO_STATO_STYLE[cat];
+    const giorni = daysUntil(c.data_programmata);
+    return (
+      <Card theme={CARROZZINE_COLORS} onClick={() => onOpenControllo(c)}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {w ? labelOf(w) : 'Carrozzina eliminata'} {w && <span style={{ fontWeight: 500, color: CARROZZINE_COLORS.muted }}>({fmtCarrozzinaId(w.id)})</span>}
+            </div>
+            {w?.ospite && <div style={{ fontSize: 12, color: CARROZZINE_COLORS.muted, marginTop: 2 }}>Ospite: {w.ospite}</div>}
+            <div style={{ fontSize: 12, color: CARROZZINE_COLORS.muted, marginTop: 4 }}>
+              {c.stato === 'Effettuato' ? `Effettuato: ${fmtDate(c.data_effettuata)}` : `Previsto: ${fmtDate(c.data_programmata)}`}
+              {cat === 'scaduto' && giorni != null && ` · ${Math.abs(giorni)} giorni di ritardo`}
+            </div>
+            {c.esito && <div style={{ marginTop: 6 }}><Pill style={ESITO_STYLE[c.esito] || ESITO_STYLE.OK}>{c.esito}</Pill></div>}
+          </div>
+          <Pill style={style}>{style.label}</Pill>
+        </div>
+      </Card>
+    );
+  };
+
+  const Gruppo = ({ titolo, colore, rows }) => rows.length === 0 ? null : (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '14px 2px 8px' }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: colore, flexShrink: 0 }} />
+        <span style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: CARROZZINE_COLORS.ink }}>{titolo}</span>
+        <span style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted }}>({rows.length})</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {rows.map(c => <RigaControllo key={c.id} c={c} />)}
+      </div>
+    </>
+  );
+
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title="Controlli" subtitle={`${rows.length} carrozzine da verificare`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={CARROZZINE_COLORS} title="Controlli" subtitle={`${attenzione.length} componenti da sistemare · ${scaduti.length + inScadenza.length} controlli in scadenza`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
-        {rows.length === 0 && <Empty theme={CARROZZINE_COLORS} icon={Check} text="Nessuna carrozzina segnalata. Tutto a posto." />}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {rows.map(w => (
-            <Card theme={CARROZZINE_COLORS} key={w.id} onClick={() => onOpen(w)}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{labelOf(w)}</div>
-                  <NucleoTag nucleo={w.nucleo} />
+        <SectionLabel theme={CARROZZINE_COLORS}>Componenti da sistemare</SectionLabel>
+        {attenzione.length === 0 ? (
+          <Empty theme={CARROZZINE_COLORS} icon={Check} text="Nessuna carrozzina segnalata. Tutto a posto." />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {attenzione.map(w => (
+              <Card theme={CARROZZINE_COLORS} key={w.id} onClick={() => onOpen(w)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{labelOf(w)}</div>
+                    <NucleoTag nucleo={w.nucleo} />
+                  </div>
+                  <ChevronRight size={18} color={CARROZZINE_COLORS.muted} />
                 </div>
-                <ChevronRight size={18} color={CARROZZINE_COLORS.muted} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').map(([k, label]) => (
-                  <Pill key={k} style={COND_STYLE[w.c[k]]}>{label}: {w.c[k]}</Pill>
-                ))}
-              </div>
-            </Card>
-          ))}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').map(([k, label]) => (
+                    <Pill key={k} style={COND_STYLE[w.c[k]]}>{label}: {w.c[k]}</Pill>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22 }}>
+          <SectionLabel theme={CARROZZINE_COLORS}>Controlli periodici</SectionLabel>
+          <button onClick={onNuovoControllo} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.primary, fontWeight: 700, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4, padding: '4px 2px' }}>
+            <Plus size={14} /> Programma
+          </button>
         </div>
+
+        {!controlliReady && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, padding: '6px 2px 20px' }}>Caricamento controlli…</div>}
+        {nessunControllo && <Empty theme={CARROZZINE_COLORS} icon={ClipboardList} text="Nessun controllo periodico programmato." />}
+
+        <Gruppo titolo="Scaduti" colore={CONTROLLO_STATO_STYLE.scaduto.fg} rows={scaduti} />
+        <Gruppo titolo="In scadenza" colore={CONTROLLO_STATO_STYLE.in_scadenza.fg} rows={inScadenza} />
+        <Gruppo titolo="Programmati" colore={CONTROLLO_STATO_STYLE.programmato.fg} rows={programmati} />
+        <Gruppo titolo="Ultimi controlli" colore={CONTROLLO_STATO_STYLE.effettuato.fg} rows={ultimiEffettuati} />
       </div>
     </>
   );
@@ -2838,6 +2945,126 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
   );
 }
 
+function NuovoControlloForm({ items, onSave, onCancel, presetCarrozzinaId }) {
+  const [f, setF] = useState({
+    carrozzinaId: presetCarrozzinaId || items[0]?.id || '',
+    dataProgrammata: todayISO(),
+    periodicita: 6,
+  });
+  const [salvando, setSalvando] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const salva = async () => {
+    if (!f.carrozzinaId || !f.dataProgrammata || salvando) return;
+    setSalvando(true);
+    await onSave({ carrozzinaId: f.carrozzinaId, dataProgrammata: f.dataProgrammata, periodicita: Number(f.periodicita) });
+    setSalvando(false);
+  };
+
+  return (
+    <>
+      <TopBar theme={CARROZZINE_COLORS} title="Programma controllo" onBack={onCancel} backIcon={Home} />
+      <div style={{ padding: 14 }}>
+        <Field label="Carrozzina">
+          <select value={f.carrozzinaId} onChange={set('carrozzinaId')} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {items.map(w => <option key={w.id} value={w.id}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</option>)}
+          </select>
+        </Field>
+        <Field label="Data controllo">
+          <input type="date" value={f.dataProgrammata} onChange={set('dataProgrammata')} style={inputStyle} />
+        </Field>
+        <Field label="Periodicita">
+          <select value={f.periodicita} onChange={(e) => setF({ ...f, periodicita: Number(e.target.value) })} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {PERIODICITA_OPZIONI.map(m => <option key={m} value={m}>{m} mesi</option>)}
+          </select>
+        </Field>
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700, opacity: salvando ? 0.6 : 1 }}>
+            {salvando ? 'Salvo…' : 'Programma'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ConcludiControlloForm({ controllo, carrozzina, onSave, onCancel }) {
+  const [f, setF] = useState({ dataEffettuata: todayISO(), esito: 'OK', note: '' });
+  const [salvando, setSalvando] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const salva = async () => {
+    if (salvando) return;
+    setSalvando(true);
+    await onSave({ dataEffettuata: f.dataEffettuata, esito: f.esito, note: f.note });
+    setSalvando(false);
+  };
+
+  return (
+    <>
+      <TopBar theme={CARROZZINE_COLORS} title="Controllo carrozzina" onBack={onCancel} backIcon={Home} />
+      <div style={{ padding: 14 }}>
+        <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>
+            {carrozzina ? labelOf(carrozzina) : 'Carrozzina eliminata'} {carrozzina && `(${fmtCarrozzinaId(carrozzina.id)})`}
+          </div>
+          {carrozzina?.ospite && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 4 }}>Ospite: {carrozzina.ospite}</div>}
+          <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted }}>Data prevista: {fmtDate(controllo.data_programmata)}</div>
+        </Card>
+        <Field label="Data effettuazione">
+          <input type="date" value={f.dataEffettuata} onChange={set('dataEffettuata')} style={inputStyle} />
+        </Field>
+        <Field label="Esito">
+          <select value={f.esito} onChange={set('esito')} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {ESITI_CONTROLLO.map(e => <option key={e} value={e}>{e}</option>)}
+          </select>
+        </Field>
+        <Field label="Note">
+          <textarea value={f.note} onChange={set('note')} rows={4} placeholder="Annotazioni..."
+            style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} />
+        </Field>
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Annulla</button>
+          <button onClick={salva} disabled={salvando} style={{ flex: 1, padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700, opacity: salvando ? 0.6 : 1 }}>
+            {salvando ? 'Salvo…' : 'Concludi controllo'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ControlloDettaglio({ controllo, carrozzina, onBack, onDelete }) {
+  return (
+    <>
+      <TopBar theme={CARROZZINE_COLORS} title="Controllo carrozzina" onBack={onBack} backIcon={Home} />
+      <div style={{ padding: 14 }}>
+        <Card theme={CARROZZINE_COLORS}>
+          <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>
+            {carrozzina ? labelOf(carrozzina) : 'Carrozzina eliminata'} {carrozzina && `(${fmtCarrozzinaId(carrozzina.id)})`}
+          </div>
+          {carrozzina?.ospite && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 8 }}>Ospite: {carrozzina.ospite}</div>}
+          <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 4 }}>Data prevista: {fmtDate(controllo.data_programmata)}</div>
+          {controllo.stato === 'Effettuato' && (
+            <>
+              <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 8 }}>Effettuato: {fmtDate(controllo.data_effettuata)}</div>
+              {controllo.esito && <Pill style={ESITO_STYLE[controllo.esito] || ESITO_STYLE.OK}>{controllo.esito}</Pill>}
+              {controllo.note && <div style={{ fontSize: 13, marginTop: 10, whiteSpace: 'pre-wrap' }}>{controllo.note}</div>}
+            </>
+          )}
+          {controllo.stato === 'Annullato' && <Pill style={CONTROLLO_STATO_STYLE.annullato}>Annullato</Pill>}
+          {onDelete && (
+            <button onClick={onDelete} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: CARROZZINE_COLORS.danger, color: '#fff', fontWeight: 700, marginTop: 14 }}>
+              Elimina controllo
+            </button>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
 function CarrozzineModule({ onHome, initialNotification }) {
   const { isAdmin } = usePermessi();
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
@@ -2852,6 +3079,9 @@ function CarrozzineModule({ onHome, initialNotification }) {
   const interventiT = useSupaTable('interventi', 'id', [], ['dataSegnalazione', 'dataChiusura']);
   const segnalazioniCarrozzine = interventiT.rows.filter(i => i.tipologia === 'carrozzina');
   const segnalazioniAperte = segnalazioniCarrozzine.filter(i => i.stato !== 'Chiuso');
+  const controlliT = useSupaTable('controlli_carrozzine', 'id', [], ['data_programmata', 'data_effettuata']);
+  const controlli = controlliT.rows;
+  const controlliUrgenti = controlli.filter(c => c.stato === 'Programmato' && ['scaduto', 'in_scadenza'].includes(classificaControllo(c))).length;
   useBackable(showMenu, setShowMenu);
   useBackable(view, setView);
   const [toast, setToast] = useState('');
@@ -2888,6 +3118,66 @@ useEffect(() => {
   const updateItem = async (w) => {
     const { error } = await itemsT.save(w);
     if (error) flash(error.message);
+  };
+
+  const creaControllo = async ({ carrozzinaId, dataProgrammata, periodicita }) => {
+    const { error } = await controlliT.save({
+      id: uid(),
+      carrozzina_id: carrozzinaId,
+      data_programmata: dataProgrammata,
+      data_effettuata: null,
+      periodicita_mesi: periodicita,
+      stato: 'Programmato',
+      esito: null,
+      note: '',
+    });
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash('Controllo programmato');
+    goBack();
+  };
+
+  const concludiControllo = async (controllo, { dataEffettuata, esito, note }) => {
+    const { error } = await controlliT.save({
+      ...controllo,
+      stato: 'Effettuato',
+      data_effettuata: dataEffettuata,
+      esito,
+      note,
+    });
+    if (error) { flash('Errore: ' + error.message); return; }
+
+    // Calcola il prossimo controllo e lo crea, a meno che non esista gia'
+    // un controllo Programmato identico per la stessa carrozzina (evita duplicati).
+    const periodicita = controllo.periodicita_mesi || 6;
+    const prossimaData = aggiungiMesi(dataEffettuata, periodicita);
+    const esisteGia = controlliT.rows.some(c =>
+      c.id !== controllo.id &&
+      c.carrozzina_id === controllo.carrozzina_id &&
+      c.stato === 'Programmato' &&
+      c.data_programmata === prossimaData
+    );
+    if (!esisteGia) {
+      await controlliT.save({
+        id: uid(),
+        carrozzina_id: controllo.carrozzina_id,
+        data_programmata: prossimaData,
+        data_effettuata: null,
+        periodicita_mesi: periodicita,
+        stato: 'Programmato',
+        esito: null,
+        note: '',
+      });
+    }
+    flash('Controllo registrato');
+    goBack();
+  };
+
+  const eliminaControllo = async (c) => {
+    if (!window.confirm('Eliminare definitivamente questo controllo?')) return;
+    const { error } = await controlliT.remove(c);
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash('Controllo eliminato');
+    goBack();
   };
 
   const exportToExcel = () => {
@@ -2928,7 +3218,22 @@ useEffect(() => {
   } else if (tab === 'carrozzine') {
     content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
-    content = <ControlliScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} onHome={onHome} />;
+    if (view.name === 'nuovoControllo') {
+      content = <NuovoControlloForm items={items} onSave={creaControllo} onCancel={() => goBack()} />;
+    } else if (view.name === 'controllo' && view.controllo) {
+      const carr = items.find(w => w.id === view.controllo.carrozzina_id);
+      if (view.controllo.stato === 'Programmato') {
+        content = <ConcludiControlloForm controllo={view.controllo} carrozzina={carr} onSave={(vals) => concludiControllo(view.controllo, vals)} onCancel={() => goBack()} />;
+      } else {
+        content = <ControlloDettaglio controllo={view.controllo} carrozzina={carr} onBack={() => goBack()} onDelete={isAdmin ? () => eliminaControllo(view.controllo) : null} />;
+      }
+    } else {
+      content = <ControlliScreen items={items} controlli={controlli} controlliReady={controlliT.ready}
+        onOpen={(w) => setOpenId(w.id)}
+        onOpenControllo={(c) => setView({ name: 'controllo', controllo: c })}
+        onNuovoControllo={() => setView({ name: 'nuovoControllo' })}
+        onMenu={onMenu} onHome={onHome} />;
+    }
   } else if (tab === 'nuclei') {
     content = <NucleiScreen items={items} onMenu={onMenu} onFilter={(n) => { setFiltro(n === '—' ? null : { tipo: 'nucleo', valore: n }); setTab('carrozzine'); }} onHome={onHome} onRinominaEnd={() => itemsT.reload ? itemsT.reload() : window.location.reload()} />;
   } else if (tab === 'segnalazioni') {
@@ -3085,7 +3390,7 @@ useEffect(() => {
         select { cursor: pointer; }
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
-      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} badges={{ segnalazioni: segnalazioniAperte.length }} />}
+      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} badges={{ segnalazioni: segnalazioniAperte.length, controlli: controlliUrgenti }} />}
       {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
