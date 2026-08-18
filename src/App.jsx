@@ -808,6 +808,7 @@ const RUOLO_STYLE = {
 };
 
 function UtentiScreen({ onHome, myUserId }) {
+  const { isAdmin } = usePermessi();
   const [profiles, setProfiles] = useState(null);
   const [error, setError] = useState('');
   const [savingId, setSavingId] = useState(null);
@@ -873,7 +874,7 @@ function UtentiScreen({ onHome, myUserId }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {profiles && profiles.map((u) => {
             const isMe = u.id === myUserId;
-            const canDelete = myUserId && !isMe; // Solo se admin (controllato dal componente padre) e non è se stesso
+            const canDelete = isAdmin && myUserId && !isMe; // Solo admin, non se stesso
             return (
               <div key={u.id} style={{ background: HUB_COLORS.surface, border: `1px solid ${HUB_COLORS.line}`, borderRadius: 14, padding: 14 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
