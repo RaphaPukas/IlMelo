@@ -6706,6 +6706,15 @@ const MODULES = [
     colorSoft: '#EDE3D6',
     stat: (d) => `${d.camere.length} camere`,
   },
+{
+  key: 'procedure',
+  name: 'Procedure',
+  desc: 'Procedure operative e documentazione',
+  icon: ClipboardList,
+  color: '#7A3E48',
+  colorSoft: '#F0E1E4',
+  stat: () => 'Procedure operative',
+},
 ];
 function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const moduliVisibili = role === 'admin'
