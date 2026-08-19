@@ -6706,14 +6706,18 @@ const MODULES = [
     colorSoft: '#EDE3D6',
     stat: (d) => `${d.camere.length} camere`,
   },
-   function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
+function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
         if (!permessiUtente) return false;
-        return [...permessiUtente].some(={17} />
-              </button>
-            )}
+        return [...permessiUtente].some(
+          p => p === `${m.key}.visualizza` || p.startsWith(`${m.key}.`)
+        );
+      });
+
+  return (
+
             {role === 'admin' && (
               <button onClick={onOpenNotifiche} title="Gestione notifiche" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16 }}>
                 🔕
