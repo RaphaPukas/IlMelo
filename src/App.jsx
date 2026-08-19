@@ -2497,6 +2497,18 @@ const CARROZZINE_NAV_ITEMS = [
   ['riepilogo', BarChart3, 'Riepilogo'],
   ['segnalazioni', AlertTriangle, 'Segnala'],
 ];
+// Permesso di accesso al modulo Carrozzine nel suo complesso (gate d'ingresso).
+const CARROZZINE_MODULO_PERMESSO = 'carrozzine.visualizza';
+// Permesso granulare per ogni scheda. Chiavi allineate esattamente a quelle
+// gia' presenti in "permessi" su Supabase (confermate manualmente).
+const CARROZZINE_TAB_PERMESSI = {
+  carrozzine: 'carrozzine.carrozzine',
+  controlli: 'carrozzine.controlli',
+  nuclei: 'carrozzine.nuclei',
+  riepilogo: 'carrozzine.riepilogo',
+  segnalazioni: 'carrozzine.segnala',
+  mie_segnalazioni: 'carrozzine.mie_segnalazioni',
+};
 
 /* ---------- helpers ---------- */
 const needsAttention = (w) => COMPONENTI.some(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante');
@@ -3335,11 +3347,14 @@ function ControlloDettaglio({ controllo, carrozzina, onBack, onDelete }) {
 }
 
 function CarrozzineModule({ onHome, initialNotification }) {
-  const { isAdmin } = usePermessi();
+  const { isAdmin, hasPermission } = usePermessi();
+  const tabConsentito = (key) => hasPermission(CARROZZINE_TAB_PERMESSI[key]);
+  const navItemsConsentiti = CARROZZINE_NAV_ITEMS.filter(([key]) => tabConsentito(key));
+  const moduloConsentito = isAdmin || hasPermission(CARROZZINE_MODULO_PERMESSO);
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
   const items = itemsT.rows;
   const ready = itemsT.ready;
-  const [tab, setTab] = useState('carrozzine');
+  const [tab, setTab] = useState(() => (navItemsConsentiti[0] ? navItemsConsentiti[0][0] : 'carrozzine'));
   const [openId, setOpenId] = useState(null);
   const [filtro, setFiltro] = useState(null); // { tipo: 'nucleo'|'stato', valore }
   const [showMenu, setShowMenu] = useState(false);
@@ -3361,6 +3376,13 @@ function CarrozzineModule({ onHome, initialNotification }) {
   useEffect(() => { setOpenId(null); }, [tab]);
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
+  // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
+  // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
+  useEffect(() => {
+    if (tabConsentito(tab)) return;
+    if (navItemsConsentiti[0]) setTab(navItemsConsentiti[0][0]);
+  }, [tab, isAdmin]);
+
   // Apertura diretta da una notifica.
 const notificationHandledRef = useRef(null);
 useEffect(() => {
@@ -3369,7 +3391,7 @@ useEffect(() => {
   const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
   if (notificationHandledRef.current === notificationKey) return;
 
-  if (initialNotification.tipo === 'segnalazione_carrozzine') {
+  if (initialNotification.tipo === 'segnalazione_carrozzine' && tabConsentito('segnalazioni')) {
     const s = segnalazioniCarrozzine.find(
       x => x.id === initialNotification.link_id
     );
@@ -3476,6 +3498,16 @@ useEffect(() => {
     flash('File Excel scaricato');
   };
 
+  // Gate d'ingresso al modulo: separato dal controllo sulle singole schede.
+  if (!moduloConsentito) {
+    return (
+      <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: CARROZZINE_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per accedere al modulo Carrozzine.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  }
+
   if (!ready) {
     return (
       <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: CARROZZINE_COLORS.muted, flexDirection: 'column', gap: 10, padding: 24, textAlign: 'center' }}>
@@ -3486,11 +3518,21 @@ useEffect(() => {
   }
 
   const openItem = openId != null ? items.find(w => w.id === openId) : null;
+  // CarrozzinaDetail e' contenuto della scheda "carrozzine": e' raggiungibile
+  // anche da dentro "controlli", ma resta comunque governato dallo stesso permesso.
+  const openItemConsentito = openItem && tabConsentito('carrozzine');
   const onMenu = () => setShowMenu(true);
 
   let content;
-  if (openItem) {
+  if (openItemConsentito) {
     content = <CarrozzinaDetail w={openItem} controlli={controlli} onBack={() => goBack()} onUpdate={updateItem} />;
+  } else if (!tabConsentito(tab)) {
+    content = (
+      <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: CARROZZINE_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
   } else if (tab === 'carrozzine') {
     content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
@@ -3650,7 +3692,7 @@ useEffect(() => {
       );
     }
 
-  } else {
+  } else if (tab === 'riepilogo') {
     content = <RiepilogoScreen items={items} onMenu={onMenu} onHome={onHome}
       onFilterStato={(s) => { setFiltro({ tipo: 'stato', valore: s }); setTab('carrozzine'); }}
       onFilterAttenzione={() => { setFiltro({ tipo: 'attenzione' }); setTab('carrozzine'); }}
@@ -3666,7 +3708,7 @@ useEffect(() => {
         select { cursor: pointer; }
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
-      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={CARROZZINE_NAV_ITEMS} badges={{ segnalazioni: segnalazioniAperte.length, controlli: controlliUrgenti }} />}
+      {!openItem && <BottomNav theme={CARROZZINE_COLORS} tab={tab} setTab={setTab} items={navItemsConsentiti} badges={{ segnalazioni: segnalazioniAperte.length, controlli: controlliUrgenti }} />}
       {showMenu && <MenuSheet theme={CARROZZINE_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica il foglio Totale in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: !openItem ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: CARROZZINE_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
@@ -3762,6 +3804,19 @@ const STR_NAV_ITEMS = [
   ['reparti', Building2, 'Reparti'],
   ['riepilogo', BarChart3, 'Riepilogo'],
 ];
+// Permesso di accesso al modulo Struttura nel suo complesso (gate d'ingresso).
+const STRUTTURA_MODULO_PERMESSO = 'struttura.visualizza';
+// Permesso granulare per ogni scheda. Chiavi allineate esattamente a quelle
+// gia' presenti in "permessi" su Supabase (confermate manualmente).
+const STRUTTURA_TAB_PERMESSI = {
+  camere: 'struttura.camere',
+  interventi: 'struttura.interventi',
+  scadenze: 'struttura.scadenze',
+  reparti: 'struttura.reparti',
+  riepilogo: 'struttura.riepilogo',
+  segnala: 'struttura.segnala',
+  mie_segnalazioni: 'struttura.mie_segnalazioni',
+};
 
 /* ---------- helpers ---------- */
 const strAlertStatus = (days) => { if (days == null) return 'OK'; if (days < 0) return 'SCADUTO'; if (days <= 7) return 'IN SCADENZA'; return 'OK'; };
@@ -4988,9 +5043,12 @@ function StrutturaModule({ onHome, initialNotification }) {
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
   const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
   const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
-  const { nomeVisualizzato } = usePermessi();
+  const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
+  const tabConsentito = (key) => hasPermission(STRUTTURA_TAB_PERMESSI[key]);
+  const navItemsConsentiti = STR_NAV_ITEMS.filter(([key]) => tabConsentito(key));
+  const moduloConsentito = isAdmin || hasPermission(STRUTTURA_MODULO_PERMESSO);
 
-  const [tab, setTab] = useState('camere');
+  const [tab, setTab] = useState(() => (navItemsConsentiti[0] ? navItemsConsentiti[0][0] : 'camere'));
   const [subScreen, setSubScreen] = useState(null); // null | 'reparti' | 'tecnici' | ...
   const [view, setView] = useState(LIST_VIEW);
   const [toast, setToast] = useState('');
@@ -5004,13 +5062,20 @@ function StrutturaModule({ onHome, initialNotification }) {
 
   useEffect(() => { setView(LIST_VIEW); setFiltroRiepilogo(null); }, [tab, subScreen]);
 
+  // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
+  // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
+  useEffect(() => {
+    if (tabConsentito(tab)) return;
+    if (navItemsConsentiti[0]) setTab(navItemsConsentiti[0][0]);
+  }, [tab, isAdmin]);
+
   // Apertura diretta da una notifica.
   const notificationHandledRef = useRef(null);
   useEffect(() => {
     if (!initialNotification || !ready) return;
     const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
     if (notificationHandledRef.current === notificationKey) return;
-    if (initialNotification.tipo === 'intervento_struttura') {
+    if (initialNotification.tipo === 'intervento_struttura' && tabConsentito('interventi')) {
       const i = interventi.find(x => x.id === initialNotification.link_id);
       if (i) {
         notificationHandledRef.current = notificationKey;
@@ -5160,6 +5225,16 @@ function StrutturaModule({ onHome, initialNotification }) {
     flash('File Excel scaricato');
   };
 
+  // Gate d'ingresso al modulo: separato dal controllo sulle singole schede.
+  if (!moduloConsentito) {
+    return (
+      <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per accedere al modulo Struttura.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  }
+
   if (!ready) {
     return (
       <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: STR_COLORS.muted, flexDirection: 'column', gap: 10, padding: 24, textAlign: 'center' }}>
@@ -5172,7 +5247,19 @@ function StrutturaModule({ onHome, initialNotification }) {
   const onMenu = () => setShowMenu(true);
   let content;
 
-  if (subScreen === 'tecnici') {
+  // Le schermate secondarie (tecnici/fornitori/ditte/costi) sono raggiungibili
+  // solo da dentro Riepilogo: restano protette dallo stesso permesso, senza
+  // introdurre nuove chiavi. Controllo anche qui, non solo sui bottoni che le aprono.
+  const subScreenConsentito = !subScreen || (isAdmin || tabConsentito('riepilogo'));
+
+  if (subScreen && !subScreenConsentito) {
+    content = (
+      <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  } else if (subScreen === 'tecnici') {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
     else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Interno')} titolo="Tecnici interni" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
@@ -5184,6 +5271,13 @@ function StrutturaModule({ onHome, initialNotification }) {
     if (view.name === 'add') content = <TecnicoForm onSave={saveTecnico} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <TecnicoForm initial={view.t} onSave={saveTecnico} onCancel={() => goBack()} onDelete={deleteTecnico} />;
     else content = <TecniciStrScreen tecnici={tecnici.filter(t => t.tipo === 'Esterno')} titolo="Ditte esterne" onOpen={(t) => setView({ name: 'edit', t })} onAdd={() => setView({ name: 'add' })} onBack={() => setSubScreen(null)} />;
+  } else if (!tabConsentito(tab)) {
+    content = (
+      <div style={{ minHeight: '100vh', background: STR_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
@@ -5206,7 +5300,7 @@ function StrutturaModule({ onHome, initialNotification }) {
     if (view.name === 'add') content = <CostoForm interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <CostoForm initial={view.c} interventiIds={interventiIds} tecnici={tecniciNomi} onSave={saveCosto} onCancel={() => goBack()} onDelete={deleteCosto} />;
     else content = <CostiStrScreen costi={costi} onOpen={(c) => setView({ name: 'edit', c })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} onBack={() => setSubScreen(null)} />;
-  } else {
+  } else if (tab === 'riepilogo') {
     content = <RiepilogoStrScreen camere={camere} reparti={reparti} tecnici={tecnici} interventi={interventi} manutenzioni={manutenzioni} costi={costi} onMenu={onMenu} onHome={onHome}
       onOpenTecnici={() => setSubScreen('tecnici')} onOpenCosti={() => setSubScreen('costi')}
       onOpenFornitori={() => setSubScreen('fornitori')} onOpenDitte={() => setSubScreen('ditte')}
@@ -5226,7 +5320,7 @@ function StrutturaModule({ onHome, initialNotification }) {
         input:focus, select:focus, textarea:focus { border-color: ${STR_COLORS.primary} !important; }
       `}</style>
       <div style={{ paddingBottom: showBottomNav ? 78 : 20 }}>{content}</div>
-      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={STR_NAV_ITEMS} badges={{ interventi: interventi.filter(i => i.tipologia !== 'carrozzina' && i.stato === 'Aperto').length }} />}
+      {showBottomNav && <BottomNav theme={STR_COLORS} tab={tab} setTab={setTab} items={navItemsConsentiti} badges={{ interventi: interventi.filter(i => i.tipologia !== 'carrozzina' && i.stato === 'Aperto').length }} />}
       {showMenu && <MenuSheet theme={STR_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica camere, interventi, scadenze e costi in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: showBottomNav ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: STR_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
@@ -5262,6 +5356,10 @@ const PROC_NAV_ITEMS = [
   ['ricorrenti', RefreshCw, 'Ricorrenti'],
   ['armadi', Package, 'Armadi'],
 ];
+// Nel DB esistono solo questi due permessi per Procedure (nessun permesso
+// granulare per singola scheda procedure/ricorrenti/armadi).
+const PROCEDURE_MODULO_PERMESSO = 'procedure.visualizza';
+const PROCEDURE_MODIFICA_PERMESSO = 'procedure.modifica';
 
 const PROC_BUCKET = 'procedure-files';
 
@@ -5728,6 +5826,9 @@ function ArmadioForm({ initial, onSave, onCancel, onDelete }) {
 
 /* ---- Modulo Root ---- */
 function ProcedureModule({ onHome, initialNotification }) {
+  const { hasPermission, isAdmin } = usePermessi();
+  const moduloConsentito = isAdmin || hasPermission(PROCEDURE_MODULO_PERMESSO);
+  const puoModificare = isAdmin || hasPermission(PROCEDURE_MODIFICA_PERMESSO);
   const procT  = useSupaTable('procedure_manuali', 'id', []);
   const ricT   = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione','prossimaScadenza']);
   const armT   = useSupaTable('armadi', 'id', []);
@@ -5744,14 +5845,26 @@ function ProcedureModule({ onHome, initialNotification }) {
   const tableOf = { procedure_manuali:procT, manutenzioni_ricorrenti:ricT, armadi:armT };
 
   async function salva(tbl, record, msg) {
+    if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
     const { error } = await tableOf[tbl].save(record);
     if (error) { flash('Errore: ' + error.message); return; }
     flash(msg); goBack();
   }
   async function elimina(tbl, record, msg) {
+    if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
     const { error } = await tableOf[tbl].remove(record);
     if (error) { flash('Errore: ' + error.message); return; }
     flash(msg); goBack();
+  }
+
+  // Gate d'ingresso al modulo.
+  if (!moduloConsentito) {
+    return (
+      <div style={{ minHeight: '100vh', background: PROC_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: PROC_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per accedere al modulo Procedure.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: PROC_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
   }
 
   if (!ready) return <div style={{ minHeight:'100vh', background:PROC_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:PROC_COLORS.muted }}>Caricamento…</div>;
