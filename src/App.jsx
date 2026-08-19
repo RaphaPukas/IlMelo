@@ -6706,7 +6706,6 @@ const MODULES = [
     colorSoft: '#EDE3D6',
     stat: (d) => `${d.camere.length} camere`,
   },
-  {
    function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const moduliVisibili = role === 'admin'
     ? MODULES
