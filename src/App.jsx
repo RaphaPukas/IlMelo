@@ -6726,9 +6726,49 @@ return (
           <WrenchHub size={24} />
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <NotificationBell onOpenNotification={onOpenNotification} />
+      <NotificationBell onOpenNotification={onOpenNotification} />
 
-            {role === 'admin' && (
+{role === 'admin' && (
+  <button
+    onClick={onOpenUsers}
+    title="Gestione utenti"
+    style={{
+      background: 'rgba(255,255,255,0.1)',
+      border: 'none',
+      borderRadius: 10,
+      width: 36,
+      height: 36,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#fff'
+    }}
+  >
+    <UserCog size={17} />
+  </button>
+)}
+
+{role === 'admin' && (
+  <button
+    onClick={onOpenGruppi}
+    title="Gruppi e permessi"
+    style={{
+      background: 'rgba(255,255,255,0.1)',
+      border: 'none',
+      borderRadius: 10,
+      width: 36,
+      height: 36,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#fff'
+    }}
+  >
+    <Users size={17} />
+  </button>
+)}
+
+{role === 'admin' && (
               <button onClick={onOpenNotifiche} title="Gestione notifiche" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16 }}>
                 🔕
               </button>
