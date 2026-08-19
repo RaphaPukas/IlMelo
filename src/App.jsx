@@ -6707,35 +6707,12 @@ const MODULES = [
     stat: (d) => `${d.camere.length} camere`,
   },
   {
-    key: 'procedure',
-    name: 'Procedure',
-    desc: 'Manuali operativi, ricorrenti e armadi',
-    icon: BookOpen,
-    color: '#5E3A8A',
-    colorSoft: '#E8E0F5',
-    stat: () => 'Procedure · Ricorrenti · Armadi',
-  },
-];
-
-function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
-  return (
-    <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
-      <style>{GLOBAL_FONTS}</style>
-      <div style={{ background: '#1C2321', padding: '34px 20px 30px', color: '#fff' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ width: 46, height: 46, borderRadius: 13, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-            <WrenchHub size={24} />
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <NotificationBell onOpenNotification={onOpenNotification} />
-            {role === 'admin' && (
-              <button onClick={onOpenUsers} title="Gestione utenti" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <UserCog size={17} />
-              </button>
-            )}
-            {role === 'admin' && (
-              <button onClick={onOpenGruppi} title="Gruppi e permessi" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-                <Users size={17} />
+   function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
+  const moduliVisibili = role === 'admin'
+    ? MODULES
+    : MODULES.filter(m => {
+        if (!permessiUtente) return false;
+        return [...permessiUtente].some(={17} />
               </button>
             )}
             {role === 'admin' && (
@@ -6760,7 +6737,7 @@ function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, onSign
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {MODULES.map(m => {
+        {moduliVisibili.map(m => {
           const Icon = m.icon;
           return (
             <div
@@ -7029,6 +7006,7 @@ setAlertCounts({
           alertCounts={alertCounts}
           nomeVisualizzato={nomeVisualizzato({ nome, cognome, email: session.user.email })}
           role={role}
+          permessiUtente={permessi}
           onSignOut={signOut}
           onOpenUsers={() => setScreen('utenti')}
           onOpenGruppi={() => setScreen('gruppi')}
