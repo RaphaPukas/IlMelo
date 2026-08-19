@@ -1028,6 +1028,8 @@ function GruppiScreen({ onHome }) {
   const [nuovaDescrizione, setNuovaDescrizione] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [salvato, setSalvato] = useState(false);
+  const [moduliAperti, setModuliAperti] = useState({});
 
   async function loadAll() {
     setError('');
@@ -1038,8 +1040,14 @@ function GruppiScreen({ onHome }) {
       supabase.from('gruppi_utenti').select('*'),
       supabase.from('gruppi_permessi').select('*'),
     ]);
+
     const firstError = [g, u, p, m, gp].find(r => r.error)?.error;
-    if (firstError) { setError(firstError.message); return; }
+
+    if (firstError) {
+      setError(firstError.message);
+      return;
+    }
+
     setGruppi(g.data || []);
     setUtenti(u.data || []);
     setPermessi(p.data || []);
@@ -1047,148 +1055,585 @@ function GruppiScreen({ onHome }) {
     setGruppiPermessi(gp.data || []);
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+  }, []);
 
   const selected = gruppi.find(g => g.id === selectedId) || null;
-  const selectedMembers = new Set(membri.filter(m => m.gruppo_id === selectedId).map(m => m.user_id));
-  const selectedPermissions = new Set(gruppiPermessi.filter(gp => gp.gruppo_id === selectedId).map(gp => gp.permesso_chiave));
+
+  const selectedMembers = new Set(
+    membri
+      .filter(m => m.gruppo_id === selectedId)
+      .map(m => m.user_id)
+  );
+
+  const selectedPermissions = new Set(
+    gruppiPermessi
+      .filter(gp => gp.gruppo_id === selectedId)
+      .map(gp => gp.permesso_chiave)
+  );
+
+  const [permessiModificati, setPermessiModificati] = useState(new Set());
+
+  useEffect(() => {
+    if (!selectedId) {
+      setPermessiModificati(new Set());
+      return;
+    }
+
+    setPermessiModificati(
+      new Set(
+        gruppiPermessi
+          .filter(gp => gp.gruppo_id === selectedId)
+          .map(gp => gp.permesso_chiave)
+      )
+    );
+
+    setSalvato(false);
+  }, [selectedId, gruppiPermessi]);
 
   async function creaGruppo() {
     const nome = nuovoNome.trim();
     if (!nome) return;
-    setBusy(true); setError('');
-    const { data, error } = await supabase.from('gruppi').insert({ nome, descrizione: nuovaDescrizione.trim() || null }).select().single();
-    if (error) setError(error.message);
-    else {
-      setGruppi(prev => [...prev, data].sort((a,b) => a.nome.localeCompare(b.nome)));
+
+    setBusy(true);
+    setError('');
+    setSalvato(false);
+
+    const { data, error } = await supabase
+      .from('gruppi')
+      .insert({
+        nome,
+        descrizione: nuovaDescrizione.trim() || null
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setGruppi(prev =>
+        [...prev, data].sort((a, b) =>
+          a.nome.localeCompare(b.nome)
+        )
+      );
       setSelectedId(data.id);
-      setNuovoNome(''); setNuovaDescrizione('');
+      setNuovoNome('');
+      setNuovaDescrizione('');
     }
+
     setBusy(false);
   }
 
   async function toggleUtente(userId) {
     if (!selectedId || busy) return;
-    setBusy(true); setError('');
-    const exists = membri.some(m => m.gruppo_id === selectedId && m.user_id === userId);
-    const result = exists
-      ? await supabase.from('gruppi_utenti').delete().eq('gruppo_id', selectedId).eq('user_id', userId)
-      : await supabase.from('gruppi_utenti').insert({ gruppo_id: selectedId, user_id: userId });
-    if (result.error) setError(result.error.message);
-    else setMembri(prev => exists
-      ? prev.filter(m => !(m.gruppo_id === selectedId && m.user_id === userId))
-      : [...prev, { gruppo_id: selectedId, user_id: userId }]
+
+    setBusy(true);
+    setError('');
+    setSalvato(false);
+
+    const exists = membri.some(
+      m => m.gruppo_id === selectedId && m.user_id === userId
     );
+
+    const result = exists
+      ? await supabase
+          .from('gruppi_utenti')
+          .delete()
+          .eq('gruppo_id', selectedId)
+          .eq('user_id', userId)
+      : await supabase
+          .from('gruppi_utenti')
+          .insert({
+            gruppo_id: selectedId,
+            user_id: userId
+          });
+
+    if (result.error) {
+      setError(result.error.message);
+    } else {
+      setMembri(prev =>
+        exists
+          ? prev.filter(
+              m =>
+                !(m.gruppo_id === selectedId &&
+                  m.user_id === userId)
+            )
+          : [
+              ...prev,
+              {
+                gruppo_id: selectedId,
+                user_id: userId
+              }
+            ]
+      );
+    }
+
     setBusy(false);
   }
 
-  async function togglePermesso(chiave) {
+  function togglePermesso(chiave) {
     if (!selectedId || busy) return;
-    setBusy(true); setError('');
-    const exists = gruppiPermessi.some(gp => gp.gruppo_id === selectedId && gp.permesso_chiave === chiave);
-    const result = exists
-      ? await supabase.from('gruppi_permessi').delete().eq('gruppo_id', selectedId).eq('permesso_chiave', chiave)
-      : await supabase.from('gruppi_permessi').insert({ gruppo_id: selectedId, permesso_chiave: chiave });
-    if (result.error) setError(result.error.message);
-    else setGruppiPermessi(prev => exists
-      ? prev.filter(gp => !(gp.gruppo_id === selectedId && gp.permesso_chiave === chiave))
-      : [...prev, { gruppo_id: selectedId, permesso_chiave: chiave }]
-    );
-    setBusy(false);
+
+    setSalvato(false);
+
+    setPermessiModificati(prev => {
+      const next = new Set(prev);
+
+      if (next.has(chiave)) {
+        next.delete(chiave);
+      } else {
+        next.add(chiave);
+      }
+
+      return next;
+    });
   }
 
   async function salvaGruppo() {
     if (!selected) return;
-    setBusy(true); setError('');
-    const { data, error } = await supabase.from('gruppi').update({
-      nome: selected.nome.trim(),
-      descrizione: selected.descrizione?.trim() || null,
-    }).eq('id', selected.id).select().single();
-    if (error) setError(error.message);
-    else setGruppi(prev => prev.map(g => g.id === data.id ? data : g).sort((a,b) => a.nome.localeCompare(b.nome)));
+
+    setBusy(true);
+    setError('');
+    setSalvato(false);
+
+    const { data, error } = await supabase
+      .from('gruppi')
+      .update({
+        nome: selected.nome.trim(),
+        descrizione: selected.descrizione?.trim() || null,
+      })
+      .eq('id', selected.id)
+      .select()
+      .single();
+
+    if (error) {
+      setError(error.message);
+      setBusy(false);
+      return;
+    }
+
+    const { error: deleteError } = await supabase
+      .from('gruppi_permessi')
+      .delete()
+      .eq('gruppo_id', selected.id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setBusy(false);
+      return;
+    }
+
+    const nuoviPermessi = Array.from(permessiModificati).map(
+      chiave => ({
+        gruppo_id: selected.id,
+        permesso_chiave: chiave
+      })
+    );
+
+    if (nuoviPermessi.length > 0) {
+      const { error: insertError } = await supabase
+        .from('gruppi_permessi')
+        .insert(nuoviPermessi);
+
+      if (insertError) {
+        setError(insertError.message);
+        setBusy(false);
+        return;
+      }
+    }
+
+    setGruppi(prev =>
+      prev
+        .map(g => g.id === data.id ? data : g)
+        .sort((a, b) => a.nome.localeCompare(b.nome))
+    );
+
+    setGruppiPermessi(prev => [
+      ...prev.filter(gp => gp.gruppo_id !== selected.id),
+      ...nuoviPermessi
+    ]);
+
+    setSalvato(true);
     setBusy(false);
+
+    window.setTimeout(() => {
+      setSalvato(false);
+    }, 2500);
   }
 
   async function eliminaGruppo() {
     if (!selected) return;
-    if (!window.confirm(`Eliminare il gruppo "${selected.nome}"? Gli utenti non verranno eliminati.`)) return;
-    setBusy(true); setError('');
-    const { error } = await supabase.from('gruppi').delete().eq('id', selected.id);
-    if (error) setError(error.message);
-    else {
-      setGruppi(prev => prev.filter(g => g.id !== selected.id));
-      setMembri(prev => prev.filter(m => m.gruppo_id !== selected.id));
-      setGruppiPermessi(prev => prev.filter(gp => gp.gruppo_id !== selected.id));
-      setSelectedId(null);
+
+    if (
+      !window.confirm(
+        `Eliminare il gruppo "${selected.nome}"? Gli utenti non verranno eliminati.`
+      )
+    ) {
+      return;
     }
+
+    setBusy(true);
+    setError('');
+    setSalvato(false);
+
+    const { error } = await supabase
+      .from('gruppi')
+      .delete()
+      .eq('id', selected.id);
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setGruppi(prev =>
+        prev.filter(g => g.id !== selected.id)
+      );
+
+      setMembri(prev =>
+        prev.filter(m => m.gruppo_id !== selected.id)
+      );
+
+      setGruppiPermessi(prev =>
+        prev.filter(gp => gp.gruppo_id !== selected.id)
+      );
+
+      setSelectedId(null);
+      setPermessiModificati(new Set());
+    }
+
     setBusy(false);
   }
 
-  const nomeUtente = (u) => ((u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : u.email);
+  const nomeUtente = (u) =>
+    ((u.nome || u.cognome)
+      ? `${u.nome || ''} ${u.cognome || ''}`.trim()
+      : u.email);
 
   const permessiPerModulo = useMemo(() => {
     const map = {};
+
     for (const p of permessi) {
       const [modulo] = p.chiave.split('.');
-      if (!map[modulo]) map[modulo] = [];
+
+      if (!map[modulo]) {
+        map[modulo] = [];
+      }
+
       map[modulo].push(p);
     }
-    for (const m of Object.keys(map)) {
-      map[m].sort((a, b) => {
+
+    for (const modulo of Object.keys(map)) {
+      map[modulo].sort((a, b) => {
         const azA = a.chiave.split('.')[1];
         const azB = b.chiave.split('.')[1];
+
         if (azA === 'visualizza') return -1;
         if (azB === 'visualizza') return 1;
+
         if (azA === 'riepilogo') return 1;
         if (azB === 'riepilogo') return -1;
+
         return a.chiave.localeCompare(b.chiave);
       });
     }
+
     return map;
   }, [permessi]);
 
-  const MODULO_ORDINE = { mezzi: 1, carrozzine: 2, struttura: 3, procedure: 4 };
-  const moduliOrdinati = Object.keys(permessiPerModulo).sort((a, b) => {
-    const oa = MODULO_ORDINE[a] || 99;
-    const ob = MODULO_ORDINE[b] || 99;
-    if (oa !== ob) return oa - ob;
-    return a.localeCompare(b);
-  });
+  const MODULO_ORDINE = {
+    mezzi: 1,
+    carrozzine: 2,
+    struttura: 3,
+    procedure: 4
+  };
+
+  const moduliOrdinati = Object.keys(permessiPerModulo).sort(
+    (a, b) => {
+      const oa = MODULO_ORDINE[a] || 99;
+      const ob = MODULO_ORDINE[b] || 99;
+
+      if (oa !== ob) return oa - ob;
+
+      return a.localeCompare(b);
+    }
+  );
+
+  function toggleModulo(modulo) {
+    setModuliAperti(prev => ({
+      ...prev,
+      [modulo]: !prev[modulo]
+    }));
+  }
+
+  function renderPermesso(p) {
+    return (
+      <label
+        key={p.chiave}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '9px 4px',
+          borderBottom: `1px solid ${HUB_COLORS.line}`,
+          cursor: 'pointer'
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={permessiModificati.has(p.chiave)}
+          onChange={() => togglePermesso(p.chiave)}
+          disabled={busy}
+          style={{
+            width: 18,
+            height: 18,
+            flexShrink: 0
+          }}
+        />
+
+        <span
+          style={{
+            flex: 1,
+            fontSize: 13.5
+          }}
+        >
+          <b>{p.nome}</b>
+
+          {p.descrizione && (
+            <span
+              style={{
+                display: 'block',
+                fontSize: 11.5,
+                color: HUB_COLORS.muted,
+                marginTop: 2
+              }}
+            >
+              {p.descrizione}
+            </span>
+          )}
+        </span>
+      </label>
+    );
+  }
 
   return (
-    <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: HUB_COLORS.bg,
+        fontFamily: 'Inter, sans-serif',
+        color: HUB_COLORS.ink,
+        maxWidth: 480,
+        margin: '0 auto'
+      }}
+    >
       <style>{GLOBAL_FONTS}</style>
-      <div style={{ background: HUB_COLORS.primary, padding: '18px 18px 16px', color: '#fff' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={onHome} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 999, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+
+      <div
+        style={{
+          background: HUB_COLORS.primary,
+          padding: '18px 18px 16px',
+          color: '#fff'
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10
+          }}
+        >
+          <button
+            onClick={onHome}
+            style={{
+              background: 'rgba(255,255,255,0.12)',
+              border: 'none',
+              borderRadius: 999,
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              flexShrink: 0
+            }}
+          >
             <Home size={18} />
           </button>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 20, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Gruppi e permessi</div>
-            {gruppi.length > 0 && <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 2 }}>{gruppi.length} gruppi</div>}
+
+          <div
+            style={{
+              minWidth: 0,
+              flex: 1
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Archivo', sans-serif",
+                fontWeight: 800,
+                fontSize: 20,
+                lineHeight: 1.15
+              }}
+            >
+              Gruppi e permessi
+            </div>
+
+            {gruppi.length > 0 && (
+              <div
+                style={{
+                  fontSize: 12.5,
+                  opacity: 0.75,
+                  marginTop: 2
+                }}
+              >
+                {gruppi.length} gruppi
+              </div>
+            )}
           </div>
         </div>
       </div>
-      <div style={{ padding: 14 }}>
-        {error && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
 
-        <Card theme={HUB_COLORS} style={{ marginBottom: 12 }}>
-          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Nuovo gruppo</div>
-          <input value={nuovoNome} onChange={e => setNuovoNome(e.target.value)} placeholder="Es. Manutentori"
-            style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:8, outline:'none' }} />
-          <input value={nuovaDescrizione} onChange={e => setNuovaDescrizione(e.target.value)} placeholder="Descrizione (facoltativa)"
-            style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:10, outline:'none' }} />
-          <button onClick={creaGruppo} disabled={!nuovoNome.trim() || busy}
-            style={{ width:'100%', padding:11, border:0, borderRadius:10, background:'#1C2321', color:'#fff', fontWeight:700, opacity:(!nuovoNome.trim() || busy)?0.5:1 }}>
-            <Plus size={15} style={{ verticalAlign:'-2px', marginRight:5 }} /> Crea gruppo
+      <div style={{ padding: 14 }}>
+        {error && (
+          <div
+            style={{
+              background: '#F7DCD9',
+              color: '#A3352A',
+              padding: '10px 12px',
+              borderRadius: 10,
+              fontSize: 12.5,
+              marginBottom: 12
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {salvato && (
+          <div
+            style={{
+              background: '#DCEEE3',
+              color: '#1F6B45',
+              padding: '10px 12px',
+              borderRadius: 10,
+              fontSize: 12.5,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              fontWeight: 700
+            }}
+          >
+            <Check size={15} />
+            Modifiche salvate
+          </div>
+        )}
+
+        <Card
+          theme={HUB_COLORS}
+          style={{ marginBottom: 12 }}
+        >
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 15,
+              marginBottom: 8
+            }}
+          >
+            Nuovo gruppo
+          </div>
+
+          <input
+            value={nuovoNome}
+            onChange={e => setNuovoNome(e.target.value)}
+            placeholder="Es. Manutentori"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: `1.5px solid ${HUB_COLORS.line}`,
+              fontSize: 14,
+              marginBottom: 8,
+              outline: 'none'
+            }}
+          />
+
+          <input
+            value={nuovaDescrizione}
+            onChange={e => setNuovaDescrizione(e.target.value)}
+            placeholder="Descrizione (facoltativa)"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: `1.5px solid ${HUB_COLORS.line}`,
+              fontSize: 14,
+              marginBottom: 10,
+              outline: 'none'
+            }}
+          />
+
+          <button
+            onClick={creaGruppo}
+            disabled={!nuovoNome.trim() || busy}
+            style={{
+              width: '100%',
+              padding: 11,
+              border: 0,
+              borderRadius: 10,
+              background: '#1C2321',
+              color: '#fff',
+              fontWeight: 700,
+              opacity:
+                (!nuovoNome.trim() || busy) ? 0.5 : 1
+            }}
+          >
+            <Plus
+              size={15}
+              style={{
+                verticalAlign: '-2px',
+                marginRight: 5
+              }}
+            />
+            Crea gruppo
           </button>
         </Card>
 
         {gruppi.length > 0 && (
-          <div style={{ display:'flex', gap:7, overflowX:'auto', paddingBottom:10 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 7,
+              overflowX: 'auto',
+              paddingBottom: 10
+            }}
+          >
             {gruppi.map(g => (
-              <button key={g.id} onClick={() => setSelectedId(g.id)}
-                style={{ flexShrink:0, border:`1.5px solid ${selectedId===g.id ? '#1C2321' : HUB_COLORS.line}`, borderRadius:999, padding:'7px 12px', background:selectedId===g.id ? '#1C2321' : '#fff', color:selectedId===g.id ? '#fff' : HUB_COLORS.ink, fontWeight:700, fontSize:12 }}>
+              <button
+                key={g.id}
+                onClick={() => setSelectedId(g.id)}
+                style={{
+                  flexShrink: 0,
+                  border: `1.5px solid ${
+                    selectedId === g.id
+                      ? '#1C2321'
+                      : HUB_COLORS.line
+                  }`,
+                  borderRadius: 999,
+                  padding: '7px 12px',
+                  background:
+                    selectedId === g.id
+                      ? '#1C2321'
+                      : '#fff',
+                  color:
+                    selectedId === g.id
+                      ? '#fff'
+                      : HUB_COLORS.ink,
+                  fontWeight: 700,
+                  fontSize: 12
+                }}
+              >
                 {g.nome}
               </button>
             ))}
@@ -1197,55 +1642,338 @@ function GruppiScreen({ onHome }) {
 
         {selected && (
           <>
-            <Card theme={HUB_COLORS} style={{ marginBottom:12 }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:8 }}>Impostazioni gruppo</div>
-              <input value={selected.nome} onChange={e => setGruppi(prev => prev.map(g => g.id===selected.id ? {...g,nome:e.target.value} : g))}
-                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:8, outline:'none' }} />
-              <textarea value={selected.descrizione || ''} onChange={e => setGruppi(prev => prev.map(g => g.id===selected.id ? {...g,descrizione:e.target.value} : g))}
-                rows={2} placeholder="Descrizione"
-                style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:`1.5px solid ${HUB_COLORS.line}`, fontSize:14, marginBottom:10, outline:'none', resize:'vertical' }} />
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={salvaGruppo} disabled={busy} style={{ flex:1, padding:10, border:0, borderRadius:10, background:'#1C2321', color:'#fff', fontWeight:700 }}>Salva</button>
-                <button onClick={eliminaGruppo} disabled={busy} style={{ padding:'10px 14px', border:0, borderRadius:10, background:'#C0392B', color:'#fff', fontWeight:700 }}>Elimina</button>
+            <Card
+              theme={HUB_COLORS}
+              style={{ marginBottom: 12 }}
+            >
+              <div
+                style={{
+                  fontWeight: 800,
+                  fontSize: 15,
+                  marginBottom: 8
+                }}
+              >
+                Impostazioni gruppo
+              </div>
+
+              <input
+                value={selected.nome}
+                onChange={e =>
+                  setGruppi(prev =>
+                    prev.map(g =>
+                      g.id === selected.id
+                        ? {
+                            ...g,
+                            nome: e.target.value
+                          }
+                        : g
+                    )
+                  )
+                }
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: `1.5px solid ${HUB_COLORS.line}`,
+                  fontSize: 14,
+                  marginBottom: 8,
+                  outline: 'none'
+                }}
+              />
+
+              <textarea
+                value={selected.descrizione || ''}
+                onChange={e =>
+                  setGruppi(prev =>
+                    prev.map(g =>
+                      g.id === selected.id
+                        ? {
+                            ...g,
+                            descrizione: e.target.value
+                          }
+                        : g
+                    )
+                  )
+                }
+                rows={2}
+                placeholder="Descrizione"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: `1.5px solid ${HUB_COLORS.line}`,
+                  fontSize: 14,
+                  marginBottom: 10,
+                  outline: 'none',
+                  resize: 'vertical'
+                }}
+              />
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8
+                }}
+              >
+                <button
+                  onClick={salvaGruppo}
+                  disabled={busy}
+                  style={{
+                    flex: 1,
+                    padding: 10,
+                    border: 0,
+                    borderRadius: 10,
+                    background: '#1C2321',
+                    color: '#fff',
+                    fontWeight: 700,
+                    opacity: busy ? 0.6 : 1
+                  }}
+                >
+                  {busy ? 'Salvataggio…' : 'Salva modifiche'}
+                </button>
+
+                <button
+                  onClick={eliminaGruppo}
+                  disabled={busy}
+                  style={{
+                    padding: '10px 14px',
+                    border: 0,
+                    borderRadius: 10,
+                    background: '#C0392B',
+                    color: '#fff',
+                    fontWeight: 700,
+                    opacity: busy ? 0.6 : 1
+                  }}
+                >
+                  Elimina
+                </button>
               </div>
             </Card>
 
-            <Card theme={HUB_COLORS} style={{ marginBottom:12 }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Utenti del gruppo</div>
-              <div style={{ fontSize:12, color:HUB_COLORS.muted, marginBottom:10 }}>Un utente può appartenere a più gruppi.</div>
+            <Card
+              theme={HUB_COLORS}
+              style={{ marginBottom: 12 }}
+            >
+              <div
+                style={{
+                  fontWeight: 800,
+                  fontSize: 15,
+                  marginBottom: 4
+                }}
+              >
+                Utenti del gruppo
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  color: HUB_COLORS.muted,
+                  marginBottom: 10
+                }}
+              >
+                Un utente può appartenere a più gruppi.
+              </div>
+
               {utenti.map(u => (
-                <label key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
-                  <input type="checkbox" checked={selectedMembers.has(u.id)} onChange={() => toggleUtente(u.id)} disabled={busy} style={{ width:18, height:18 }} />
-                  <span style={{ flex:1, fontSize:13.5 }}>
+                <label
+                  key={u.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 0',
+                    borderBottom:
+                      `1px solid ${HUB_COLORS.line}`,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedMembers.has(u.id)}
+                    onChange={() => toggleUtente(u.id)}
+                    disabled={busy}
+                    style={{
+                      width: 18,
+                      height: 18
+                    }}
+                  />
+
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: 13.5
+                    }}
+                  >
                     <b>{nomeUtente(u)}</b>
-                    <span style={{ color:HUB_COLORS.muted }}> · {RUOLO_LABEL[u.role] || u.role}</span>
+
+                    <span
+                      style={{
+                        color: HUB_COLORS.muted
+                      }}
+                    >
+                      {' · '}
+                      {RUOLO_LABEL[u.role] || u.role}
+                    </span>
                   </span>
                 </label>
               ))}
             </Card>
 
             <Card theme={HUB_COLORS}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Permessi del gruppo</div>
-              <div style={{ fontSize:12, color:HUB_COLORS.muted, marginBottom:10 }}>Questi permessi sono la base per i futuri blocchi del cruscotto.</div>
-              {moduliOrdinati.map(modulo => (
-                <div key={modulo} style={{ marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em', color: HUB_COLORS.muted, marginBottom: 8, marginTop: 4 }}>{modulo}</div>
-                  {permessiPerModulo[modulo].map(p => (
-                    <label key={p.chiave} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
-                      <input type="checkbox" checked={selectedPermissions.has(p.chiave)} onChange={() => togglePermesso(p.chiave)} disabled={busy} style={{ width:18, height:18 }} />
-                      <span style={{ flex:1, fontSize:13.5 }}>
-                        <b>{p.nome}</b>
-                        {p.descrizione && <span style={{ display:'block', fontSize:11.5, color:HUB_COLORS.muted, marginTop:2 }}>{p.descrizione}</span>}
+              <div
+                style={{
+                  fontWeight: 800,
+                  fontSize: 15,
+                  marginBottom: 4
+                }}
+              >
+                Permessi del gruppo
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  color: HUB_COLORS.muted,
+                  marginBottom: 12
+                }}
+              >
+                Seleziona i permessi. Le modifiche vengono
+                applicate quando premi “Salva modifiche”.
+              </div>
+
+              {moduliOrdinati.map(modulo => {
+                const aperto = !!moduliAperti[modulo];
+                const numeroPermessi =
+                  permessiPerModulo[modulo].length;
+
+                return (
+                  <div
+                    key={modulo}
+                    style={{
+                      marginBottom: 10,
+                      borderRadius: 12,
+                      overflow: 'hidden',
+                      border:
+                        `1px solid ${HUB_COLORS.line}`
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleModulo(modulo)}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        padding: '11px 13px',
+                        border: 'none',
+                        background: '#5B5550',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 9,
+                          minWidth: 0
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontFamily: "'Archivo', sans-serif",
+                            fontWeight: 800,
+                            fontSize: 13.5,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.06em'
+                          }}
+                        >
+                          {modulo}
+                        </span>
+
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            opacity: 0.75
+                          }}
+                        >
+                          {numeroPermessi}
+                        </span>
                       </span>
-                    </label>
-                  ))}
+
+                      {aperto
+                        ? <ChevronDown size={17} />
+                        : <ChevronRight size={17} />
+                      }
+                    </button>
+
+                    {aperto && (
+                      <div
+                        style={{
+                          background: '#fff',
+                          padding: '2px 10px 6px'
+                        }}
+                      >
+                        {permessiPerModulo[modulo].map(
+                          renderPermesso
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <button
+                onClick={salvaGruppo}
+                disabled={busy}
+                style={{
+                  width: '100%',
+                  marginTop: 8,
+                  padding: 12,
+                  border: 0,
+                  borderRadius: 10,
+                  background: '#1C2321',
+                  color: '#fff',
+                  fontWeight: 800,
+                  fontSize: 14,
+                  opacity: busy ? 0.6 : 1
+                }}
+              >
+                {busy ? 'Salvataggio…' : 'Salva modifiche'}
+              </button>
+
+              {salvato && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    background: '#DCEEE3',
+                    color: '#1F6B45',
+                    padding: '9px 12px',
+                    borderRadius: 9,
+                    fontSize: 12.5,
+                    textAlign: 'center',
+                    fontWeight: 700
+                  }}
+                >
+                  Modifiche salvate
                 </div>
-              ))}
+              )}
             </Card>
           </>
         )}
 
-        {gruppi.length === 0 && <Empty theme={HUB_COLORS} icon={Users} text="Nessun gruppo creato. Crea il primo gruppo, ad esempio “Manutentori”." />}
+        {gruppi.length === 0 && (
+          <Empty
+            theme={HUB_COLORS}
+            icon={Users}
+            text="Nessun gruppo creato. Crea il primo gruppo, ad esempio “Manutentori”."
+          />
+        )}
       </div>
     </div>
   );
