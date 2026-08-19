@@ -1126,10 +1126,49 @@ function GruppiScreen({ onHome }) {
 
   const nomeUtente = (u) => ((u.nome || u.cognome) ? `${u.nome || ''} ${u.cognome || ''}`.trim() : u.email);
 
+  const permessiPerModulo = useMemo(() => {
+    const map = {};
+    for (const p of permessi) {
+      const [modulo] = p.chiave.split('.');
+      if (!map[modulo]) map[modulo] = [];
+      map[modulo].push(p);
+    }
+    for (const m of Object.keys(map)) {
+      map[m].sort((a, b) => {
+        const azA = a.chiave.split('.')[1];
+        const azB = b.chiave.split('.')[1];
+        if (azA === 'visualizza') return -1;
+        if (azB === 'visualizza') return 1;
+        if (azA === 'riepilogo') return 1;
+        if (azB === 'riepilogo') return -1;
+        return a.chiave.localeCompare(b.chiave);
+      });
+    }
+    return map;
+  }, [permessi]);
+
+  const MODULO_ORDINE = { mezzi: 1, carrozzine: 2, struttura: 3, procedure: 4 };
+  const moduliOrdinati = Object.keys(permessiPerModulo).sort((a, b) => {
+    const oa = MODULO_ORDINE[a] || 99;
+    const ob = MODULO_ORDINE[b] || 99;
+    if (oa !== ob) return oa - ob;
+    return a.localeCompare(b);
+  });
+
   return (
     <div style={{ minHeight: '100vh', background: HUB_COLORS.bg, fontFamily: 'Inter, sans-serif', color: HUB_COLORS.ink, maxWidth: 480, margin: '0 auto' }}>
       <style>{GLOBAL_FONTS}</style>
-      <TopBar theme={HUB_COLORS} title="Gruppi e permessi" subtitle={`${gruppi.length} gruppi`} onBack={onHome} backIcon={Home} />
+      <div style={{ background: HUB_COLORS.primary, padding: '18px 18px 16px', color: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onHome} style={{ background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 999, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+            <Home size={18} />
+          </button>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 20, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Gruppi e permessi</div>
+            {gruppi.length > 0 && <div style={{ fontSize: 12.5, opacity: 0.75, marginTop: 2 }}>{gruppi.length} gruppi</div>}
+          </div>
+        </div>
+      </div>
       <div style={{ padding: 14 }}>
         {error && <div style={{ background: '#F7DCD9', color: '#A3352A', padding: '10px 12px', borderRadius: 10, fontSize: 12.5, marginBottom: 12 }}>{error}</div>}
 
@@ -1188,14 +1227,19 @@ function GruppiScreen({ onHome }) {
             <Card theme={HUB_COLORS}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:4 }}>Permessi del gruppo</div>
               <div style={{ fontSize:12, color:HUB_COLORS.muted, marginBottom:10 }}>Questi permessi sono la base per i futuri blocchi del cruscotto.</div>
-              {permessi.map(p => (
-                <label key={p.chiave} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
-                  <input type="checkbox" checked={selectedPermissions.has(p.chiave)} onChange={() => togglePermesso(p.chiave)} disabled={busy} style={{ width:18, height:18 }} />
-                  <span style={{ flex:1, fontSize:13.5 }}>
-                    <b>{p.nome}</b>
-                    {p.descrizione && <span style={{ display:'block', fontSize:11.5, color:HUB_COLORS.muted, marginTop:2 }}>{p.descrizione}</span>}
-                  </span>
-                </label>
+              {moduliOrdinati.map(modulo => (
+                <div key={modulo} style={{ marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em', color: HUB_COLORS.muted, marginBottom: 8, marginTop: 4 }}>{modulo}</div>
+                  {permessiPerModulo[modulo].map(p => (
+                    <label key={p.chiave} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${HUB_COLORS.line}`, cursor:'pointer' }}>
+                      <input type="checkbox" checked={selectedPermissions.has(p.chiave)} onChange={() => togglePermesso(p.chiave)} disabled={busy} style={{ width:18, height:18 }} />
+                      <span style={{ flex:1, fontSize:13.5 }}>
+                        <b>{p.nome}</b>
+                        {p.descrizione && <span style={{ display:'block', fontSize:11.5, color:HUB_COLORS.muted, marginTop:2 }}>{p.descrizione}</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
               ))}
             </Card>
           </>
