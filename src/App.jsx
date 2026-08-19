@@ -547,7 +547,7 @@ function GestioneNotificheScreen({ onHome, myUserId }) {
   );
 }
 
-const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '' });
+const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '', userId: null, permessi: new Set() });
 function useRole() { return useContext(RoleContext).role; }
 function useUserEmail() { return useContext(RoleContext).email; }
 function nomeVisualizzato({ nome, cognome, email }) {
@@ -556,15 +556,27 @@ function nomeVisualizzato({ nome, cognome, email }) {
 }
 function usePermessi() {
   const ctx = useContext(RoleContext);
+  const isAdmin = ctx.role === 'admin';
+  // Motore permessi granulari: l'admin ha sempre accesso completo;
+  // per tutti gli altri, il permesso deve essere presente nell'insieme
+  // calcolato dai gruppi a cui l'utente appartiene (vedi useAuth()).
+  // Estendibile a qualunque chiave "modulo.scheda" senza toccare questa funzione.
+  const hasPermission = (chiave) => {
+    if (isAdmin) return true;
+    if (!chiave) return true;
+    return !!(ctx.permessi && ctx.permessi.has(chiave));
+  };
   return {
     role: ctx.role,
     email: ctx.email,
     nome: ctx.nome,
     cognome: ctx.cognome,
+    userId: ctx.userId,
     nomeVisualizzato: nomeVisualizzato(ctx),
     puoScrivere: true,
-    puoEliminare: ctx.role === 'admin',
-    isAdmin: ctx.role === 'admin',
+    puoEliminare: isAdmin,
+    isAdmin,
+    hasPermission,
   };
 }
 
@@ -584,6 +596,7 @@ function useAuth() {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [permessi, setPermessi] = useState(new Set());
 
   useEffect(() => {
     let mounted = true;
@@ -598,10 +611,27 @@ function useAuth() {
   useEffect(() => {
     let mounted = true;
     if (session === undefined) return undefined;
-    if (session === null) { setProfile(null); setProfileLoading(false); return undefined; }
+    if (session === null) { setProfile(null); setPermessi(new Set()); setProfileLoading(false); return undefined; }
     setProfileLoading(true);
-    supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      .then(({ data, error }) => { if (mounted) { setProfile(error ? null : data); setProfileLoading(false); } });
+    (async () => {
+      const [profRes, guRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+        supabase.from('gruppi_utenti').select('gruppo_id').eq('user_id', session.user.id),
+      ]);
+      if (!mounted) return;
+      setProfile(profRes.error ? null : profRes.data);
+
+      const gruppoIds = (guRes.data || []).map(r => r.gruppo_id);
+      if (gruppoIds.length === 0) {
+        setPermessi(new Set());
+        setProfileLoading(false);
+        return;
+      }
+      const { data: gpData } = await supabase.from('gruppi_permessi').select('permesso_chiave').in('gruppo_id', gruppoIds);
+      if (!mounted) return;
+      setPermessi(new Set((gpData || []).map(r => r.permesso_chiave)));
+      setProfileLoading(false);
+    })();
     return () => { mounted = false; };
   }, [session]);
 
@@ -614,6 +644,7 @@ function useAuth() {
   return {
     session,
     profile,
+    permessi,
     refreshProfile,
     passwordRecovery,
     clearPasswordRecovery: () => setPasswordRecovery(false),
@@ -1474,6 +1505,22 @@ const MEZZI_NAV_ITEMS = [
   ['scadenze', CalendarClock, 'Scadenze'],
   ['dashboard', BarChart3, 'Riepilogo'],
 ];
+// Permesso di accesso al modulo Mezzi nel suo complesso (gate d'ingresso,
+// distinto dai permessi sulle singole schede qui sotto).
+const MEZZI_MODULO_PERMESSO = 'mezzi.visualizza';
+
+// Permesso granulare richiesto per ogni scheda del modulo Mezzi.
+// Chiavi allineate esattamente a quelle gia' presenti in "permessi" su Supabase.
+// Per aggiungere una nuova scheda basta aggiungerla qui + a MEZZI_NAV_ITEMS:
+// il motore permessi (usePermessi().hasPermission) non va toccato.
+const MEZZI_TAB_PERMESSI = {
+  veicoli: 'mezzi.veicoli',
+  manutenzioni: 'mezzi.interventi',
+  segnalazioni: 'mezzi.segnala',
+  mie_segnalazioni: 'mezzi.mie_segnalazioni',
+  scadenze: 'mezzi.scadenze',
+  dashboard: 'mezzi.riepilogo',
+};
 
 /* ---------- helpers ---------- */
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -2175,9 +2222,12 @@ function MezziModule({ onHome, initialNotification }) {
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
   const ready = vehiclesT.ready && maintsT.ready;
   const dataError = vehiclesT.error || maintsT.error;
-  const { nomeVisualizzato } = usePermessi();
+  const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
+  const tabConsentito = (key) => hasPermission(MEZZI_TAB_PERMESSI[key]);
+  const navItemsConsentiti = MEZZI_NAV_ITEMS.filter(([key]) => tabConsentito(key));
+  const moduloConsentito = isAdmin || hasPermission(MEZZI_MODULO_PERMESSO);
   const [params] = useState(DEFAULT_PARAMS);
-  const [tab, setTab] = useState('veicoli');
+  const [tab, setTab] = useState(() => (navItemsConsentiti[0] ? navItemsConsentiti[0][0] : 'veicoli'));
   const [view, setView] = useState(LIST_VIEW);
   const [toast, setToast] = useState('');
   const [showMenu, setShowMenu] = useState(false);
@@ -2188,13 +2238,20 @@ function MezziModule({ onHome, initialNotification }) {
 
   useEffect(() => { setView(LIST_VIEW); }, [tab]);
 
+  // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
+  // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
+  useEffect(() => {
+    if (tabConsentito(tab)) return;
+    if (navItemsConsentiti[0]) setTab(navItemsConsentiti[0][0]);
+  }, [tab, isAdmin]);
+
   // Apertura diretta da una notifica.
   const notificationHandledRef = useRef(null);
   useEffect(() => {
     if (!initialNotification || !ready) return;
     const notificationKey = `${initialNotification.tipo}:${initialNotification.link_id}`;
     if (notificationHandledRef.current === notificationKey) return;
-    if (initialNotification.tipo === 'anomalia_mezzi') {
+    if (initialNotification.tipo === 'anomalia_mezzi' && tabConsentito('manutenzioni')) {
       const m = maints.find(x => x.id === initialNotification.link_id);
       if (m) {
         notificationHandledRef.current = notificationKey;
@@ -2230,6 +2287,16 @@ function MezziModule({ onHome, initialNotification }) {
     goBack();
   };
   const deleteMaint = (m) => salvaOTorna(() => maintsT.remove(m), 'Intervento eliminato');
+
+  // Gate d'ingresso al modulo: separato dal controllo sulle singole schede.
+  if (!moduloConsentito) {
+    return (
+      <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: MEZZI_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per accedere al modulo Mezzi.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: MEZZI_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  }
 
   if (!ready) {
     return (
@@ -2290,7 +2357,14 @@ function MezziModule({ onHome, initialNotification }) {
   };
 
   let content;
-  if (tab === 'veicoli') {
+  if (!tabConsentito(tab)) {
+    content = (
+      <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: MEZZI_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: MEZZI_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  } else if (tab === 'veicoli') {
     if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
@@ -2352,7 +2426,7 @@ function MezziModule({ onHome, initialNotification }) {
         input:focus, select:focus, textarea:focus { border-color: ${MEZZI_COLORS.primary} !important; }
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
-      {view.name === 'list' && <BottomNav theme={MEZZI_COLORS} tab={tab} setTab={setTab} items={MEZZI_NAV_ITEMS} />}
+      {view.name === 'list' && <BottomNav theme={MEZZI_COLORS} tab={tab} setTab={setTab} items={navItemsConsentiti} />}
       {showMenu && <MenuSheet theme={MEZZI_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica anagrafica e registro in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: view.name === 'list' ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: MEZZI_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
@@ -5957,7 +6031,7 @@ export default function ManutenzioneApp() {
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
-  const { session, profile, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
+  const { session, profile, permessi, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
   useEffect(() => {
@@ -6052,7 +6126,7 @@ setAlertCounts({
 
   return (
     <NotificheContext.Provider value={notificheCtx}>
-    <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome }}>
+    <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome, userId: session.user.id, permessi }}>
       {screen === 'mezzi' && <MezziModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} />}
