@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useContext, createContext } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
 import {
   Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown,
@@ -547,7 +548,7 @@ function GestioneNotificheScreen({ onHome, myUserId }) {
   );
 }
 
-const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '', userId: null, permessi: new Set() });
+const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '', userId: null, permessi: new Set(), gruppoIds: [] });
 function useRole() { return useContext(RoleContext).role; }
 function useUserEmail() { return useContext(RoleContext).email; }
 function nomeVisualizzato({ nome, cognome, email }) {
@@ -572,6 +573,7 @@ function usePermessi() {
     nome: ctx.nome,
     cognome: ctx.cognome,
     userId: ctx.userId,
+    gruppoIds: ctx.gruppoIds || [],
     nomeVisualizzato: nomeVisualizzato(ctx),
     puoScrivere: true,
     puoEliminare: isAdmin,
@@ -597,6 +599,7 @@ function useAuth() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [permessi, setPermessi] = useState(new Set());
+  const [gruppoIds, setGruppoIds] = useState([]);
 
   useEffect(() => {
     let mounted = true;
@@ -611,7 +614,7 @@ function useAuth() {
   useEffect(() => {
     let mounted = true;
     if (session === undefined) return undefined;
-    if (session === null) { setProfile(null); setPermessi(new Set()); setProfileLoading(false); return undefined; }
+    if (session === null) { setProfile(null); setPermessi(new Set()); setGruppoIds([]); setProfileLoading(false); return undefined; }
     setProfileLoading(true);
     (async () => {
       const [profRes, guRes] = await Promise.all([
@@ -621,13 +624,14 @@ function useAuth() {
       if (!mounted) return;
       setProfile(profRes.error ? null : profRes.data);
 
-      const gruppoIds = (guRes.data || []).map(r => r.gruppo_id);
-      if (gruppoIds.length === 0) {
+      const ids = (guRes.data || []).map(r => r.gruppo_id);
+      setGruppoIds(ids);
+      if (ids.length === 0) {
         setPermessi(new Set());
         setProfileLoading(false);
         return;
       }
-      const { data: gpData } = await supabase.from('gruppi_permessi').select('permesso_chiave').in('gruppo_id', gruppoIds);
+      const { data: gpData } = await supabase.from('gruppi_permessi').select('permesso_chiave').in('gruppo_id', ids);
       if (!mounted) return;
       setPermessi(new Set((gpData || []).map(r => r.permesso_chiave)));
       setProfileLoading(false);
@@ -645,6 +649,7 @@ function useAuth() {
     session,
     profile,
     permessi,
+    gruppoIds,
     refreshProfile,
     passwordRecovery,
     clearPasswordRecovery: () => setPasswordRecovery(false),
@@ -6117,23 +6122,211 @@ const PROC_COLORS = {
   ink: '#1E1530', muted: '#7A6A9A', danger: '#C0392B', ok: '#27AE60',
 };
 
+// Tipologie "base": si aggiungono a quelle gia' presenti nelle procedure salvate
+// (stesso pattern gia' usato da STR_CATEGORIE_REPARTO / RepartoForm: nessuna
+// tabella nuova, la tipologia resta una semplice stringa su procedure_manuali).
 const PROC_TIPOLOGIE = ['Idraulico','Elettrico','Muratura/Edile','Climatizzazione','Antincendio','Informatica','Sicurezza','Generale'];
 const PROC_FREQUENZE = ['Giornaliera','Settimanale','Mensile','Trimestrale','Semestrale','Annuale'];
-const PROC_ARMADI_TIPI = ['Elettrico','Idraulico','Medicale','Attrezzature','DPI','Documenti','Generale'];
 const PROC_UNITA = ['pz','kg','lt','m','conf','scatola','rotolo','pacco'];
 const FREQ_GIORNI = { Giornaliera:1, Settimanale:7, Mensile:30, Trimestrale:90, Semestrale:180, Annuale:365 };
+
+const PROC_STATI = ['Attiva', 'In revisione', 'Obsoleta'];
+const PROC_STATO_STYLE = {
+  'Attiva':       { bg: '#DCEEE3', fg: '#1F6B45' },
+  'In revisione': { bg: '#FDF3D0', fg: '#8A6000' },
+  'Obsoleta':     { bg: '#EAE7DC', fg: '#6E7972' },
+};
 
 const PROC_NAV_ITEMS = [
   ['procedure', BookOpen, 'Procedure'],
   ['ricorrenti', RefreshCw, 'Ricorrenti'],
-  ['armadi', Package, 'Armadi'],
 ];
 // Nel DB esistono solo questi due permessi per Procedure (nessun permesso
-// granulare per singola scheda procedure/ricorrenti/armadi).
+// granulare per singola scheda procedure/ricorrenti).
 const PROCEDURE_MODULO_PERMESSO = 'procedure.visualizza';
 const PROCEDURE_MODIFICA_PERMESSO = 'procedure.modifica';
 
 const PROC_BUCKET = 'procedure-files';
+
+/* ---- Generazione PDF (jsPDF) ---- */
+const PDF_MARGIN = 15;
+const PDF_PAGE_W = 210; // A4 mm
+const PDF_PAGE_H = 297;
+const PDF_CONTENT_W = PDF_PAGE_W - PDF_MARGIN * 2;
+
+function pdfCheckPageBreak(doc, y, neededHeight = 10) {
+  if (y + neededHeight > PDF_PAGE_H - PDF_MARGIN) {
+    doc.addPage();
+    return PDF_MARGIN;
+  }
+  return y;
+}
+
+function pdfParagraph(doc, y, testo, opts = {}) {
+  if (!testo) return y;
+  const size = opts.size || 10.5;
+  doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
+  doc.setFontSize(size);
+  doc.setTextColor(opts.color || '#1E1530');
+  const lines = doc.splitTextToSize(testo, opts.width || PDF_CONTENT_W);
+  for (const line of lines) {
+    y = pdfCheckPageBreak(doc, y, size * 0.55);
+    doc.text(line, PDF_MARGIN, y);
+    y += size * 0.55;
+  }
+  return y + 2;
+}
+
+function pdfSectionTitle(doc, y, testo) {
+  y = pdfCheckPageBreak(doc, y, 8);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor('#1E1530');
+  doc.text(testo, PDF_MARGIN, y);
+  return y + 6;
+}
+
+function pdfLinkLine(doc, y, titolo, url) {
+  y = pdfCheckPageBreak(doc, y, 10);
+  const label = titolo && titolo.trim() ? titolo.trim() : url;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor('#3D2466');
+  doc.textWithLink(label, PDF_MARGIN, y, { url });
+  y += 5;
+  // L'URL completo deve SEMPRE comparire nel PDF, anche quando il link ha un titolo leggibile.
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor('#7A6A9A');
+  const urlLines = doc.splitTextToSize(url, PDF_CONTENT_W);
+  for (const line of urlLines) {
+    y = pdfCheckPageBreak(doc, y, 5);
+    doc.textWithLink(line, PDF_MARGIN, y, { url });
+    y += 4.5;
+  }
+  return y + 2;
+}
+
+// Disegna una procedura completa a partire dalla pagina corrente. Usata sia
+// per la stampa singola sia per l'esportazione multipla (manuale).
+function pdfScriviProcedura(doc, procedura, gruppiMap) {
+  let y = PDF_MARGIN;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor('#1E1530');
+  const titoloLines = doc.splitTextToSize(procedura.titolo || 'Senza titolo', PDF_CONTENT_W);
+  titoloLines.forEach(line => { doc.text(line, PDF_MARGIN, y); y += 8; });
+  y += 1;
+
+  const meta = [
+    procedura.tipologia ? `Tipologia: ${procedura.tipologia}` : null,
+    `Versione: ${procedura.versione || 1}`,
+    procedura.updated_at ? `Ultima modifica: ${fmtDate(String(procedura.updated_at).slice(0, 10))}${procedura.modificato_da ? ' - ' + procedura.modificato_da : ''}` : null,
+    procedura.stato ? `Stato: ${procedura.stato}` : null,
+  ].filter(Boolean).join('   ·   ');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor('#7A6A9A');
+  y = pdfCheckPageBreak(doc, y, 8);
+  doc.text(meta, PDF_MARGIN, y);
+  y += 9;
+
+  if (procedura.descrizione) y = pdfParagraph(doc, y, procedura.descrizione, { bold: true, size: 11 });
+
+  if (procedura.steps) {
+    y = pdfSectionTitle(doc, y, 'Procedura passo-passo');
+    y = pdfParagraph(doc, y, procedura.steps);
+  }
+
+  const linkItems = [
+    ...(procedura.link_items || []).filter(l => l && l.url),
+    ...((procedura.videoLinks || []).filter(Boolean).map(u => ({ titolo: '', url: u }))),
+  ];
+  if (linkItems.length) {
+    y = pdfSectionTitle(doc, y, 'Link');
+    for (const l of linkItems) y = pdfLinkLine(doc, y, l.titolo, l.url);
+  }
+
+  if (procedura.files?.length) {
+    y = pdfSectionTitle(doc, y, 'File allegati');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor('#1E1530');
+    for (const f of procedura.files) { y = pdfCheckPageBreak(doc, y, 6); doc.text('- ' + (f.nome || f.path || ''), PDF_MARGIN, y); y += 5.5; }
+    y += 2;
+  }
+
+  if (procedura.immagini?.length) {
+    y = pdfCheckPageBreak(doc, y, 6);
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9.5); doc.setTextColor('#7A6A9A');
+    doc.text(`${procedura.immagini.length} immagine/i allegata/e (consultabili nell'app).`, PDF_MARGIN, y);
+    y += 7;
+  }
+
+  const tags = procedura.tags || [];
+  if (tags.length) {
+    y = pdfCheckPageBreak(doc, y, 8);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor('#1E1530');
+    doc.text('Tag:', PDF_MARGIN, y);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor('#7A6A9A');
+    doc.text(tags.join(', '), PDF_MARGIN + 13, y);
+    y += 6;
+  }
+
+  const gruppiNomi = (procedura.gruppi_ids || []).map(id => gruppiMap?.[id]).filter(Boolean);
+  if (gruppiNomi.length) {
+    y = pdfCheckPageBreak(doc, y, 8);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor('#1E1530');
+    doc.text('Gruppi autorizzati:', PDF_MARGIN, y);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor('#7A6A9A');
+    doc.text(gruppiNomi.join(', '), PDF_MARGIN + 42, y);
+    y += 6;
+  }
+
+  if (procedura.note) {
+    y = pdfSectionTitle(doc, y, 'Note');
+    y = pdfParagraph(doc, y, procedura.note);
+  }
+
+  return y;
+}
+
+function stampaProceduraSingola(procedura, gruppiMap) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  pdfScriviProcedura(doc, procedura, gruppiMap);
+  const nomeFile = `Procedura - ${(procedura.titolo || 'senza-titolo').replace(/[\\/:*?"<>|]/g, '')}.pdf`;
+  doc.save(nomeFile);
+}
+
+// Esportazione multipla: copertina + indice (numeri di pagina reali) + una procedura per pagina.
+function esportaManualeProcedure(procedure, gruppiMap) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(26); doc.setTextColor('#1E1530');
+  doc.text('MANUALE DELLE PROCEDURE', PDF_PAGE_W / 2, 130, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(16); doc.setTextColor('#5E3A8A');
+  doc.text('Il Melo', PDF_PAGE_W / 2, 145, { align: 'center' });
+  doc.setFontSize(11); doc.setTextColor('#7A6A9A');
+  doc.text(`Esportato il ${fmtDate(todayISO())}`, PDF_PAGE_W / 2, 160, { align: 'center' });
+
+  doc.addPage();
+  const indexPageNum = doc.internal.getNumberOfPages();
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor('#1E1530');
+  doc.text('Indice', PDF_MARGIN, PDF_MARGIN + 5);
+
+  const indiceEntries = [];
+  procedure.forEach((p, i) => {
+    doc.addPage();
+    const paginaIniziale = doc.internal.getNumberOfPages();
+    indiceEntries.push({ numero: i + 1, titolo: p.titolo || 'Senza titolo', tipologia: p.tipologia || '', pagina: paginaIniziale });
+    pdfScriviProcedura(doc, p, gruppiMap);
+  });
+
+  // Torno alla pagina dell'indice ora che conosco i numeri di pagina reali.
+  doc.setPage(indexPageNum);
+  let y = PDF_MARGIN + 16;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor('#1E1530');
+  indiceEntries.forEach(e => {
+    if (y > PDF_PAGE_H - PDF_MARGIN) return; // indice eccezionalmente lungo: si ferma qui
+    doc.text(`${e.numero}.`, PDF_MARGIN, y);
+    doc.text(e.titolo.slice(0, 55), PDF_MARGIN + 10, y);
+    doc.setTextColor('#7A6A9A');
+    doc.text(e.tipologia, PDF_MARGIN + 118, y);
+    doc.text(String(e.pagina), PDF_PAGE_W - PDF_MARGIN, y, { align: 'right' });
+    doc.setTextColor('#1E1530');
+    y += 7;
+  });
+
+  doc.save(`Manuale delle Procedure - Il Melo - ${todayISO()}.pdf`);
+}
 
 function PROC_Field({ label, children }) {
   return (
@@ -6180,15 +6373,32 @@ function calcProssima(ultima, frequenza) {
 }
 
 /* ---- Procedure ---- */
-function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
+function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHome, isAdmin, onExport }) {
   const [filtro, setFiltro] = useState('');
-  const filtered = filtro ? procedure.filter(p => p.tipologia === filtro) : procedure;
+  const [q, setQ] = useState('');
+
+  const filtered = useMemo(() => {
+    let list = filtro ? procedure.filter(p => p.tipologia === filtro) : procedure;
+    const query = q.trim().toLowerCase();
+    if (query) {
+      list = list.filter(p => {
+        const testo = [p.titolo, p.tipologia, p.descrizione, p.steps, ...(p.tags || [])].filter(Boolean).join(' ').toLowerCase();
+        return testo.includes(query);
+      });
+    }
+    return list;
+  }, [procedure, filtro, q]);
+
   return (
     <>
-      <TopBar theme={PROC_COLORS} title="Procedure" subtitle={`${procedure.length} procedure`} onBack={onHome} backIcon={Home} />
-      <div style={{ padding:'8px 14px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+      <TopBar theme={PROC_COLORS} title="Procedure" subtitle={`${procedure.length} procedure`} onBack={onHome} backIcon={Home}
+        right={isAdmin ? <button onClick={onExport} title="Esporta procedure" style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:12.5, padding:'4px 6px' }}>Esporta</button> : null} />
+      <div style={{ padding:'10px 14px 0' }}>
+        <input placeholder="Cerca per titolo, tipologia, contenuto, tag…" style={{ ...procInputStyle, marginBottom:10 }} value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+      <div style={{ padding:'0 14px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
         <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10 }}>
-          {PROC_TIPOLOGIE.map(t => (
+          {tipologieDisponibili.map(t => (
             <button key={t} onClick={() => setFiltro(filtro === t ? '' : t)}
               style={{ border:'none', borderRadius:999, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0,
                 background: filtro === t ? PROC_COLORS.primary : PROC_COLORS.bg,
@@ -6199,7 +6409,7 @@ function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
         </div>
       </div>
       <div style={{ padding:14 }}>
-        {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={BookOpen} text="Nessuna procedura. Aggiungine una." />}
+        {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={BookOpen} text="Nessuna procedura trovata." />}
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
           {filtered.map(p => (
             <Card theme={PROC_COLORS} key={p.id} onClick={() => onOpen(p)}>
@@ -6207,15 +6417,23 @@ function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
                 <div style={{ minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:14.5, marginBottom:4 }}>{p.titolo}</div>
                   {p.descrizione && <div style={{ fontSize:12.5, color:PROC_COLORS.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.descrizione}</div>}
-                  {(p.immagini?.length > 0 || p.videoLinks?.length > 0 || p.files?.length > 0) && (
+                  {p.tags?.length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:6 }}>
+                      {p.tags.slice(0,4).map(t => <span key={t} style={{ fontSize:10.5, color:PROC_COLORS.primary, background:PROC_COLORS.bg, borderRadius:999, padding:'2px 7px' }}>#{t}</span>)}
+                    </div>
+                  )}
+                  {(p.immagini?.length > 0 || p.videoLinks?.length > 0 || p.link_items?.length > 0 || p.files?.length > 0) && (
                     <div style={{ display:'flex', gap:10, marginTop:6, fontSize:11, color:PROC_COLORS.muted }}>
                       {p.immagini?.length > 0 && <span><ImageIcon size={11} style={{ display:'inline', marginRight:3 }} />{p.immagini.length}</span>}
-                      {p.videoLinks?.length > 0 && <span><ExternalLink size={11} style={{ display:'inline', marginRight:3 }} />{p.videoLinks.length} video</span>}
+                      {(p.videoLinks?.length > 0 || p.link_items?.length > 0) && <span><ExternalLink size={11} style={{ display:'inline', marginRight:3 }} />{(p.videoLinks?.length||0) + (p.link_items?.length||0)} link</span>}
                       {p.files?.length > 0 && <span><FileText size={11} style={{ display:'inline', marginRight:3 }} />{p.files.length}</span>}
                     </div>
                   )}
                 </div>
-                <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{p.tipologia}</Pill>
+                <div style={{ display:'flex', flexDirection:'column', gap:5, alignItems:'flex-end', flexShrink:0 }}>
+                  <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{p.tipologia}</Pill>
+                  {p.stato && p.stato !== 'Attiva' && <Pill style={PROC_STATO_STYLE[p.stato] || PROC_STATO_STYLE.Attiva}>{p.stato}</Pill>}
+                </div>
               </div>
             </Card>
           ))}
@@ -6226,7 +6444,7 @@ function ProcedureScreen({ procedure, onOpen, onAdd, onHome }) {
   );
 }
 
-function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
+function ProceduraDetail({ procedura, gruppiMap, onBack, onEdit, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [urls, setUrls] = useState({});
@@ -6250,10 +6468,23 @@ function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
     return () => { m = false; };
   }, [procedura.id, procedura.immagini?.length]);
 
+  const gruppiNomi = (procedura.gruppi_ids || []).map(id => gruppiMap?.[id]).filter(Boolean);
+  const linkItems = [...(procedura.link_items || []).filter(l => l && l.url), ...((procedura.videoLinks || []).filter(Boolean).map(u => ({ titolo: '', url: u })))];
+
   return (
     <>
       <TopBar theme={PROC_COLORS} title={procedura.titolo} subtitle={procedura.tipologia} onBack={onBack} />
       <div style={{ padding:14 }}>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+          <Pill style={PROC_STATO_STYLE[procedura.stato] || PROC_STATO_STYLE.Attiva}>{procedura.stato || 'Attiva'}</Pill>
+          <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.muted }}>Versione {procedura.versione || 1}</Pill>
+        </div>
+        {(procedura.updated_at || procedura.modificato_da) && (
+          <div style={{ fontSize:12, color:PROC_COLORS.muted, marginBottom:12 }}>
+            Ultima modifica: {procedura.updated_at ? fmtDate(String(procedura.updated_at).slice(0,10)) : '—'}{procedura.modificato_da ? ` · ${procedura.modificato_da}` : ''}
+          </div>
+        )}
+
         {procedura.descrizione && <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:14, lineHeight:1.6 }}>{procedura.descrizione}</p></Card>}
         {procedura.steps && (<><SectionLabel theme={PROC_COLORS}>Procedura passo-passo</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><pre style={{ margin:0, fontSize:13.5, lineHeight:1.7, fontFamily:'Inter, sans-serif', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{procedura.steps}</pre></Card></>)}
 
@@ -6279,9 +6510,49 @@ function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
           </>
         )}
 
-        {procedura.videoLinks?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>Video</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.videoLinks.map((url, i) => (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><ExternalLink size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} /><a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600, wordBreak:'break-all' }}>{url.replace(/^https?:\/\//, '').slice(0,50)}{url.length>55?'…':''}</a></div>))}</Card></>)}
+        {linkItems.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Link</SectionLabel>
+            <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+              {linkItems.map((l, i) => (
+                <div key={i} style={{ padding:i?'10px 0 0':'0', marginTop:i?10:0, borderTop:i?`1px solid ${PROC_COLORS.line}`:'none' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <ExternalLink size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} />
+                    <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600, wordBreak:'break-all' }}>
+                      {l.titolo?.trim() || l.url.replace(/^https?:\/\//, '').slice(0,50)}
+                    </a>
+                  </div>
+                  {l.titolo?.trim() && <div style={{ fontSize:11.5, color:PROC_COLORS.muted, marginLeft:25, marginTop:2, wordBreak:'break-all' }}>{l.url}</div>}
+                </div>
+              ))}
+            </Card>
+          </>
+        )}
         {procedura.files?.length > 0 && (<><SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}>{procedura.files.map((file, i) => { const url = fileUrls[file?.path]; return (<div key={i} style={{ padding:i?'10px 0 0':'0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none', display:'flex', alignItems:'center', gap:10 }}><FileText size={15} color={PROC_COLORS.primary} style={{ flexShrink:0 }} />{url?<a href={url} target="_blank" rel="noopener noreferrer" style={{ color:PROC_COLORS.primary, fontSize:13.5, fontWeight:600 }}>{file.nome}</a>:<span style={{ fontSize:13.5, color:PROC_COLORS.muted }}>{file.nome}</span>}</div>); })}</Card></>)}
+
+        {procedura.tags?.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Tag</SectionLabel>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+              {procedura.tags.map(t => <span key={t} style={{ fontSize:12, color:PROC_COLORS.primary, background:PROC_COLORS.bg, borderRadius:999, padding:'4px 10px', fontWeight:600 }}>#{t}</span>)}
+            </div>
+          </>
+        )}
+
+        {gruppiNomi.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Gruppi autorizzati</SectionLabel>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+              {gruppiNomi.map(n => <Pill key={n} style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{n}</Pill>)}
+            </div>
+          </>
+        )}
+
         {procedura.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{procedura.note}</p></Card></>)}
+
+        <button onClick={() => stampaProceduraSingola(procedura, gruppiMap)} style={{ width:'100%', background:PROC_COLORS.bg, border:`1.5px solid ${PROC_COLORS.line}`, color:PROC_COLORS.primary, borderRadius:12, padding:'12px', fontWeight:700, fontSize:14, marginBottom:12, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          🖨 Stampa procedura
+        </button>
 
         {/* Pulsanti modifica/elimina espliciti */}
         {puoScrivere && (
@@ -6304,22 +6575,39 @@ function ProceduraDetail({ procedura, onBack, onEdit, onDelete }) {
   );
 }
 
-function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
-  const { isAdmin, puoEliminare } = usePermessi();
+function ProceduraForm({ initial, tipologieDisponibili, gruppi, gruppiSelezionati, onSave, onCancel, onDelete }) {
+  const { isAdmin, puoEliminare, nomeVisualizzato } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { id:uid(), titolo:'', tipologia:PROC_TIPOLOGIE[0], descrizione:'', steps:'', videoLinks:[], files:[], immagini:[], note:'' });
+  const [f, setF] = useState(() => {
+    const base = initial || { id:uid(), titolo:'', tipologia:tipologieDisponibili[0]||'Generale', descrizione:'', steps:'', videoLinks:[], files:[], immagini:[], note:'', stato:'Attiva' };
+    const { gruppi_ids, ...pulito } = base;
+    return pulito;
+  });
+  const [nuovaTipologia, setNuovaTipologia] = useState(false);
   const [nuoveImmagini, setNuoveImmagini] = useState([]);
   const [nuoviFiles, setNuoviFiles] = useState([]);
   const [immaginiDaRimuovere, setImmaginiDaRimuovere] = useState([]);
   const [filesDaRimuovere, setFilesDaRimuovere] = useState([]);
-  const [links, setLinks] = useState(initial?.videoLinks || []);
+  const [linkItems, setLinkItems] = useState(() => initial?.link_items?.length ? initial.link_items : (initial?.videoLinks || []).map(u => ({ titolo:'', url:u })));
+  const [tags, setTags] = useState(initial?.tags || []);
+  const [tagInput, setTagInput] = useState('');
+  const [gruppiSel, setGruppiSel] = useState(() => new Set(gruppiSelezionati || []));
   const [salvataggio, setSalvataggio] = useState(false);
   const [errore, setErrore] = useState('');
   const imgRef = useRef(null); const fileRef = useRef(null);
   const anteprimeImg = useMemo(() => nuoveImmagini.map(f => URL.createObjectURL(f)), [nuoveImmagini]);
   useEffect(() => { return () => { anteprimeImg.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeImg]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]: e.target.value }));
+
+  function addTag() {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !tags.includes(t)) setTags(p => [...p, t]);
+    setTagInput('');
+  }
+  function toggleGruppo(id) {
+    setGruppiSel(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
 
   async function handleSave() {
     if (!f.titolo.trim()) { setErrore('Il titolo è obbligatorio.'); return; }
@@ -6331,7 +6619,20 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
       for (const img of nuoveImmagini) nuoviImg.push(await caricaProcFile(f.id, img));
       const nuoviF = [];
       for (const file of nuoviFiles) nuoviF.push(await caricaProcFile(f.id, file));
-      onSave({ ...f, immagini:[...(f.immagini||[]).filter(x => !immaginiDaRimuovere.includes(x)), ...nuoviImg], files:[...(f.files||[]).filter(x => !filesDaRimuovere.find(d => d.path===x.path)), ...nuoviF], videoLinks:links.filter(l => l.trim()) });
+      const record = {
+        ...f,
+        immagini: [...(f.immagini||[]).filter(x => !immaginiDaRimuovere.includes(x)), ...nuoviImg],
+        files: [...(f.files||[]).filter(x => !filesDaRimuovere.find(d => d.path===x.path)), ...nuoviF],
+        videoLinks: f.videoLinks || [], // legacy: non piu' modificabile da qui, resta visibile in sola lettura
+        link_items: linkItems.filter(l => l.url && l.url.trim()),
+        tags,
+        stato: f.stato || 'Attiva',
+        versione: (Number(f.versione) || 0) + 1,
+        modificato_da: nomeVisualizzato,
+        updated_at: new Date().toISOString(),
+      };
+      delete record.gruppi_ids; // campo derivato lato client, non e' una colonna della tabella
+      onSave({ record, gruppiIds: [...gruppiSel] });
     } catch(e) { setErrore('Errore: ' + e.message); setSalvataggio(false); }
   }
 
@@ -6344,7 +6645,27 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
       <TopBar theme={PROC_COLORS} title={initial ? 'Modifica procedura' : 'Nuova procedura'} onBack={onCancel} />
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Spurgo radiatori" /></PROC_Field>
-        <PROC_Field label="Tipologia"><select style={procInputStyle} value={f.tipologia} onChange={set('tipologia')}>{PROC_TIPOLOGIE.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+
+        <PROC_Field label="Tipologia">
+          {!nuovaTipologia ? (
+            <select style={procInputStyle} value={f.tipologia} onChange={e => {
+              if (e.target.value === '__nuova__') { setNuovaTipologia(true); setF(p => ({ ...p, tipologia:'' })); }
+              else setF(p => ({ ...p, tipologia: e.target.value }));
+            }}>
+              {tipologieDisponibili.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="__nuova__">➕ Aggiungi nuova tipologia…</option>
+            </select>
+          ) : (
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <input style={{ ...procInputStyle, flex:1 }} value={f.tipologia} onChange={set('tipologia')} placeholder="Scrivi la nuova tipologia…" autoFocus />
+              <button type="button" onClick={() => { if (!f.tipologia.trim()) setF(p => ({ ...p, tipologia: tipologieDisponibili[0] || 'Generale' })); setNuovaTipologia(false); }}
+                style={{ background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:8, padding:'10px 14px', fontWeight:700, fontSize:13 }}>OK</button>
+            </div>
+          )}
+        </PROC_Field>
+
+        <PROC_Field label="Stato"><select style={procInputStyle} value={f.stato || 'Attiva'} onChange={set('stato')}>{PROC_STATI.map(s => <option key={s}>{s}</option>)}</select></PROC_Field>
+
         <PROC_Field label="Descrizione breve"><input style={procInputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Scopo e contesto" /></PROC_Field>
         <PROC_Field label="Procedura passo-passo"><textarea style={{ ...procInputStyle, minHeight:120, resize:'vertical' }} value={f.steps} onChange={set('steps')} placeholder={'1. Primo passo\n2. Secondo passo\n3. ...'} /></PROC_Field>
 
@@ -6360,15 +6681,23 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
           <input ref={imgRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e => { setNuoveImmagini(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
         </div>
 
-        <SectionLabel theme={PROC_COLORS}>Link video</SectionLabel>
+        <SectionLabel theme={PROC_COLORS}>Link</SectionLabel>
         <div style={{ marginBottom:14 }}>
-          {links.map((l, i) => (
-            <div key={i} style={{ display:'flex', gap:8, marginBottom:8, alignItems:'center' }}>
-              <input style={{ ...procInputStyle, flex:1, fontSize:13 }} value={l} onChange={e => setLinks(p => p.map((x,idx)=>idx===i?e.target.value:x))} placeholder="https://youtube.com/..." />
-              {xBtn(() => setLinks(p => p.filter((_,idx)=>idx!==i)))}
+          {(f.videoLinks || []).length > 0 && (
+            <div style={{ fontSize:11.5, color:PROC_COLORS.muted, marginBottom:8 }}>
+              {f.videoLinks.length} link salvati in precedenza (senza titolo) — restano visibili nel dettaglio, non modificabili qui sotto.
+            </div>
+          )}
+          {linkItems.map((l, i) => (
+            <div key={i} style={{ border:`1px solid ${PROC_COLORS.line}`, borderRadius:10, padding:10, marginBottom:8 }}>
+              <input style={{ ...procInputStyle, marginBottom:6, fontSize:13 }} value={l.titolo} onChange={e => setLinkItems(p => p.map((x,idx)=>idx===i?{...x,titolo:e.target.value}:x))} placeholder="Titolo leggibile (es. Manuale del produttore)" />
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <input style={{ ...procInputStyle, flex:1, fontSize:13 }} value={l.url} onChange={e => setLinkItems(p => p.map((x,idx)=>idx===i?{...x,url:e.target.value}:x))} placeholder="https://..." />
+                {xBtn(() => setLinkItems(p => p.filter((_,idx)=>idx!==i)))}
+              </div>
             </div>
           ))}
-          <button type="button" onClick={() => setLinks(p=>[...p,''])} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:0, display:'flex', alignItems:'center', gap:5 }}><Plus size={14}/> Aggiungi link</button>
+          <button type="button" onClick={() => setLinkItems(p=>[...p,{ titolo:'', url:'' }])} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:0, display:'flex', alignItems:'center', gap:5 }}><Plus size={14}/> Aggiungi link</button>
         </div>
 
         <SectionLabel theme={PROC_COLORS}>File allegati</SectionLabel>
@@ -6390,6 +6719,38 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
           <button type="button" onClick={() => fileRef.current?.click()} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'8px 0', display:'flex', alignItems:'center', gap:5 }}><Plus size={14}/> Allega file</button>
           <input ref={fileRef} type="file" multiple style={{ display:'none' }} onChange={e => { setNuoviFiles(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
         </div>
+
+        <SectionLabel theme={PROC_COLORS}>Tag / parole chiave</SectionLabel>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 }}>
+          {tags.map(t => (
+            <span key={t} style={{ display:'flex', alignItems:'center', gap:4, fontSize:12, color:PROC_COLORS.primary, background:PROC_COLORS.bg, borderRadius:999, padding:'4px 6px 4px 10px', fontWeight:600 }}>
+              #{t}
+              <button type="button" onClick={() => setTags(p => p.filter(x => x !== t))} style={{ background:'none', border:'none', color:PROC_COLORS.primary, display:'flex', padding:2 }}><XIcon size={12} /></button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+          <input style={{ ...procInputStyle, flex:1 }} value={tagInput} onChange={e => setTagInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+            placeholder="Es. caldaia, emergenza, inverno… (Invio per aggiungere)" />
+          <button type="button" onClick={addTag} style={{ background:PROC_COLORS.bg, border:`1.5px solid ${PROC_COLORS.line}`, color:PROC_COLORS.primary, borderRadius:8, padding:'0 16px', fontWeight:700, fontSize:13 }}>+</button>
+        </div>
+
+        {gruppi && gruppi.length > 0 && (
+          <>
+            <SectionLabel theme={PROC_COLORS}>Gruppi autorizzati a vedere questa procedura</SectionLabel>
+            <div style={{ fontSize:12, color:PROC_COLORS.muted, marginBottom:8 }}>Se non selezioni nessun gruppo, la procedura sarà visibile solo agli amministratori.</div>
+            <Card theme={PROC_COLORS} style={{ marginBottom:14, padding:'4px 14px' }}>
+              {gruppi.map((g, i) => (
+                <label key={g.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none' }}>
+                  <input type="checkbox" checked={gruppiSel.has(g.id)} onChange={() => toggleGruppo(g.id)} style={{ width:18, height:18, accentColor:PROC_COLORS.primary }} />
+                  <span style={{ fontSize:13.5 }}>{g.nome}</span>
+                </label>
+              ))}
+            </Card>
+          </>
+        )}
+
         <PROC_Field label="Note"><input style={procInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
       </div>
       {puoScrivere && (
@@ -6401,6 +6762,50 @@ function ProceduraForm({ initial, onSave, onCancel, onDelete }) {
       )}
       {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare "${initial?.titolo}"?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
     </>
+  );
+}
+
+function EsportaProcedureModal({ procedure, tipologieDisponibili, gruppiMap, onClose }) {
+  const [selezionate, setSelezionate] = useState(new Set()); // vuoto = tutte
+  const [esportando, setEsportando] = useState(false);
+  const toggle = (t) => setSelezionate(p => { const n = new Set(p); if (n.has(t)) n.delete(t); else n.add(t); return n; });
+
+  const daEsportare = selezionate.size === 0 ? procedure : procedure.filter(p => selezionate.has(p.tipologia));
+
+  function conferma() {
+    if (!daEsportare.length) return;
+    setEsportando(true);
+    setTimeout(() => {
+      esportaManualeProcedure(daEsportare, gruppiMap);
+      setEsportando(false);
+      onClose();
+    }, 50); // lascia dipingere lo stato "Esportando…" prima del lavoro sincrono di jsPDF
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'#fff', borderRadius:'18px 18px 0 0', padding:20, width:'100%', maxWidth:480, maxHeight:'80vh', overflowY:'auto' }}>
+        <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>Esporta procedure</div>
+        <div style={{ fontSize:12.5, color:PROC_COLORS.muted, marginBottom:14 }}>Seleziona una o più tipologie, oppure lascia vuoto per esportarle tutte ({procedure.length}).</div>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:16 }}>
+          {tipologieDisponibili.map(t => (
+            <button key={t} onClick={() => toggle(t)}
+              style={{ border:'none', borderRadius:999, padding:'7px 13px', fontSize:12.5, fontWeight:700, cursor:'pointer',
+                background: selezionate.has(t) ? PROC_COLORS.primary : PROC_COLORS.bg,
+                color: selezionate.has(t) ? '#fff' : PROC_COLORS.muted }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize:12.5, color:PROC_COLORS.muted, marginBottom:14 }}>{daEsportare.length} procedure verranno incluse nel PDF.</div>
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, padding:12, borderRadius:10, border:`1.5px solid ${PROC_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
+          <button onClick={conferma} disabled={esportando || !daEsportare.length} style={{ flex:1, padding:12, borderRadius:10, border:'none', background:PROC_COLORS.primary, color:'#fff', fontWeight:700, opacity:(esportando || !daEsportare.length)?0.6:1 }}>
+            {esportando ? 'Esportando…' : 'Esporta PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -6485,145 +6890,386 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
 }
 
 /* ---- Armadi ---- */
-function ArmadiScreen({ armadi, onOpen, onAdd, onHome }) {
+/* ---- Magazzino (ex "Armadi" di Procedure: stessa tabella "armadi", nuovo modulo) ---- */
+const MAGAZZINO_COLORS = {
+  primary: '#3B5169', primaryDeep: '#243746',
+  bg: '#EDF0F3', surface: '#FFFFFF', line: '#D6DEE5',
+  ink: '#1B242C', muted: '#6E7C89', danger: '#C0392B', ok: '#27AE60',
+};
+const MAGAZZINO_TIPI = ['Elettrico','Idraulico','Medicale','Attrezzature','DPI','Documenti','Generale'];
+const MAGAZZINO_MODULO_PERMESSO = 'magazzino.visualizza';
+const MAGAZZINO_MODIFICA_PERMESSO = 'magazzino.modifica';
+const magInputStyle = procInputStyle;
+
+function magHaScortaBassa(armadio) {
+  return (armadio.contenuto || []).some(r => r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima));
+}
+
+function MagazzinoScreen({ armadi, onOpen, onAdd, onHome, puoScrivere }) {
   const [q, setQ] = useState('');
   const filtered = armadi.filter(a => `${a.numero} ${a.posizione} ${a.tipologia}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <TopBar theme={PROC_COLORS} title="Contenuto armadi" subtitle={`${armadi.length} armadi`} onBack={onHome} backIcon={Home} />
+      <TopBar theme={MAGAZZINO_COLORS} title="Magazzino" subtitle={`${armadi.length} armadi`} onBack={onHome} backIcon={Home} />
       <div style={{ padding:14 }}>
-        <input placeholder="Cerca numero, posizione, tipologia…" style={{ ...procInputStyle, marginBottom:12 }} value={q} onChange={e => setQ(e.target.value)} />
-        {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={Package} text="Nessun armadio registrato." />}
+        <input placeholder="Cerca numero, posizione, tipologia…" style={{ ...magInputStyle, marginBottom:12 }} value={q} onChange={e => setQ(e.target.value)} />
+        {filtered.length === 0 && <Empty theme={MAGAZZINO_COLORS} icon={Package} text="Nessun armadio registrato." />}
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-          {filtered.map(a => (
-            <Card theme={PROC_COLORS} key={a.id} onClick={() => onOpen(a)}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14.5, marginBottom:3 }}>Armadio {a.numero}</div>
-                  <div style={{ fontSize:12, color:PROC_COLORS.muted }}>{a.posizione}</div>
-                  {a.contenuto?.length > 0 && <div style={{ fontSize:11.5, color:PROC_COLORS.muted, marginTop:4 }}>{a.contenuto.length} voci</div>}
+          {filtered.map(a => {
+            const scortaBassa = magHaScortaBassa(a);
+            return (
+              <Card theme={MAGAZZINO_COLORS} key={a.id} onClick={() => onOpen(a)}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:14.5, marginBottom:3 }}>Armadio {a.numero}</div>
+                    <div style={{ fontSize:12, color:MAGAZZINO_COLORS.muted }}>{a.posizione}</div>
+                    {a.contenuto?.length > 0 && <div style={{ fontSize:11.5, color:MAGAZZINO_COLORS.muted, marginTop:4 }}>{a.contenuto.length} voci</div>}
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:5, alignItems:'flex-end' }}>
+                    <Pill style={{ bg:MAGAZZINO_COLORS.bg, fg:MAGAZZINO_COLORS.primary }}>{a.tipologia||'Generale'}</Pill>
+                    {scortaBassa && <Pill style={{ bg:'#F7DCD9', fg:'#A3352A' }}>Scorta bassa</Pill>}
+                  </div>
                 </div>
-                <Pill style={{ bg:PROC_COLORS.bg, fg:PROC_COLORS.primary }}>{a.tipologia||'Generale'}</Pill>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       </div>
-      <PROC_FAB onClick={onAdd} />
+      {puoScrivere && <PROC_FAB onClick={onAdd} />}
     </>
   );
 }
 
-function ArmadioDetail({ armadio, onBack, onEdit }) {
-  const { isAdmin } = usePermessi();
-  const puoScrivere = isAdmin;
+function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
+  const [urls, setUrls] = useState({});
+  useEffect(() => {
+    let m = true;
+    if (armadio.foto?.length) urlFirmateProcImmagini(armadio.foto).then(u => { if (m) setUrls(u); }).catch(() => {});
+    return () => { m = false; };
+  }, [armadio.id, armadio.foto?.length]);
+
   return (
     <>
-      <TopBar theme={PROC_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia||armadio.posizione} onBack={onBack}
-        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
+      <TopBar theme={MAGAZZINO_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia||armadio.posizione} onBack={onBack}
+        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
       <div style={{ padding:14 }}>
-        <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
-          <InfoRow theme={PROC_COLORS} icon={MapPin} label="Posizione" value={armadio.posizione||'—'} />
-          <InfoRow theme={PROC_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia||'—'} />
+        <Card theme={MAGAZZINO_COLORS} style={{ marginBottom:12 }}>
+          <InfoRow theme={MAGAZZINO_COLORS} icon={MapPin} label="Posizione" value={armadio.posizione||'—'} />
+          <InfoRow theme={MAGAZZINO_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia||'—'} />
         </Card>
+
+        {armadio.foto?.length > 0 && (
+          <>
+            <SectionLabel theme={MAGAZZINO_COLORS}>Foto</SectionLabel>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
+              {armadio.foto.map((img, i) => {
+                const url = urls[img?.path || img];
+                return (
+                  <div key={i} style={{ width:90, height:90, borderRadius:10, overflow:'hidden', background:MAGAZZINO_COLORS.bg, border:`1px solid ${MAGAZZINO_COLORS.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    {url ? <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <ImageIcon size={22} color={MAGAZZINO_COLORS.muted} />}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
         {armadio.contenuto?.length > 0 && (
           <>
-            <SectionLabel theme={PROC_COLORS}>Contenuto</SectionLabel>
-            <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'6px 12px', fontSize:12, fontWeight:700, color:PROC_COLORS.muted, paddingBottom:8, borderBottom:`1px solid ${PROC_COLORS.line}`, marginBottom:4 }}>
+            <SectionLabel theme={MAGAZZINO_COLORS}>Contenuto</SectionLabel>
+            <Card theme={MAGAZZINO_COLORS} style={{ marginBottom:12 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'6px 12px', fontSize:12, fontWeight:700, color:MAGAZZINO_COLORS.muted, paddingBottom:8, borderBottom:`1px solid ${MAGAZZINO_COLORS.line}`, marginBottom:4 }}>
                 <span>Elemento</span><span style={{ textAlign:'right' }}>Qtà</span><span>U.M.</span>
               </div>
-              {armadio.contenuto.map((r, i) => (
-                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'4px 12px', fontSize:13.5, padding:'6px 0', borderTop:i?`1px solid ${PROC_COLORS.line}`:'none' }}>
-                  <span>{r.elemento}</span>
-                  <span style={{ textAlign:'right', fontWeight:700 }}>{r.quantita}</span>
-                  <span style={{ color:PROC_COLORS.muted }}>{r.unita}</span>
-                </div>
-              ))}
+              {armadio.contenuto.map((r, i) => {
+                const bassa = r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima);
+                return (
+                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:'4px 12px', fontSize:13.5, padding:'6px 0', borderTop:i?`1px solid ${MAGAZZINO_COLORS.line}`:'none' }}>
+                    <span>{r.elemento}{bassa && <span style={{ marginLeft:6, fontSize:10.5, fontWeight:700, color:MAGAZZINO_COLORS.danger }}>SCORTA BASSA</span>}</span>
+                    <span style={{ textAlign:'right', fontWeight:700, color: bassa ? MAGAZZINO_COLORS.danger : MAGAZZINO_COLORS.ink }}>{r.quantita}</span>
+                    <span style={{ color:MAGAZZINO_COLORS.muted }}>{r.unita}</span>
+                  </div>
+                );
+              })}
             </Card>
           </>
         )}
-        {armadio.note && (<><SectionLabel theme={PROC_COLORS}>Note</SectionLabel><Card theme={PROC_COLORS}><p style={{ margin:0, fontSize:13.5, color:PROC_COLORS.muted }}>{armadio.note}</p></Card></>)}
+        {armadio.note && (<><SectionLabel theme={MAGAZZINO_COLORS}>Note</SectionLabel><Card theme={MAGAZZINO_COLORS}><p style={{ margin:0, fontSize:13.5, color:MAGAZZINO_COLORS.muted }}>{armadio.note}</p></Card></>)}
       </div>
     </>
   );
 }
 
-function ArmadioForm({ initial, onSave, onCancel, onDelete }) {
-  const { isAdmin, puoEliminare } = usePermessi();
-  const puoScrivere = isAdmin;
+function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, puoScrivere, puoEliminare }) {
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'' });
+  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', foto:[] });
   const [righe, setRighe] = useState(initial?.contenuto || []);
+  const [pianoSel, setPianoSel] = useState(initial?.piano || '');
+  const [repartoSel, setRepartoSel] = useState(initial?.reparto_codice || '');
+  const [posizioneLibera, setPosizioneLibera] = useState(initial?.posizione_libera || '');
+  const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
+  const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
+  const [fotoNuove, setFotoNuove] = useState([]);
+  const [salvataggio, setSalvataggio] = useState(false);
+  const [errore, setErrore] = useState('');
+  const fotoRef = useRef(null);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
   const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
+
+  const pianiDisponibili = useMemo(() => [...new Set([...(camere||[]).map(c => c.piano), ...(reparti||[]).map(r => r.piano)].filter(Boolean))].sort(), [camere, reparti]);
+  const repartiPerPiano = useMemo(() => !pianoSel ? [] : (reparti||[]).filter(r => r.piano === pianoSel).sort((a,b) => a.nome.localeCompare(b.nome)), [reparti, pianoSel]);
+
+  useEffect(() => {
+    const repartoNome = repartiPerPiano.find(r => r.codice === repartoSel)?.nome || '';
+    const posizioneCalcolata = [pianoSel, repartoNome, posizioneLibera].filter(Boolean).join(' · ');
+    if (posizioneCalcolata) setF(prev => ({ ...prev, posizione: posizioneCalcolata }));
+  }, [pianoSel, repartoSel, posizioneLibera, repartiPerPiano]);
+
+  async function handleSave() {
+    if (!f.numero.trim()) { setErrore('Il numero armadio è obbligatorio.'); return; }
+    setSalvataggio(true); setErrore('');
+    try {
+      if (fotoDaRimuovere.length) await eliminaProcFiles(fotoDaRimuovere);
+      const nuovePaths = [];
+      for (const file of fotoNuove) nuovePaths.push(await caricaProcFile(f.id, file));
+      const record = {
+        ...f,
+        contenuto: righe,
+        piano: pianoSel,
+        reparto_codice: repartoSel,
+        posizione_libera: posizioneLibera,
+        foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.includes(x)), ...nuovePaths],
+      };
+      onSave(record);
+    } catch (e) { setErrore('Errore: ' + e.message); setSalvataggio(false); }
+  }
+
+  const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
+  const thumbStyle = { position:'relative', width:72, height:72, borderRadius:10, overflow:'hidden', background:MAGAZZINO_COLORS.bg, border:`1px solid ${MAGAZZINO_COLORS.line}`, flexShrink:0 };
+  const xOverlay = (onClick) => (<button type="button" onClick={onClick} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:999, width:20, height:20, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={12} /></button>);
+  const anteprimeFoto = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
+  useEffect(() => { return () => { anteprimeFoto.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeFoto]);
+
   return (
     <>
-      <TopBar theme={PROC_COLORS} title={initial ? 'Modifica armadio' : 'Nuovo armadio'} onBack={onCancel} />
+      <TopBar theme={MAGAZZINO_COLORS} title={initial ? 'Modifica armadio' : 'Nuovo armadio'} onBack={onCancel} />
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-          <PROC_Field label="Numero *"><input style={procInputStyle} value={f.numero} onChange={set('numero')} placeholder="Es. A01" /></PROC_Field>
-          <PROC_Field label="Tipologia"><select style={procInputStyle} value={f.tipologia} onChange={set('tipologia')}>{PROC_ARMADI_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+          <PROC_Field label="Numero *"><input style={magInputStyle} value={f.numero} onChange={set('numero')} placeholder="Es. A01" /></PROC_Field>
+          <PROC_Field label="Tipologia"><select style={magInputStyle} value={f.tipologia} onChange={set('tipologia')}>{MAGAZZINO_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         </div>
-        <PROC_Field label="Posizione"><input style={procInputStyle} value={f.posizione||''} onChange={set('posizione')} placeholder="Es. Piano Terra - Corridoio Nord" /></PROC_Field>
-        <SectionLabel theme={PROC_COLORS}>Contenuto</SectionLabel>
+
+        {/* Posizione a cascata: stessa logica gia' usata in Struttura per Reparti e Zone */}
+        <div style={{ background:MAGAZZINO_COLORS.bg, borderRadius:12, padding:'12px 14px', marginBottom:14, border:`1px solid ${MAGAZZINO_COLORS.line}` }}>
+          <div style={{ fontSize:12, fontWeight:700, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:10 }}>Posizione armadio</div>
+          <PROC_Field label="Piano">
+            <select style={magInputStyle} value={pianoSel} onChange={e => { setPianoSel(e.target.value); setRepartoSel(''); }}>
+              <option value="">— seleziona piano —</option>
+              {pianiDisponibili.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </PROC_Field>
+          {pianoSel && (
+            <PROC_Field label="Reparto / Zona">
+              <select style={magInputStyle} value={repartoSel} onChange={e => setRepartoSel(e.target.value)} disabled={repartiPerPiano.length === 0}>
+                <option value="">{repartiPerPiano.length === 0 ? '— nessun reparto per questo piano —' : '— seleziona reparto/zona —'}</option>
+                {repartiPerPiano.map(r => <option key={r.codice} value={r.codice}>{r.nome}</option>)}
+              </select>
+            </PROC_Field>
+          )}
+          <PROC_Field label="Posizione specifica (facoltativa)"><input style={magInputStyle} value={posizioneLibera} onChange={e => setPosizioneLibera(e.target.value)} placeholder="Es. Scaffale 2, ripiano superiore" /></PROC_Field>
+          {f.posizione && <div style={{ fontSize:12.5, color:MAGAZZINO_COLORS.primary, fontWeight:600 }}>✓ {f.posizione}</div>}
+        </div>
+
+        <SectionLabel theme={MAGAZZINO_COLORS}>Foto</SectionLabel>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+          {fotoEsistenti.filter(img => !fotoDaRimuovere.includes(img)).map((img, i) => (
+            <div key={i} style={thumbStyle}><div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><ImageIcon size={20} color={MAGAZZINO_COLORS.muted} /></div>{xOverlay(() => setFotoDaRimuovere(p => [...p, img]))}</div>
+          ))}
+          {fotoNuove.map((file, i) => (
+            <div key={`n${i}`} style={thumbStyle}><img src={anteprimeFoto[i]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />{xOverlay(() => setFotoNuove(p => p.filter((_,idx)=>idx!==i)))}</div>
+          ))}
+          <button type="button" onClick={() => fotoRef.current?.click()} style={{ width:72, height:72, borderRadius:10, border:`1.5px dashed ${MAGAZZINO_COLORS.line}`, background:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:MAGAZZINO_COLORS.muted, gap:3, flexShrink:0 }}><Plus size={18}/><span style={{ fontSize:10 }}>Foto</span></button>
+          <input ref={fotoRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e => { setFotoNuove(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
+        </div>
+
+        <SectionLabel theme={MAGAZZINO_COLORS}>Contenuto</SectionLabel>
         {righe.length > 0 && (
           <div style={{ marginBottom:8 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 36px', gap:6, marginBottom:6 }}>
-              {['Elemento','Qtà','Unità',''].map((h,i) => <span key={i} style={{ fontSize:11, fontWeight:600, color:PROC_COLORS.muted, textTransform:'uppercase' }}>{h}</span>)}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 60px 70px 70px 36px', gap:6, marginBottom:6 }}>
+              {['Elemento','Qtà','Unità','Soglia min.',''].map((h,i) => <span key={i} style={{ fontSize:10.5, fontWeight:600, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase' }}>{h}</span>)}
             </div>
             {righe.map((r, i) => (
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 70px 80px 36px', gap:6, marginBottom:6 }}>
-                <input style={{ ...procInputStyle, padding:'8px 10px', fontSize:13 }} value={r.elemento} onChange={e => setR(i,'elemento',e.target.value)} placeholder="Es. Fusibili 16A" />
-                <input type="number" style={{ ...procInputStyle, padding:'8px 10px', fontSize:13 }} value={r.quantita} onChange={e => setR(i,'quantita',e.target.value)} />
-                <select style={{ ...procInputStyle, padding:'8px 6px', fontSize:13 }} value={r.unita||'pz'} onChange={e => setR(i,'unita',e.target.value)}>{PROC_UNITA.map(u => <option key={u}>{u}</option>)}</select>
-                <button type="button" onClick={() => setRighe(p => p.filter((_,idx) => idx!==i))} style={{ background:'none', border:'none', color:PROC_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>
+              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 60px 70px 70px 36px', gap:6, marginBottom:6 }}>
+                <input style={{ ...magInputStyle, padding:'8px 10px', fontSize:13 }} value={r.elemento} onChange={e => setR(i,'elemento',e.target.value)} placeholder="Es. Fusibili 16A" />
+                <input type="number" style={{ ...magInputStyle, padding:'8px 10px', fontSize:13 }} value={r.quantita} onChange={e => setR(i,'quantita',e.target.value)} />
+                <select style={{ ...magInputStyle, padding:'8px 6px', fontSize:13 }} value={r.unita||'pz'} onChange={e => setR(i,'unita',e.target.value)}>{PROC_UNITA.map(u => <option key={u}>{u}</option>)}</select>
+                <input type="number" style={{ ...magInputStyle, padding:'8px 8px', fontSize:13 }} value={r.soglia_minima ?? ''} onChange={e => setR(i,'soglia_minima',e.target.value)} placeholder="—" title="Sotto questa quantità l'app segnala scorta bassa" />
+                <button type="button" onClick={() => setRighe(p => p.filter((_,idx) => idx!==i))} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>
               </div>
             ))}
           </div>
         )}
-        <button type="button" onClick={() => setRighe(p => [...p, { elemento:'', quantita:'', unita:'pz' }])} style={{ fontSize:13, color:PROC_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'4px 0', display:'flex', alignItems:'center', gap:5, marginBottom:14 }}><Plus size={14}/> Aggiungi voce</button>
-        <PROC_Field label="Note"><input style={procInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
+        <button type="button" onClick={() => setRighe(p => [...p, { elemento:'', quantita:'', unita:'pz', soglia_minima:'' }])} style={{ fontSize:13, color:MAGAZZINO_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'4px 0', display:'flex', alignItems:'center', gap:5, marginBottom:14 }}><Plus size={14}/> Aggiungi voce</button>
+        <PROC_Field label="Note"><input style={magInputStyle} value={f.note||''} onChange={set('note')} /></PROC_Field>
       </div>
       {puoScrivere && (
         <div style={{ padding:'0 16px' }}>
-          <button onClick={() => onSave({ ...f, contenuto:righe })} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8 }}>Salva armadio</button>
-          {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina armadio</button>}
+          {errore && <div style={{ background:'#F7DCD9', color:'#A3352A', padding:'10px 12px', borderRadius:10, fontSize:12.5, marginBottom:12 }}>{errore}</div>}
+          <button onClick={handleSave} disabled={salvataggio} style={{ width:'100%', background:MAGAZZINO_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8, opacity:salvataggio?0.6:1 }}>{salvataggio?'Salvataggio…':'Salva armadio'}</button>
+          {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:MAGAZZINO_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina armadio</button>}
         </div>
       )}
-      {confermaElimina && <ConfirmDelete theme={PROC_COLORS} message={`Eliminare armadio ${initial?.numero}?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
+      {confermaElimina && <ConfirmDelete theme={MAGAZZINO_COLORS} message={`Eliminare armadio ${initial?.numero}?`} onConfirm={() => { setConfermaElimina(false); onDelete(initial); }} onCancel={() => setConfermaElimina(false)} />}
     </>
+  );
+}
+
+function MagazzinoModule({ onHome, initialNotification }) {
+  const { hasPermission, isAdmin } = usePermessi();
+  const moduloConsentito = isAdmin || hasPermission(MAGAZZINO_MODULO_PERMESSO);
+  const puoScrivere = isAdmin || hasPermission(MAGAZZINO_MODIFICA_PERMESSO);
+  const armT = useSupaTable('armadi', 'id', []);
+  // Sola lettura: riuso le tabelle gia' gestite dal modulo Struttura per piano/reparto/zona,
+  // senza creare un secondo elenco indipendente.
+  const camereT = useSupaTable('camere', 'codice', []);
+  const repartiT = useSupaTable('reparti', 'codice', []);
+  const ready = armT.ready && camereT.ready && repartiT.ready;
+  const [view, setView] = useState({ name:'list' });
+  const [toast, setToast] = useState('');
+  useBackable(view, setView);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
+
+  async function salva(record, msg) {
+    if (!puoScrivere) { flash('Non hai i permessi per modificare.'); return; }
+    const { error } = await armT.save(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash(msg); goBack();
+  }
+  async function elimina(record, msg) {
+    if (!puoScrivere) { flash('Non hai i permessi per modificare.'); return; }
+    const { error } = await armT.remove(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    flash(msg); goBack();
+  }
+
+  if (!moduloConsentito) {
+    return (
+      <div style={{ minHeight: '100vh', background: MAGAZZINO_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
+        <span style={{ color: MAGAZZINO_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per accedere al modulo Magazzino.</span>
+        <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: MAGAZZINO_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
+      </div>
+    );
+  }
+  if (!ready) return <div style={{ minHeight:'100vh', background:MAGAZZINO_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:MAGAZZINO_COLORS.muted }}>Caricamento…</div>;
+
+  const arm = armT.rows;
+  let content;
+  if (view.name === 'detail') {
+    const a = arm.find(x => x.id === view.id);
+    content = a ? <MagazzinoDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', a })} puoScrivere={puoScrivere} /> : null;
+  } else if (view.name === 'add') {
+    content = <MagazzinoForm camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Armadio salvato')} onCancel={() => goBack()} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
+  } else if (view.name === 'edit') {
+    content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
+  } else {
+    content = <MagazzinoScreen armadi={arm} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
+  }
+
+  return (
+    <div style={{ minHeight:'100vh', background:MAGAZZINO_COLORS.bg, fontFamily:'Inter, sans-serif', color:MAGAZZINO_COLORS.ink, maxWidth:480, margin:'0 auto', position:'relative' }}>
+      <style>{GLOBAL_FONTS}</style>
+      <div>{content}</div>
+      {toast && <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:MAGAZZINO_COLORS.primaryDeep, color:'#fff', padding:'10px 18px', borderRadius:999, fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:7, zIndex:30 }}><Check size={15} /> {toast}</div>}
+    </div>
   );
 }
 
 /* ---- Modulo Root ---- */
 function ProcedureModule({ onHome, initialNotification }) {
-  const { hasPermission, isAdmin } = usePermessi();
+  const { hasPermission, isAdmin, gruppoIds } = usePermessi();
   const moduloConsentito = isAdmin || hasPermission(PROCEDURE_MODULO_PERMESSO);
   const puoModificare = isAdmin || hasPermission(PROCEDURE_MODIFICA_PERMESSO);
   const procT  = useSupaTable('procedure_manuali', 'id', []);
   const ricT   = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione','prossimaScadenza']);
-  const armT   = useSupaTable('armadi', 'id', []);
-  const ready  = procT.ready && ricT.ready && armT.ready;
+  const gruppiT = useSupaTable('gruppi', 'id', []);
+  const [procGruppi, setProcGruppi] = useState([]);
+  const [procGruppiReady, setProcGruppiReady] = useState(false);
+  const ready = procT.ready && ricT.ready && gruppiT.ready && procGruppiReady;
   const [tab, setTab]   = useState('procedure');
   const [view, setView] = useState({ name:'list' });
+  const [showExport, setShowExport] = useState(false);
   const [toast, setToast] = useState('');
 
   useBackable(tab, setTab);
   useBackable(view, setView);
   useEffect(() => { setView({ name:'list' }); }, [tab]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
-  const tableOf = { procedure_manuali:procT, manutenzioni_ricorrenti:ricT, armadi:armT };
+  // Collegamento procedure <-> gruppi (tabella ponte, riusa i "gruppi" gia' esistenti nell'app).
+  useEffect(() => {
+    let mounted = true;
+    supabase.from('procedure_gruppi').select('*').then(({ data, error }) => {
+      if (!mounted) return;
+      if (!error) setProcGruppi(data || []);
+      setProcGruppiReady(true);
+    });
+    const channel = supabase.channel('sync-procedure_gruppi')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'procedure_gruppi' }, () => {
+        supabase.from('procedure_gruppi').select('*').then(({ data }) => { if (mounted && data) setProcGruppi(data); });
+      })
+      .subscribe();
+    return () => { mounted = false; supabase.removeChannel(channel); };
+  }, []);
 
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
+
+  const gruppiMap = useMemo(() => Object.fromEntries(gruppiT.rows.map(g => [g.id, g.nome])), [gruppiT.rows]);
+  const tipologieDisponibili = useMemo(() => [...new Set([...PROC_TIPOLOGIE, ...procT.rows.map(p => p.tipologia).filter(Boolean)])].sort(), [procT.rows]);
+
+  const procConGruppi = useMemo(() => procT.rows.map(p => ({
+    ...p,
+    gruppi_ids: procGruppi.filter(pg => pg.procedura_id === p.id).map(pg => pg.gruppo_id),
+  })), [procT.rows, procGruppi]);
+
+  // Visibilita': l'admin vede tutto (incluse le obsolete). Un utente normale vede solo le
+  // procedure Attive/In revisione associate a un gruppo a cui appartiene. Una procedura
+  // senza alcun gruppo NON e' visibile automaticamente a tutti.
+  const procedureVisibili = useMemo(() => {
+    if (isAdmin) return procConGruppi;
+    const miei = new Set(gruppoIds);
+    return procConGruppi.filter(p => (p.stato || 'Attiva') !== 'Obsoleta' && p.gruppi_ids.some(gid => miei.has(gid)));
+  }, [procConGruppi, isAdmin, gruppoIds]);
+
+  async function salvaProcedura({ record, gruppiIds }) {
+    if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
+    const { error, data } = await procT.save(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    const proceduraId = data?.id || record.id;
+    await supabase.from('procedure_gruppi').delete().eq('procedura_id', proceduraId);
+    if (gruppiIds.length) await supabase.from('procedure_gruppi').insert(gruppiIds.map(gid => ({ procedura_id: proceduraId, gruppo_id: gid })));
+    setProcGruppi(prev => [...prev.filter(pg => pg.procedura_id !== proceduraId), ...gruppiIds.map(gid => ({ procedura_id: proceduraId, gruppo_id: gid }))]);
+    flash('Procedura salvata');
+    goBack();
+  }
+  async function eliminaProcedura(record) {
+    if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
+    const { error } = await procT.remove(record);
+    if (error) { flash('Errore: ' + error.message); return; }
+    await supabase.from('procedure_gruppi').delete().eq('procedura_id', record.id);
+    setProcGruppi(prev => prev.filter(pg => pg.procedura_id !== record.id));
+    flash('Eliminata');
+    goBack();
+  }
   async function salva(tbl, record, msg) {
     if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
+    const tableOf = { manutenzioni_ricorrenti: ricT };
     const { error } = await tableOf[tbl].save(record);
     if (error) { flash('Errore: ' + error.message); return; }
     flash(msg); goBack();
   }
   async function elimina(tbl, record, msg) {
     if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
+    const tableOf = { manutenzioni_ricorrenti: ricT };
     const { error } = await tableOf[tbl].remove(record);
     if (error) { flash('Errore: ' + error.message); return; }
     flash(msg); goBack();
@@ -6643,21 +7289,17 @@ function ProcedureModule({ onHome, initialNotification }) {
 
   let content;
   if (tab === 'procedure') {
-    const proc = procT.rows;
-    if (view.name === 'detail') { const p = proc.find(x => x.id === view.id); content = p ? <ProceduraDetail procedura={p} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => elimina('procedure_manuali', r, 'Eliminata')} /> : null; }
-    else if (view.name === 'add') content = <ProceduraForm onSave={r => salva('procedure_manuali', r, 'Procedura salvata')} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <ProceduraForm initial={view.p} onSave={r => salva('procedure_manuali', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('procedure_manuali', r, 'Eliminata')} />;
-    else content = <ProcedureScreen procedure={proc} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
-  } else if (tab === 'ricorrenti') {
+    if (view.name === 'detail') {
+      const p = procedureVisibili.find(x => x.id === view.id) || procConGruppi.find(x => x.id === view.id);
+      content = p ? <ProceduraDetail procedura={p} gruppiMap={gruppiMap} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => eliminaProcedura(r)} /> : null;
+    }
+    else if (view.name === 'add') content = <ProceduraForm tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} onSave={salvaProcedura} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <ProceduraForm initial={view.p} tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} gruppiSelezionati={view.p.gruppi_ids} onSave={salvaProcedura} onCancel={() => goBack()} onDelete={r => eliminaProcedura(r)} />;
+    else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
+  } else {
     if (view.name === 'add') content = <RicorrenteForm onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
     else content = <RicorrentiScreen items={ricT.rows} onOpen={r => setView({ name:'edit', r })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
-  } else {
-    const arm = armT.rows;
-    if (view.name === 'detail') { const a = arm.find(x => x.id === view.id); content = a ? <ArmadioDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', a })} /> : null; }
-    else if (view.name === 'add') content = <ArmadioForm onSave={r => salva('armadi', r, 'Armadio salvato')} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <ArmadioForm initial={view.a} onSave={r => salva('armadi', r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina('armadi', r, 'Eliminato')} />;
-    else content = <ArmadiScreen armadi={arm} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
   }
 
   return (
@@ -6666,6 +7308,7 @@ function ProcedureModule({ onHome, initialNotification }) {
       <div style={{ paddingBottom:78 }}>{content}</div>
       {view.name === 'list' && <BottomNav theme={PROC_COLORS} tab={tab} setTab={setTab} items={PROC_NAV_ITEMS} />}
       {toast && <div style={{ position:'fixed', bottom:view.name==='list'?92:20, left:'50%', transform:'translateX(-50%)', background:PROC_COLORS.primaryDeep, color:'#fff', padding:'10px 18px', borderRadius:999, fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:7, zIndex:30 }}><Check size={15} /> {toast}</div>}
+      {showExport && <EsportaProcedureModal procedure={procConGruppi} tipologieDisponibili={tipologieDisponibili} gruppiMap={gruppiMap} onClose={() => setShowExport(false)} />}
     </div>
   );
 }
@@ -6706,15 +7349,24 @@ const MODULES = [
     colorSoft: '#EDE3D6',
     stat: (d) => `${d.camere.length} camere`,
   },
-{
-  key: 'procedure',
-  name: 'Procedure',
-  desc: 'Procedure operative e documentazione',
-  icon: ClipboardList,
-  color: '#7A3E48',
-  colorSoft: '#F0E1E4',
-  stat: () => 'Procedure operative',
-},
+  {
+    key: 'procedure',
+    name: 'Procedure',
+    desc: 'Procedure operative e documentazione',
+    icon: ClipboardList,
+    color: '#7A3E48',
+    colorSoft: '#F0E1E4',
+    stat: () => 'Procedure operative',
+  },
+  {
+    key: 'magazzino',
+    name: 'Magazzino',
+    desc: 'Armadi, dotazioni e scorte',
+    icon: Package,
+    color: '#3B5169',
+    colorSoft: '#D8E2EC',
+    stat: (d) => `${(d.armadi || []).length} armadi`,
+  },
 ];
 function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const moduliVisibili = role === 'admin'
@@ -6955,7 +7607,7 @@ export default function ManutenzioneApp() {
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
-  const { session, profile, permessi, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
+  const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
   useEffect(() => {
@@ -6986,6 +7638,7 @@ const [
   vRes,
   cRes,
   caRes,
+  armRes,
   vAlertRes,
   cAlertRes,
   caAlertRes
@@ -6993,6 +7646,7 @@ const [
   supabase.from('vehicles').select('*', { count: 'exact', head: true }),
   supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
   supabase.from('camere').select('*', { count: 'exact', head: true }),
+  supabase.from('armadi').select('*', { count: 'exact', head: true }),
 
   // Segnalazioni aperte Mezzi
   supabase
@@ -7019,10 +7673,12 @@ const [
       const vc = vRes.count ?? 0;
       const cc = cRes.count ?? 0;
       const ca = caRes.count ?? 0;
+      const arm = armRes.count ?? 0;
       setCounts({
         vehicles: Array(vc || 0).fill(null),
         carrozzine: Array(cc || 0).fill(null),
         camere: Array(ca || 0).fill(null),
+        armadi: Array(arm || 0).fill(null),
       });
 
 setAlertCounts({
@@ -7050,11 +7706,12 @@ setAlertCounts({
 
   return (
     <NotificheContext.Provider value={notificheCtx}>
-    <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome, userId: session.user.id, permessi }}>
+    <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome, userId: session.user.id, permessi, gruppoIds }}>
       {screen === 'mezzi' && <MezziModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'procedure' && <ProcedureModule onHome={goHome} initialNotification={notificationTarget} />}
+      {screen === 'magazzino' && <MagazzinoModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'gruppi' && <GruppiScreen onHome={() => setScreen('hub')} />}
       {screen === 'gestione-notifiche' && <GestioneNotificheScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
