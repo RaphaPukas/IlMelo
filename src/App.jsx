@@ -6279,11 +6279,77 @@ function pdfScriviProcedura(doc, procedura, gruppiMap) {
   return y;
 }
 
+// Utility per il safe-escape nel documento HTML di stampa.
+function escapeHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Stampa una singola procedura aprendo il dialogo di stampa del browser/sistema.
+// L'utente sceglie stampante o "Salva come PDF" con nome e destinazione a propria scelta.
+// La funzione esportaManualeProcedure (export multiplo con jsPDF) resta invariata.
 function stampaProceduraSingola(procedura, gruppiMap) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  pdfScriviProcedura(doc, procedura, gruppiMap);
-  const nomeFile = `Procedura - ${(procedura.titolo || 'senza-titolo').replace(/[\\/:*?"<>|]/g, '')}.pdf`;
-  doc.save(nomeFile);
+  const gruppiNomi = (procedura.gruppi_ids || []).map(id => gruppiMap?.[id]).filter(Boolean);
+  const linkItems = [
+    ...(procedura.link_items || []).filter(l => l && l.url),
+    ...((procedura.videoLinks || []).filter(Boolean).map(u => ({ titolo: '', url: u }))),
+  ];
+
+  const meta = [
+    procedura.tipologia ? `Tipologia: ${escapeHtml(procedura.tipologia)}` : null,
+    `Versione: ${procedura.versione || 1}`,
+    procedura.updated_at ? `Ultima modifica: ${escapeHtml(String(procedura.updated_at).slice(0,10))}${procedura.modificato_da ? ' · ' + escapeHtml(procedura.modificato_da) : ''}` : null,
+    procedura.stato ? `Stato: ${escapeHtml(procedura.stato)}` : null,
+  ].filter(Boolean).join('&emsp;&middot;&emsp;');
+
+  const html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtml(procedura.titolo || 'Procedura')}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #1E1530; padding: 20mm 20mm 15mm; }
+  h1 { font-size: 18pt; margin-bottom: 5pt; }
+  .meta { font-size: 9pt; color: #7A6A9A; margin-bottom: 14pt; }
+  h2 { font-size: 12pt; font-weight: bold; margin: 14pt 0 5pt; padding-bottom: 3pt; border-bottom: 1px solid #DDD8EE; }
+  pre { white-space: pre-wrap; word-break: break-word; font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.65; margin-bottom: 6pt; }
+  p { line-height: 1.6; margin-bottom: 6pt; }
+  .link-block { margin-bottom: 8pt; }
+  .link-title { font-weight: bold; color: #3D2466; }
+  .link-url { font-size: 9pt; color: #7A6A9A; word-break: break-all; }
+  .link-url a { color: #5E3A8A; }
+  .tags { color: #5E3A8A; font-size: 10pt; }
+  @page { margin: 15mm 20mm; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+  <h1>${escapeHtml(procedura.titolo || 'Senza titolo')}</h1>
+  <div class="meta">${meta}</div>
+  ${procedura.descrizione ? `<p style="font-weight:bold;margin-bottom:12pt">${escapeHtml(procedura.descrizione)}</p>` : ''}
+  ${procedura.steps ? `<h2>Procedura passo-passo</h2><pre>${escapeHtml(procedura.steps)}</pre>` : ''}
+  ${linkItems.length ? `<h2>Link</h2>${linkItems.map(l => {
+    const tit = l.titolo?.trim();
+    return `<div class="link-block">
+      <div class="link-title">${tit ? escapeHtml(tit) : escapeHtml(l.url)}</div>
+      <div class="link-url"><a href="${escapeHtml(l.url)}">${escapeHtml(l.url)}</a></div>
+    </div>`;
+  }).join('')}` : ''}
+  ${procedura.tags?.length ? `<h2>Tag</h2><div class="tags">${procedura.tags.map(t => '#' + escapeHtml(t)).join('&ensp;')}</div>` : ''}
+  ${gruppiNomi.length ? `<h2>Gruppi autorizzati</h2><p>${escapeHtml(gruppiNomi.join(', '))}</p>` : ''}
+  ${procedura.note ? `<h2>Note</h2><p>${escapeHtml(procedura.note)}</p>` : ''}
+</body>
+</html>`;
+
+  const w = window.open('', '_blank', 'width=900,height=700');
+  if (!w) { alert('Il popup è stato bloccato dal browser. Abilita i popup per questa pagina.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  // Aspetta il caricamento prima di aprire il dialogo di stampa.
+  w.onload = () => { w.focus(); w.print(); };
+  // Fallback per browser che non sparano onload su document.write.
+  setTimeout(() => { try { w.focus(); w.print(); } catch(e) {} }, 500);
 }
 
 // Esportazione multipla: copertina + indice (numeri di pagina reali) + una procedura per pagina.
@@ -6373,12 +6439,22 @@ function calcProssima(ultima, frequenza) {
 }
 
 /* ---- Procedure ---- */
-function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHome, isAdmin, onExport }) {
-  const [filtro, setFiltro] = useState('');
+function ProcedureScreen({ procedure, tipologieDisponibili, gruppi, onOpen, onAdd, onHome, isAdmin, onExport }) {
+  const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroGruppo, setFiltroGruppo] = useState('');
   const [q, setQ] = useState('');
 
+  // Gruppi che compaiono in almeno una procedura visibile, per non mostrare chip vuoti.
+  const gruppiUsati = useMemo(() => {
+    if (!gruppi?.length) return [];
+    const ids = new Set(procedure.flatMap(p => p.gruppi_ids || []));
+    return gruppi.filter(g => ids.has(g.id));
+  }, [procedure, gruppi]);
+
   const filtered = useMemo(() => {
-    let list = filtro ? procedure.filter(p => p.tipologia === filtro) : procedure;
+    let list = procedure;
+    if (filtroTipo) list = list.filter(p => p.tipologia === filtroTipo);
+    if (filtroGruppo) list = list.filter(p => (p.gruppi_ids || []).includes(filtroGruppo));
     const query = q.trim().toLowerCase();
     if (query) {
       list = list.filter(p => {
@@ -6387,7 +6463,14 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
       });
     }
     return list;
-  }, [procedure, filtro, q]);
+  }, [procedure, filtroTipo, filtroGruppo, q]);
+
+  const chipStyle = (attivo) => ({
+    border:'none', borderRadius:999, padding:'5px 12px', fontSize:12, fontWeight:700,
+    cursor:'pointer', whiteSpace:'nowrap', flexShrink:0,
+    background: attivo ? PROC_COLORS.primary : PROC_COLORS.bg,
+    color: attivo ? '#fff' : PROC_COLORS.muted,
+  });
 
   return (
     <>
@@ -6396,18 +6479,31 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
       <div style={{ padding:'10px 14px 0' }}>
         <input placeholder="Cerca per titolo, tipologia, contenuto, tag…" style={{ ...procInputStyle, marginBottom:10 }} value={q} onChange={e => setQ(e.target.value)} />
       </div>
+
+      {/* Filtro 1: Tipo procedura */}
       <div style={{ padding:'0 14px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+        <div style={{ fontSize:10, fontWeight:700, color:PROC_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:8, paddingBottom:5 }}>Tipo</div>
         <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10 }}>
+          <button onClick={() => setFiltroTipo('')} style={chipStyle(!filtroTipo)}>Tutte</button>
           {tipologieDisponibili.map(t => (
-            <button key={t} onClick={() => setFiltro(filtro === t ? '' : t)}
-              style={{ border:'none', borderRadius:999, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0,
-                background: filtro === t ? PROC_COLORS.primary : PROC_COLORS.bg,
-                color: filtro === t ? '#fff' : PROC_COLORS.muted }}>
-              {t}
-            </button>
+            <button key={t} onClick={() => setFiltroTipo(filtroTipo === t ? '' : t)} style={chipStyle(filtroTipo === t)}>{t}</button>
           ))}
         </div>
       </div>
+
+      {/* Filtro 2: Gruppo/destinatario — mostrato solo se ci sono gruppi associati */}
+      {gruppiUsati.length > 0 && (
+        <div style={{ padding:'0 14px 0', borderBottom:`1px solid ${PROC_COLORS.line}` }}>
+          <div style={{ fontSize:10, fontWeight:700, color:PROC_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:8, paddingBottom:5 }}>Visibile a</div>
+          <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10 }}>
+            <button onClick={() => setFiltroGruppo('')} style={chipStyle(!filtroGruppo)}>Tutti</button>
+            {gruppiUsati.map(g => (
+              <button key={g.id} onClick={() => setFiltroGruppo(filtroGruppo === g.id ? '' : g.id)} style={chipStyle(filtroGruppo === g.id)}>{g.nome}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ padding:14 }}>
         {filtered.length === 0 && <Empty theme={PROC_COLORS} icon={BookOpen} text="Nessuna procedura trovata." />}
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
@@ -6585,6 +6681,12 @@ function ProceduraForm({ initial, tipologieDisponibili, gruppi, gruppiSelezionat
     return pulito;
   });
   const [nuovaTipologia, setNuovaTipologia] = useState(false);
+  // Tipologie aggiunte in questa sessione di modifica: si uniscono alla prop esterna
+  // e restano disponibili nella tendina senza dover uscire e rientrare.
+  const [tipologieLocali, setTipologieLocali] = useState([]);
+  const tutteLeTipologie = useMemo(() => {
+    return [...new Set([...tipologieDisponibili, ...tipologieLocali])].sort();
+  }, [tipologieDisponibili, tipologieLocali]);
   const [nuoveImmagini, setNuoveImmagini] = useState([]);
   const [nuoviFiles, setNuoviFiles] = useState([]);
   const [immaginiDaRimuovere, setImmaginiDaRimuovere] = useState([]);
@@ -6652,13 +6754,26 @@ function ProceduraForm({ initial, tipologieDisponibili, gruppi, gruppiSelezionat
               if (e.target.value === '__nuova__') { setNuovaTipologia(true); setF(p => ({ ...p, tipologia:'' })); }
               else setF(p => ({ ...p, tipologia: e.target.value }));
             }}>
-              {tipologieDisponibili.map(t => <option key={t} value={t}>{t}</option>)}
+              {tutteLeTipologie.map(t => <option key={t} value={t}>{t}</option>)}
               <option value="__nuova__">➕ Aggiungi nuova tipologia…</option>
             </select>
           ) : (
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
               <input style={{ ...procInputStyle, flex:1 }} value={f.tipologia} onChange={set('tipologia')} placeholder="Scrivi la nuova tipologia…" autoFocus />
-              <button type="button" onClick={() => { if (!f.tipologia.trim()) setF(p => ({ ...p, tipologia: tipologieDisponibili[0] || 'Generale' })); setNuovaTipologia(false); }}
+              <button type="button" onClick={() => {
+                const nuova = f.tipologia.trim();
+                if (!nuova) {
+                  setF(p => ({ ...p, tipologia: tutteLeTipologie[0] || 'Generale' }));
+                } else {
+                  // Aggiunge immediatamente la nuova tipologia alla lista locale
+                  // → diventa disponibile nella tendina senza uscire dal form.
+                  if (!tutteLeTipologie.includes(nuova)) {
+                    setTipologieLocali(p => [...p, nuova]);
+                  }
+                  setF(p => ({ ...p, tipologia: nuova }));
+                }
+                setNuovaTipologia(false);
+              }}
                 style={{ background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:8, padding:'10px 14px', fontWeight:700, fontSize:13 }}>OK</button>
             </div>
           )}
@@ -7295,7 +7410,7 @@ function ProcedureModule({ onHome, initialNotification }) {
     }
     else if (view.name === 'add') content = <ProceduraForm tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} onSave={salvaProcedura} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ProceduraForm initial={view.p} tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} gruppiSelezionati={view.p.gruppi_ids} onSave={salvaProcedura} onCancel={() => goBack()} onDelete={r => eliminaProcedura(r)} />;
-    else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
+    else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
   } else {
     if (view.name === 'add') content = <RicorrenteForm onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
