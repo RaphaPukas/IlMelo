@@ -7103,10 +7103,16 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
           <div style={{ fontSize:12, fontWeight:700, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:10 }}>Posizione armadio</div>
 
           <PROC_Field label="Piano">
-            <select style={magInputStyle} value={pianoSel} onChange={e => { setPianoSel(e.target.value); setNucleoSel(''); }}>
-              <option value="">— seleziona piano —</option>
-              {pianiDisponibili.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <input
+              list="mag-piani-list"
+              style={magInputStyle}
+              value={pianoSel}
+              onChange={e => { setPianoSel(e.target.value); setNucleoSel(''); }}
+              placeholder="Es. Piano terra, Piano interrato…"
+            />
+            <datalist id="mag-piani-list">
+              {pianiDisponibili.map(p => <option key={p} value={p} />)}
+            </datalist>
           </PROC_Field>
 
           {pianoSel && (
