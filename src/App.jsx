@@ -6905,18 +6905,20 @@ function magHaScortaBassa(armadio) {
   return (armadio.contenuto || []).some(r => r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima));
 }
 
-// Piani fissi sempre disponibili nel selettore, integrati con quelli estratti dalle camere.
-// Aggiungere un piano qui lo rende selezionabile nel form anche senza camere registrate.
-const PIANI_DEFAULT = ['Piano interrato', 'Piano seminterrato', 'Piano terra', 'Primo piano', 'Secondo piano', 'Terzo piano'];
-
-function MagazzinoScreen({ armadi, piani, onOpen, onAdd, onHome, puoScrivere }) {
+function MagazzinoScreen({ armadi, reparti, onOpen, onAdd, onHome, puoScrivere }) {
   const [q, setQ] = useState('');
   const [filtroPiano, setFiltroPiano] = useState('');
   const [filtroBassa, setFiltroBassa] = useState(false);
 
+  // Piani: stessa lista di STR_PIANI_REPARTO filtrata a quelli che hanno almeno un reparto
+  // registrato. Stessa sorgente del modulo Struttura, nessuna lista parallela.
+  const pianiConReparti = useMemo(() =>
+    STR_PIANI_REPARTO.filter(p => (reparti||[]).some(r => r.piano === p)),
+  [reparti]);
+
   const filtered = useMemo(() => {
     let list = armadi;
-    if (filtroPiano) list = list.filter(a => a.piano === filtroPiano || (a.posizione||'').startsWith(filtroPiano));
+    if (filtroPiano) list = list.filter(a => a.piano === filtroPiano);
     if (filtroBassa) list = list.filter(magHaScortaBassa);
     if (q.trim()) {
       const qLow = q.trim().toLowerCase();
@@ -6941,12 +6943,11 @@ function MagazzinoScreen({ armadi, piani, onOpen, onAdd, onHome, puoScrivere }) 
     <>
       <TopBar theme={MAGAZZINO_COLORS} title="Magazzino" subtitle={`${armadi.length} armadi`} onBack={onHome} backIcon={Home} />
 
-      {/* Filtro per piano */}
-      {piani.length > 0 && (
+      {pianiConReparti.length > 0 && (
         <div style={{ borderBottom: `1px solid ${MAGAZZINO_COLORS.line}`, background: MAGAZZINO_COLORS.surface }}>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 14px 10px' }}>
             <button onClick={() => setFiltroPiano('')} style={chipStyle(!filtroPiano)}>Tutti</button>
-            {piani.map(p => (
+            {pianiConReparti.map(p => (
               <button key={p} onClick={() => setFiltroPiano(filtroPiano === p ? '' : p)} style={chipStyle(filtroPiano === p)}>{p}</button>
             ))}
           </div>
@@ -7073,11 +7074,12 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', foto:[] });
   const [righe, setRighe] = useState(initial?.contenuto || []);
-  // Cascata Piano → Nucleo/Zona (da camere) → Posizione libera.
-  // I reparti di Struttura non hanno campo "piano", quindi usiamo la gerarchia
-  // piano→nucleo gia' presente nelle camere, che e' la struttura reale della struttura.
+  // Cascata Piano → Tipologia (categoria reparto) → Zona (reparto.nome)
+  // Stessa gerarchia della scheda Reparti del modulo Struttura:
+  // STR_PIANI_REPARTO per i piani, r.categoria per la tipologia, r.nome per la zona.
   const [pianoSel, setPianoSel] = useState(initial?.piano || '');
-  const [nucleoSel, setNucleoSel] = useState(initial?.nucleo_zona || '');
+  const [categoriaSel, setCategoriaSel] = useState(initial?.categoria_reparto || '');
+  const [zonaCodice, setZonaCodice] = useState(initial?.zona_codice || '');
   const [posizioneLibera, setPosizioneLibera] = useState(initial?.posizione_libera || '');
 
   const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
@@ -7089,14 +7091,29 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
   const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
 
-  const pianiDisponibili = useMemo(() => [...new Set((camere||[]).map(c => c.piano).filter(Boolean))].sort(), [camere]);
-  const nucleiPerPiano = useMemo(() => !pianoSel ? [] : [...new Set((camere||[]).filter(c => c.piano === pianoSel).map(c => c.nucleo).filter(Boolean))].sort(), [camere, pianoSel]);
+  // Piani: STR_PIANI_REPARTO filtrati a quelli che hanno almeno un reparto registrato.
+  const pianiDisponibili = useMemo(() =>
+    STR_PIANI_REPARTO.filter(p => (reparti||[]).some(r => r.piano === p)),
+  [reparti]);
+  // Categorie disponibili per il piano selezionato.
+  const categoriePerPiano = useMemo(() =>
+    !pianoSel ? [] : [...new Set((reparti||[]).filter(r => r.piano === pianoSel).map(r => r.categoria).filter(Boolean))].sort(),
+  [reparti, pianoSel]);
+  // Zone (reparti) per piano + categoria.
+  const zonePerCategoria = useMemo(() =>
+    !pianoSel || !categoriaSel ? [] : (reparti||[]).filter(r => r.piano === pianoSel && r.categoria === categoriaSel).sort((a,b) => a.nome.localeCompare(b.nome)),
+  [reparti, pianoSel, categoriaSel]);
 
-  // Aggiorna la stringa di posizione ogni volta che cambiano piano/nucleo/posizione libera.
+  // Resetta i livelli dipendenti quando il livello superiore cambia.
+  useEffect(() => { setCategoriaSel(''); setZonaCodice(''); }, [pianoSel]);
+  useEffect(() => { setZonaCodice(''); }, [categoriaSel]);
+
+  // Ricostruisce la stringa posizione leggibile ad ogni variazione.
   useEffect(() => {
-    const pos = [pianoSel, nucleoSel, posizioneLibera].filter(Boolean).join(' · ');
+    const zonaNome = zonePerCategoria.find(r => r.codice === zonaCodice)?.nome || '';
+    const pos = [pianoSel, categoriaSel, zonaNome, posizioneLibera].filter(Boolean).join(' · ');
     if (pos) setF(prev => ({ ...prev, posizione: pos }));
-  }, [pianoSel, nucleoSel, posizioneLibera]);
+  }, [pianoSel, categoriaSel, zonaCodice, posizioneLibera, zonePerCategoria]);
 
   async function handleSave() {
     if (!f.numero.trim()) { setErrore('Il numero armadio è obbligatorio.'); return; }
@@ -7105,12 +7122,15 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
       if (fotoDaRimuovere.length) await eliminaProcFiles(fotoDaRimuovere);
       const nuovePaths = [];
       for (const file of fotoNuove) nuovePaths.push(await caricaProcFile(f.id, file));
+      const zonaNome = zonePerCategoria.find(r => r.codice === zonaCodice)?.nome || '';
       const record = {
         ...f,
         contenuto: righe,
         piano: pianoSel,
-        nucleo_zona: nucleoSel,
+        categoria_reparto: categoriaSel,
+        zona_codice: zonaCodice,
         posizione_libera: posizioneLibera,
+        posizione: [pianoSel, categoriaSel, zonaNome, posizioneLibera].filter(Boolean).join(' · '),
         foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.includes(x)), ...nuovePaths],
       };
       onSave(record);
@@ -7132,30 +7152,39 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
           <PROC_Field label="Tipologia"><select style={magInputStyle} value={f.tipologia} onChange={set('tipologia')}>{MAGAZZINO_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         </div>
 
-        {/* Posizione a cascata: Piano → Reparto/Zona → Posizione specifica.
-            Piano e Reparto/Zona vengono da camere.piano / camere.nucleo (stessa
-            gerarchia già usata in Struttura), senza creare un secondo elenco indipendente. */}
+        {/* Posizione a cascata: Piano → Tipologia di spazio → Zona/Reparto.
+            Stessa gerarchia e sorgente dati (STR_PIANI_REPARTO + reparti.categoria + reparti.nome)
+            già usata dalla scheda Reparti del modulo Struttura. */}
         <div style={{ background:MAGAZZINO_COLORS.bg, borderRadius:12, padding:'12px 14px', marginBottom:14, border:`1px solid ${MAGAZZINO_COLORS.line}` }}>
           <div style={{ fontSize:12, fontWeight:700, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:10 }}>Posizione armadio</div>
 
           <PROC_Field label="Piano">
-            <select style={magInputStyle} value={pianoSel} onChange={e => { setPianoSel(e.target.value); setNucleoSel(''); }}>
+            <select style={magInputStyle} value={pianoSel} onChange={e => setPianoSel(e.target.value)}>
               <option value="">— seleziona piano —</option>
-              {[...new Set([...PIANI_DEFAULT, ...pianiDisponibili])].map(p => <option key={p} value={p}>{p}</option>)}
+              {pianiDisponibili.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </PROC_Field>
 
           {pianoSel && (
-            <PROC_Field label="Reparto / Zona">
-              <select style={magInputStyle} value={nucleoSel} onChange={e => setNucleoSel(e.target.value)} disabled={nucleiPerPiano.length === 0}>
-                <option value="">{nucleiPerPiano.length === 0 ? '— nessuna zona per questo piano —' : '— seleziona reparto/zona —'}</option>
-                {nucleiPerPiano.map(n => <option key={n} value={n}>{n}</option>)}
+            <PROC_Field label="Tipologia di spazio">
+              <select style={magInputStyle} value={categoriaSel} onChange={e => setCategoriaSel(e.target.value)} disabled={categoriePerPiano.length === 0}>
+                <option value="">{categoriePerPiano.length === 0 ? '— nessuna tipologia per questo piano —' : '— seleziona tipologia —'}</option>
+                {categoriePerPiano.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </PROC_Field>
+          )}
+
+          {pianoSel && categoriaSel && (
+            <PROC_Field label="Zona / Reparto">
+              <select style={magInputStyle} value={zonaCodice} onChange={e => setZonaCodice(e.target.value)} disabled={zonePerCategoria.length === 0}>
+                <option value="">{zonePerCategoria.length === 0 ? '— nessuna zona per questa tipologia —' : '— seleziona zona/reparto —'}</option>
+                {zonePerCategoria.map(r => <option key={r.codice} value={r.codice}>{r.nome}</option>)}
               </select>
             </PROC_Field>
           )}
 
           <PROC_Field label="Posizione specifica (facoltativa)">
-            <input style={magInputStyle} value={posizioneLibera} onChange={e => setPosizioneLibera(e.target.value)} placeholder="Es. Scaffale 2, ripiano superiore" />
+            <input style={magInputStyle} value={posizioneLibera} onChange={e => setPosizioneLibera(e.target.value)} placeholder="Es. Scaffale 2, ripiano superiore, Armadio 4A" />
           </PROC_Field>
           {f.posizione && <div style={{ fontSize:12.5, color:MAGAZZINO_COLORS.primary, fontWeight:600, marginTop:6 }}>✓ {f.posizione}</div>}
         </div>
@@ -7244,9 +7273,6 @@ function MagazzinoModule({ onHome, initialNotification }) {
   if (!ready) return <div style={{ minHeight:'100vh', background:MAGAZZINO_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:MAGAZZINO_COLORS.muted }}>Caricamento…</div>;
 
   const arm = armT.rows;
-  // Piani: unione tra piani fissi predefiniti e quelli già salvati negli armadi.
-  const pianiUsati = [...new Set(arm.map(a => a.piano).filter(Boolean))];
-  const pianiDisp = [...new Set([...PIANI_DEFAULT, ...pianiUsati])];
   let content;
   if (view.name === 'detail') {
     const a = arm.find(x => x.id === view.id);
@@ -7256,7 +7282,7 @@ function MagazzinoModule({ onHome, initialNotification }) {
   } else if (view.name === 'edit') {
     content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
   } else {
-    content = <MagazzinoScreen armadi={arm} piani={pianiDisp} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
+    content = <MagazzinoScreen armadi={arm} reparti={repartiT.rows} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
   }
 
   return (
