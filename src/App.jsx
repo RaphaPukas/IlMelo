@@ -7112,8 +7112,16 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
   [reparti, pianoSel, categoriaSel]);
 
   // Resetta i livelli dipendenti quando il livello superiore cambia.
-  useEffect(() => { setCategoriaSel(''); setZonaCodice(''); }, [pianoSel]);
-  useEffect(() => { setZonaCodice(''); }, [categoriaSel]);
+  // Salta il primo render per non sovrascrivere i valori iniziali da 'initial'.
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (!didInit.current) { didInit.current = true; return; }
+    setCategoriaSel(''); setZonaCodice('');
+  }, [pianoSel]);
+  useEffect(() => {
+    if (!didInit.current) return;
+    setZonaCodice('');
+  }, [categoriaSel]);
 
   // Ricostruisce la stringa posizione leggibile ad ogni variazione.
   useEffect(() => {
@@ -7138,7 +7146,7 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
         zona_codice: zonaCodice,
         posizione_libera: posizioneLibera,
         posizione: [pianoSel, categoriaSel, zonaNome, posizioneLibera].filter(Boolean).join(' · '),
-        foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.includes(x)), ...nuovePaths],
+        foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.some(r => (r.path || r) === (x.path || x))), ...nuovePaths],
         macrogruppo: macrogruppo.trim(),
       };
       onSave(record);
