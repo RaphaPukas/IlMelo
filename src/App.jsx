@@ -6638,7 +6638,7 @@ function ProceduraForm({ initial, tipologieDisponibili, gruppi, gruppiSelezionat
 
   const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:PROC_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
   const thumbStyle = { position:'relative', width:72, height:72, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, flexShrink:0 };
-  const xOverlay = (onClick) => (<button type="button" onClick={onClick} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:999, width:20, height:20, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={12} /></button>);
+
 
   return (
     <>
@@ -6991,14 +6991,7 @@ function MagazzinoScreen({ armadi, reparti, onOpen, onAdd, onHome, puoScrivere }
 }
 
 function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
-  const [urls, setUrls] = useState({});
   const [zoom, setZoom] = useState(null);
-  useEffect(() => {
-    let m = true;
-    if (armadio.foto?.length) urlFirmateProcImmagini(armadio.foto).then(u => { if (m) setUrls(u); }).catch(() => {});
-    return () => { m = false; };
-  }, [armadio.id, armadio.foto?.length]);
-
   const righeConBassa = (armadio.contenuto || []).filter(r => r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima));
 
   return (
@@ -7020,21 +7013,7 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
           <InfoRow theme={MAGAZZINO_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia || '—'} />
         </Card>
 
-        {armadio.foto?.length > 0 && (
-          <>
-            <SectionLabel theme={MAGAZZINO_COLORS}>Foto</SectionLabel>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-              {armadio.foto.map((img, i) => {
-                const url = urls[img?.path || img];
-                return (
-                  <div key={i} onClick={() => url && setZoom(url)} style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', background: MAGAZZINO_COLORS.bg, border: `1px solid ${MAGAZZINO_COLORS.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: url ? 'pointer' : 'default' }}>
-                    {url ? <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={22} color={MAGAZZINO_COLORS.muted} />}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+
 
         {armadio.contenuto?.length > 0 && (
           <>
@@ -7078,7 +7057,7 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
 
 function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onDelete, puoScrivere, puoEliminare }) {
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', foto:[], macrogruppo:'' });
+  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', macrogruppo:'' });
   const [righe, setRighe] = useState(initial?.contenuto || []);
   // Cascata Piano → Tipologia (categoria reparto) → Zona (reparto.nome)
   // Stessa gerarchia della scheda Reparti del modulo Struttura:
@@ -7089,12 +7068,8 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
   const [posizioneLibera, setPosizioneLibera] = useState(initial?.posizione_libera || '');
   const [macrogruppo, setMacrogruppo] = useState(initial?.macrogruppo || '');
 
-  const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
-  const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
-  const [fotoNuove, setFotoNuove] = useState([]);
   const [salvataggio, setSalvataggio] = useState(false);
   const [errore, setErrore] = useState('');
-  const fotoRef = useRef(null);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
   const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
 
@@ -7112,16 +7087,18 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
   [reparti, pianoSel, categoriaSel]);
 
   // Resetta i livelli dipendenti quando il livello superiore cambia.
-  // Salta il primo render per non sovrascrivere i valori iniziali da 'initial'.
-  const didInit = useRef(false);
+  useEffect(() => { setCategoriaSel(''); setZonaCodice(''); }, [pianoSel]);
+  useEffect(() => { setZonaCodice(''); }, [categoriaSel]);
+
+  // Sincronizza gli stati quando si apre un armadio diverso in modifica.
   useEffect(() => {
-    if (!didInit.current) { didInit.current = true; return; }
-    setCategoriaSel(''); setZonaCodice('');
-  }, [pianoSel]);
-  useEffect(() => {
-    if (!didInit.current) return;
-    setZonaCodice('');
-  }, [categoriaSel]);
+    if (!initial) return;
+    setPianoSel(initial.piano || '');
+    setCategoriaSel(initial.categoria_reparto || '');
+    setZonaCodice(initial.zona_codice || '');
+    setPosizioneLibera(initial.posizione_libera || '');
+    setMacrogruppo(initial.macrogruppo || '');
+  }, [initial?.id]);
 
   // Ricostruisce la stringa posizione leggibile ad ogni variazione.
   useEffect(() => {
@@ -7134,9 +7111,6 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
     if (!f.numero.trim()) { setErrore('Il numero armadio è obbligatorio.'); return; }
     setSalvataggio(true); setErrore('');
     try {
-      if (fotoDaRimuovere.length) await eliminaProcFiles(fotoDaRimuovere);
-      const nuovePaths = [];
-      for (const file of fotoNuove) nuovePaths.push(await caricaProcFile(f.id, file));
       const zonaNome = zonePerCategoria.find(r => r.codice === zonaCodice)?.nome || '';
       const record = {
         ...f,
@@ -7146,7 +7120,6 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
         zona_codice: zonaCodice,
         posizione_libera: posizioneLibera,
         posizione: [pianoSel, categoriaSel, zonaNome, posizioneLibera].filter(Boolean).join(' · '),
-        foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.some(r => (r.path || r) === (x.path || x))), ...nuovePaths],
         macrogruppo: macrogruppo.trim(),
       };
       onSave(record);
@@ -7154,10 +7127,9 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
   }
 
   const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
-  const thumbStyle = { position:'relative', width:72, height:72, borderRadius:10, overflow:'hidden', background:MAGAZZINO_COLORS.bg, border:`1px solid ${MAGAZZINO_COLORS.line}`, flexShrink:0 };
-  const xOverlay = (onClick) => (<button type="button" onClick={onClick} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:999, width:20, height:20, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={12} /></button>);
-  const anteprimeFoto = useMemo(() => fotoNuove.map(f => URL.createObjectURL(f)), [fotoNuove]);
-  useEffect(() => { return () => { anteprimeFoto.forEach(url => URL.revokeObjectURL(url)); }; }, [anteprimeFoto]);
+
+
+
 
   return (
     <>
