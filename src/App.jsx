@@ -6905,12 +6905,18 @@ function magHaScortaBassa(armadio) {
   return (armadio.contenuto || []).some(r => r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima));
 }
 
-function MagazzinoScreen({ armadi, onOpen, onAdd, onHome, puoScrivere }) {
+// Piani fissi sempre disponibili nel selettore, integrati con quelli estratti dalle camere.
+// Aggiungere un piano qui lo rende selezionabile nel form anche senza camere registrate.
+const PIANI_DEFAULT = ['Piano interrato', 'Piano seminterrato', 'Piano terra', 'Primo piano', 'Secondo piano', 'Terzo piano'];
+
+function MagazzinoScreen({ armadi, piani, onOpen, onAdd, onHome, puoScrivere }) {
   const [q, setQ] = useState('');
+  const [filtroPiano, setFiltroPiano] = useState('');
   const [filtroBassa, setFiltroBassa] = useState(false);
 
   const filtered = useMemo(() => {
     let list = armadi;
+    if (filtroPiano) list = list.filter(a => a.piano === filtroPiano || (a.posizione||'').startsWith(filtroPiano));
     if (filtroBassa) list = list.filter(magHaScortaBassa);
     if (q.trim()) {
       const qLow = q.trim().toLowerCase();
@@ -6921,36 +6927,55 @@ function MagazzinoScreen({ armadi, onOpen, onAdd, onHome, puoScrivere }) {
       });
     }
     return list;
-  }, [armadi, q, filtroBassa]);
+  }, [armadi, filtroPiano, filtroBassa, q]);
 
   const totaleBasse = armadi.filter(magHaScortaBassa).length;
+  const chipStyle = (attivo) => ({
+    border: 'none', borderRadius: 999, padding: '5px 13px', fontSize: 12, fontWeight: 700,
+    cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+    background: attivo ? MAGAZZINO_COLORS.primary : MAGAZZINO_COLORS.bg,
+    color: attivo ? '#fff' : MAGAZZINO_COLORS.muted,
+  });
 
   return (
     <>
       <TopBar theme={MAGAZZINO_COLORS} title="Magazzino" subtitle={`${armadi.length} armadi`} onBack={onHome} backIcon={Home} />
-      <div style={{ padding:14 }}>
-        <input placeholder="Cerca armadio, contenuto, posizione, note…" style={{ ...magInputStyle, marginBottom:10 }} value={q} onChange={e => setQ(e.target.value)} />
+
+      {/* Filtro per piano */}
+      {piani.length > 0 && (
+        <div style={{ borderBottom: `1px solid ${MAGAZZINO_COLORS.line}`, background: MAGAZZINO_COLORS.surface }}>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 14px 10px' }}>
+            <button onClick={() => setFiltroPiano('')} style={chipStyle(!filtroPiano)}>Tutti</button>
+            {piani.map(p => (
+              <button key={p} onClick={() => setFiltroPiano(filtroPiano === p ? '' : p)} style={chipStyle(filtroPiano === p)}>{p}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: 14 }}>
+        <input placeholder="Cerca armadio, contenuto, posizione, note…" style={{ ...magInputStyle, marginBottom: 10 }} value={q} onChange={e => setQ(e.target.value)} />
         {totaleBasse > 0 && (
-          <button onClick={() => setFiltroBassa(v => !v)} style={{ display:'flex', alignItems:'center', gap:7, background: filtroBassa ? '#F7DCD9' : MAGAZZINO_COLORS.bg, color: filtroBassa ? '#A3352A' : MAGAZZINO_COLORS.muted, border:`1.5px solid ${filtroBassa ? '#F7DCD9' : MAGAZZINO_COLORS.line}`, borderRadius:999, padding:'5px 13px', fontSize:12.5, fontWeight:700, marginBottom:12, cursor:'pointer' }}>
+          <button onClick={() => setFiltroBassa(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: filtroBassa ? '#F7DCD9' : MAGAZZINO_COLORS.bg, color: filtroBassa ? '#A3352A' : MAGAZZINO_COLORS.muted, border: `1.5px solid ${filtroBassa ? '#F7DCD9' : MAGAZZINO_COLORS.line}`, borderRadius: 999, padding: '5px 13px', fontSize: 12.5, fontWeight: 700, marginBottom: 12, cursor: 'pointer' }}>
             ⚠️ Scorta bassa ({totaleBasse})
-            {filtroBassa && <span style={{ fontSize:11 }}>× rimuovi filtro</span>}
+            {filtroBassa && <span style={{ fontSize: 11 }}>× rimuovi filtro</span>}
           </button>
         )}
         {filtered.length === 0 && <Empty theme={MAGAZZINO_COLORS} icon={Package} text={filtroBassa ? 'Nessun armadio con scorta bassa.' : 'Nessun armadio registrato.'} />}
-        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {filtered.map(a => {
             const scortaBassa = magHaScortaBassa(a);
             return (
               <Card theme={MAGAZZINO_COLORS} key={a.id} onClick={() => onOpen(a)}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:14.5, marginBottom:3 }}>Armadio {a.numero}</div>
-                    <div style={{ fontSize:12, color:MAGAZZINO_COLORS.muted }}>{a.posizione || '— posizione non impostata —'}</div>
-                    {a.contenuto?.length > 0 && <div style={{ fontSize:11.5, color:MAGAZZINO_COLORS.muted, marginTop:4 }}>{a.contenuto.length} {a.contenuto.length === 1 ? 'voce' : 'voci'}</div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>Armadio {a.numero}</div>
+                    <div style={{ fontSize: 12, color: MAGAZZINO_COLORS.muted }}>{a.posizione || '— posizione non impostata —'}</div>
+                    {a.contenuto?.length > 0 && <div style={{ fontSize: 11.5, color: MAGAZZINO_COLORS.muted, marginTop: 4 }}>{a.contenuto.length} {a.contenuto.length === 1 ? 'voce' : 'voci'}</div>}
                   </div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:5, alignItems:'flex-end', flexShrink:0 }}>
-                    <Pill style={{ bg:MAGAZZINO_COLORS.bg, fg:MAGAZZINO_COLORS.primary }}>{a.tipologia||'Generale'}</Pill>
-                    {scortaBassa && <Pill style={{ bg:'#F7DCD9', fg:'#A3352A' }}>⚠️ Scorta bassa</Pill>}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-end', flexShrink: 0 }}>
+                    <Pill style={{ bg: MAGAZZINO_COLORS.bg, fg: MAGAZZINO_COLORS.primary }}>{a.tipologia || 'Generale'}</Pill>
+                    {scortaBassa && <Pill style={{ bg: '#F7DCD9', fg: '#A3352A' }}>⚠️ Scorta bassa</Pill>}
                   </div>
                 </div>
               </Card>
@@ -6976,28 +7001,27 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
 
   return (
     <>
-      <TopBar theme={MAGAZZINO_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia||armadio.posizione} onBack={onBack}
-        right={puoScrivere ? <button onClick={onEdit} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.primary, fontWeight:700, fontSize:13.5, padding:'4px 8px' }}>Modifica</button> : null} />
-      <div style={{ padding:14 }}>
+      <TopBar theme={MAGAZZINO_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia || armadio.posizione} onBack={onBack} />
+      <div style={{ padding: 14 }}>
         {righeConBassa.length > 0 && (
-          <div style={{ background:'#F7DCD9', color:'#A3352A', borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:13, fontWeight:600 }}>
+          <div style={{ background: '#F7DCD9', color: '#A3352A', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, fontWeight: 600 }}>
             ⚠️ Scorta bassa su {righeConBassa.length} {righeConBassa.length === 1 ? 'elemento' : 'elementi'}: {righeConBassa.map(r => r.elemento).join(', ')}
           </div>
         )}
-        <Card theme={MAGAZZINO_COLORS} style={{ marginBottom:12 }}>
-          <InfoRow theme={MAGAZZINO_COLORS} icon={MapPin} label="Posizione" value={armadio.posizione||'—'} />
-          <InfoRow theme={MAGAZZINO_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia||'—'} />
+        <Card theme={MAGAZZINO_COLORS} style={{ marginBottom: 12 }}>
+          <InfoRow theme={MAGAZZINO_COLORS} icon={MapPin} label="Posizione" value={armadio.posizione || '—'} />
+          <InfoRow theme={MAGAZZINO_COLORS} icon={Hash} label="Tipologia" value={armadio.tipologia || '—'} />
         </Card>
 
         {armadio.foto?.length > 0 && (
           <>
             <SectionLabel theme={MAGAZZINO_COLORS}>Foto</SectionLabel>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {armadio.foto.map((img, i) => {
                 const url = urls[img?.path || img];
                 return (
-                  <div key={i} onClick={() => url && setZoom(url)} style={{ width:90, height:90, borderRadius:10, overflow:'hidden', background:MAGAZZINO_COLORS.bg, border:`1px solid ${MAGAZZINO_COLORS.line}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor:url?'pointer':'default' }}>
-                    {url ? <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <ImageIcon size={22} color={MAGAZZINO_COLORS.muted} />}
+                  <div key={i} onClick={() => url && setZoom(url)} style={{ width: 90, height: 90, borderRadius: 10, overflow: 'hidden', background: MAGAZZINO_COLORS.bg, border: `1px solid ${MAGAZZINO_COLORS.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: url ? 'pointer' : 'default' }}>
+                    {url ? <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={22} color={MAGAZZINO_COLORS.muted} />}
                   </div>
                 );
               })}
@@ -7008,27 +7032,39 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
         {armadio.contenuto?.length > 0 && (
           <>
             <SectionLabel theme={MAGAZZINO_COLORS}>Contenuto</SectionLabel>
-            <Card theme={MAGAZZINO_COLORS} style={{ marginBottom:12 }}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto', gap:'6px 12px', fontSize:11.5, fontWeight:700, color:MAGAZZINO_COLORS.muted, paddingBottom:8, borderBottom:`1px solid ${MAGAZZINO_COLORS.line}`, marginBottom:4 }}>
-                <span>Elemento</span><span style={{ textAlign:'right' }}>Qtà</span><span>U.M.</span><span style={{ textAlign:'right' }}>Min.</span>
+            <Card theme={MAGAZZINO_COLORS} style={{ marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '6px 12px', fontSize: 11.5, fontWeight: 700, color: MAGAZZINO_COLORS.muted, paddingBottom: 8, borderBottom: `1px solid ${MAGAZZINO_COLORS.line}`, marginBottom: 4 }}>
+                <span>Elemento</span><span style={{ textAlign: 'right' }}>Qtà</span><span>U.M.</span><span style={{ textAlign: 'right' }}>Min.</span>
               </div>
               {armadio.contenuto.map((r, i) => {
                 const bassa = r.soglia_minima !== '' && r.soglia_minima != null && Number(r.quantita) <= Number(r.soglia_minima);
                 return (
-                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto', gap:'4px 12px', fontSize:13.5, padding:'7px 0', borderTop:i?`1px solid ${MAGAZZINO_COLORS.line}`:'none', alignItems:'center' }}>
-                    <span style={{ fontWeight: bassa ? 700 : 400 }}>{r.elemento}{bassa && <span style={{ marginLeft:6, fontSize:10, fontWeight:700, color:MAGAZZINO_COLORS.danger, background:'#F7DCD9', borderRadius:4, padding:'1px 5px' }}>!</span>}</span>
-                    <span style={{ textAlign:'right', fontWeight:700, color: bassa ? MAGAZZINO_COLORS.danger : MAGAZZINO_COLORS.ink }}>{r.quantita}</span>
-                    <span style={{ color:MAGAZZINO_COLORS.muted }}>{r.unita}</span>
-                    <span style={{ textAlign:'right', fontSize:11.5, color:MAGAZZINO_COLORS.muted }}>{r.soglia_minima ?? '—'}</span>
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '4px 12px', fontSize: 13.5, padding: '7px 0', borderTop: i ? `1px solid ${MAGAZZINO_COLORS.line}` : 'none', alignItems: 'center' }}>
+                    <span style={{ fontWeight: bassa ? 700 : 400 }}>{r.elemento}{bassa && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: MAGAZZINO_COLORS.danger, background: '#F7DCD9', borderRadius: 4, padding: '1px 5px' }}>!</span>}</span>
+                    <span style={{ textAlign: 'right', fontWeight: 700, color: bassa ? MAGAZZINO_COLORS.danger : MAGAZZINO_COLORS.ink }}>{r.quantita}</span>
+                    <span style={{ color: MAGAZZINO_COLORS.muted }}>{r.unita}</span>
+                    <span style={{ textAlign: 'right', fontSize: 11.5, color: MAGAZZINO_COLORS.muted }}>{r.soglia_minima ?? '—'}</span>
                   </div>
                 );
               })}
             </Card>
           </>
         )}
-        {armadio.note && (<><SectionLabel theme={MAGAZZINO_COLORS}>Note</SectionLabel><Card theme={MAGAZZINO_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:13.5, color:MAGAZZINO_COLORS.muted }}>{armadio.note}</p></Card></>)}
+
+        {armadio.contenuto?.length === 0 && (
+          <div style={{ textAlign: 'center', color: MAGAZZINO_COLORS.muted, fontSize: 13, padding: '16px 0' }}>Nessun contenuto registrato.</div>
+        )}
+
+        {armadio.note && (<><SectionLabel theme={MAGAZZINO_COLORS}>Note</SectionLabel><Card theme={MAGAZZINO_COLORS} style={{ marginBottom: 12 }}><p style={{ margin: 0, fontSize: 13.5, color: MAGAZZINO_COLORS.muted }}>{armadio.note}</p></Card></>)}
+
+        {/* Pulsante Modifica prominente in fondo — permette di aggiungere nuovo contenuto */}
+        {puoScrivere && (
+          <button onClick={onEdit} style={{ width: '100%', background: MAGAZZINO_COLORS.primary, color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 8, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            ✏️ Modifica armadio / Aggiungi contenuto
+          </button>
+        )}
       </div>
-      {zoom && (<div onClick={() => setZoom(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.9)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}><img src={zoom} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:6 }} /></div>)}
+      {zoom && (<div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}><img src={zoom} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6 }} /></div>)}
     </>
   );
 }
@@ -7103,16 +7139,10 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
           <div style={{ fontSize:12, fontWeight:700, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:10 }}>Posizione armadio</div>
 
           <PROC_Field label="Piano">
-            <input
-              list="mag-piani-list"
-              style={magInputStyle}
-              value={pianoSel}
-              onChange={e => { setPianoSel(e.target.value); setNucleoSel(''); }}
-              placeholder="Es. Piano terra, Piano interrato…"
-            />
-            <datalist id="mag-piani-list">
-              {pianiDisponibili.map(p => <option key={p} value={p} />)}
-            </datalist>
+            <select style={magInputStyle} value={pianoSel} onChange={e => { setPianoSel(e.target.value); setNucleoSel(''); }}>
+              <option value="">— seleziona piano —</option>
+              {[...new Set([...PIANI_DEFAULT, ...pianiDisponibili])].map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
           </PROC_Field>
 
           {pianoSel && (
@@ -7214,6 +7244,9 @@ function MagazzinoModule({ onHome, initialNotification }) {
   if (!ready) return <div style={{ minHeight:'100vh', background:MAGAZZINO_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:MAGAZZINO_COLORS.muted }}>Caricamento…</div>;
 
   const arm = armT.rows;
+  // Piani: unione tra piani fissi predefiniti e quelli già salvati negli armadi.
+  const pianiUsati = [...new Set(arm.map(a => a.piano).filter(Boolean))];
+  const pianiDisp = [...new Set([...PIANI_DEFAULT, ...pianiUsati])];
   let content;
   if (view.name === 'detail') {
     const a = arm.find(x => x.id === view.id);
@@ -7223,7 +7256,7 @@ function MagazzinoModule({ onHome, initialNotification }) {
   } else if (view.name === 'edit') {
     content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
   } else {
-    content = <MagazzinoScreen armadi={arm} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
+    content = <MagazzinoScreen armadi={arm} piani={pianiDisp} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
   }
 
   return (
