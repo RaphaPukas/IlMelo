@@ -6923,7 +6923,7 @@ function MagazzinoScreen({ armadi, reparti, onOpen, onAdd, onHome, puoScrivere }
     if (q.trim()) {
       const qLow = q.trim().toLowerCase();
       list = list.filter(a => {
-        const base = `${a.numero||''} ${a.posizione||''} ${a.tipologia||''} ${a.note||''}`.toLowerCase();
+        const base = `${a.numero||''} ${a.posizione||''} ${a.tipologia||''} ${a.note||''} ${a.macrogruppo||''}`.toLowerCase();
         const contenuto = (a.contenuto||[]).map(r => `${r.elemento||''}`).join(' ').toLowerCase();
         return base.includes(qLow) || contenuto.includes(qLow);
       });
@@ -6971,6 +6971,7 @@ function MagazzinoScreen({ armadi, reparti, onOpen, onAdd, onHome, puoScrivere }
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>Armadio {a.numero}</div>
+                    {a.macrogruppo && <div style={{ fontSize: 13, fontWeight: 700, color: MAGAZZINO_COLORS.primary, marginBottom: 2 }}>{a.macrogruppo}</div>}
                     <div style={{ fontSize: 12, color: MAGAZZINO_COLORS.muted }}>{a.posizione || '— posizione non impostata —'}</div>
                     {a.contenuto?.length > 0 && <div style={{ fontSize: 11.5, color: MAGAZZINO_COLORS.muted, marginTop: 4 }}>{a.contenuto.length} {a.contenuto.length === 1 ? 'voce' : 'voci'}</div>}
                   </div>
@@ -7004,6 +7005,11 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
     <>
       <TopBar theme={MAGAZZINO_COLORS} title={`Armadio ${armadio.numero}`} subtitle={armadio.tipologia || armadio.posizione} onBack={onBack} />
       <div style={{ padding: 14 }}>
+        {armadio.macrogruppo && (
+          <div style={{ fontSize: 22, fontWeight: 800, color: MAGAZZINO_COLORS.primary, marginBottom: 10, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+            {armadio.macrogruppo}
+          </div>
+        )}
         {righeConBassa.length > 0 && (
           <div style={{ background: '#F7DCD9', color: '#A3352A', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, fontWeight: 600 }}>
             ⚠️ Scorta bassa su {righeConBassa.length} {righeConBassa.length === 1 ? 'elemento' : 'elementi'}: {righeConBassa.map(r => r.elemento).join(', ')}
@@ -7070,9 +7076,9 @@ function MagazzinoDetail({ armadio, onBack, onEdit, puoScrivere }) {
   );
 }
 
-function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, puoScrivere, puoEliminare }) {
+function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onDelete, puoScrivere, puoEliminare }) {
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', foto:[] });
+  const [f, setF] = useState(initial || { id:uid(), numero:'', posizione:'', tipologia:'Generale', note:'', foto:[], macrogruppo:'' });
   const [righe, setRighe] = useState(initial?.contenuto || []);
   // Cascata Piano → Tipologia (categoria reparto) → Zona (reparto.nome)
   // Stessa gerarchia della scheda Reparti del modulo Struttura:
@@ -7081,6 +7087,7 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
   const [categoriaSel, setCategoriaSel] = useState(initial?.categoria_reparto || '');
   const [zonaCodice, setZonaCodice] = useState(initial?.zona_codice || '');
   const [posizioneLibera, setPosizioneLibera] = useState(initial?.posizione_libera || '');
+  const [macrogruppo, setMacrogruppo] = useState(initial?.macrogruppo || '');
 
   const [fotoEsistenti, setFotoEsistenti] = useState(initial?.foto || []);
   const [fotoDaRimuovere, setFotoDaRimuovere] = useState([]);
@@ -7132,6 +7139,7 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
         posizione_libera: posizioneLibera,
         posizione: [pianoSel, categoriaSel, zonaNome, posizioneLibera].filter(Boolean).join(' · '),
         foto: [...fotoEsistenti.filter(x => !fotoDaRimuovere.includes(x)), ...nuovePaths],
+        macrogruppo: macrogruppo.trim(),
       };
       onSave(record);
     } catch (e) { setErrore('Errore: ' + e.message); setSalvataggio(false); }
@@ -7151,6 +7159,13 @@ function MagazzinoForm({ initial, camere, reparti, onSave, onCancel, onDelete, p
           <PROC_Field label="Numero *"><input style={magInputStyle} value={f.numero} onChange={set('numero')} placeholder="Es. A01" /></PROC_Field>
           <PROC_Field label="Tipologia"><select style={magInputStyle} value={f.tipologia} onChange={set('tipologia')}>{MAGAZZINO_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         </div>
+
+        <PROC_Field label="Macrogruppo">
+          <input list="macrogruppi-list" style={magInputStyle} value={macrogruppo} onChange={e => setMacrogruppo(e.target.value)} placeholder="Es. Sollevatori, DPI, Cancelleria…" />
+          <datalist id="macrogruppi-list">
+            {[...new Set((armadi||[]).map(a => a.macrogruppo).filter(Boolean))].sort().map(m => <option key={m} value={m} />)}
+          </datalist>
+        </PROC_Field>
 
         {/* Posizione a cascata: Piano → Tipologia di spazio → Zona/Reparto.
             Stessa gerarchia e sorgente dati (STR_PIANI_REPARTO + reparti.categoria + reparti.nome)
@@ -7278,9 +7293,9 @@ function MagazzinoModule({ onHome, initialNotification }) {
     const a = arm.find(x => x.id === view.id);
     content = a ? <MagazzinoDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', a })} puoScrivere={puoScrivere} /> : null;
   } else if (view.name === 'add') {
-    content = <MagazzinoForm camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Armadio salvato')} onCancel={() => goBack()} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
+    content = <MagazzinoForm camere={camereT.rows} reparti={repartiT.rows} armadi={arm} onSave={r => salva(r, 'Armadio salvato')} onCancel={() => goBack()} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
   } else if (view.name === 'edit') {
-    content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
+    content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} armadi={arm} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
   } else {
     content = <MagazzinoScreen armadi={arm} reparti={repartiT.rows} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
   }
