@@ -6897,6 +6897,7 @@ const MAGAZZINO_COLORS = {
   ink: '#1B242C', muted: '#6E7C89', danger: '#C0392B', ok: '#27AE60',
 };
 const MAGAZZINO_TIPI = ['Elettrico','Idraulico','Medicale','Attrezzature','DPI','Documenti','Generale'];
+const CONTENUTO_TIPOLOGIE_BASE = ['Attrezzi','Consumabili','Dispositivi','Documentazione','Materiali','Nastri','Ricambi','Altro'];
 const MAGAZZINO_MODULO_PERMESSO = 'magazzino.visualizza';
 const MAGAZZINO_MODIFICA_PERMESSO = 'magazzino.modifica';
 const magInputStyle = procInputStyle;
@@ -7070,6 +7071,14 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
 
   const [salvataggio, setSalvataggio] = useState(false);
   const [errore, setErrore] = useState('');
+  // Tipologie per le righe di contenuto: base + estratte da tutti gli armadi + aggiunte in sessione.
+  // Persistenza senza modifiche DB: le tipologie esistono già nel campo JSONB "contenuto".
+  const [tipologieLocali, setTipologieLocali] = useState([]);
+  const [nuovaTipologiaRiga, setNuovaTipologiaRiga] = useState(null); // indice riga | null
+  const tutteTipologieContenuto = useMemo(() => {
+    const daDati = (armadi||[]).flatMap(a => (a.contenuto||[]).map(r => r.tipologia)).filter(Boolean);
+    return [...new Set([...CONTENUTO_TIPOLOGIE_BASE, ...daDati, ...tipologieLocali])].sort();
+  }, [armadi, tipologieLocali]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
   const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
 
@@ -7087,17 +7096,19 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
   [reparti, pianoSel, categoriaSel]);
 
   // Resetta i livelli dipendenti solo quando l'utente cambia attivamente
-  // la selezione superiore — NON al primo mount, dove i valori sono già
-  // inizializzati correttamente da useState(initial.*).
-  // Pattern identico a useBackable: firstRun.current = true salta il primo firing.
-  const cascadeFirstRun = useRef(true);
+  // la selezione superiore — NON al primo mount.
+  // Due ref SEPARATI: con un singolo ref condiviso il primo effect lo imposta a
+  // false e il secondo lo trova già false, azzerando zonaCodice anche al primo
+  // mount (bug: perdita di Zona/Reparto alla riapertura in modifica).
+  const pianoFirstRun = useRef(true);
+  const categoriaFirstRun = useRef(true);
   useEffect(() => {
-    if (cascadeFirstRun.current) { cascadeFirstRun.current = false; return; }
+    if (pianoFirstRun.current) { pianoFirstRun.current = false; return; }
     setCategoriaSel('');
     setZonaCodice('');
   }, [pianoSel]);
   useEffect(() => {
-    if (cascadeFirstRun.current) return;
+    if (categoriaFirstRun.current) { categoriaFirstRun.current = false; return; }
     setZonaCodice('');
   }, [categoriaSel]);
 
@@ -7190,21 +7201,53 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
         <SectionLabel theme={MAGAZZINO_COLORS}>Contenuto</SectionLabel>
         {righe.length > 0 && (
           <div style={{ marginBottom:8 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 60px 70px 70px 36px', gap:6, marginBottom:6 }}>
-              {['Elemento','Qtà','Unità','Min.',''].map((h,i) => <span key={i} style={{ fontSize:10.5, fontWeight:600, color:MAGAZZINO_COLORS.muted, textTransform:'uppercase' }}>{h}</span>)}
-            </div>
             {righe.map((r, i) => (
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 60px 70px 70px 36px', gap:6, marginBottom:6 }}>
-                <input style={{ ...magInputStyle, padding:'8px 10px', fontSize:13 }} value={r.elemento} onChange={e => setR(i,'elemento',e.target.value)} placeholder="Es. Fusibili 16A" />
-                <input type="number" min="0" style={{ ...magInputStyle, padding:'8px 10px', fontSize:13 }} value={r.quantita} onChange={e => setR(i,'quantita',e.target.value)} />
-                <select style={{ ...magInputStyle, padding:'8px 6px', fontSize:13 }} value={r.unita||'pz'} onChange={e => setR(i,'unita',e.target.value)}>{PROC_UNITA.map(u => <option key={u}>{u}</option>)}</select>
-                <input type="number" min="0" style={{ ...magInputStyle, padding:'8px 8px', fontSize:13 }} value={r.soglia_minima ?? ''} onChange={e => setR(i,'soglia_minima',e.target.value)} placeholder="—" title="Scorta bassa quando Qtà ≤ questo valore" />
-                <button type="button" onClick={() => setRighe(p => p.filter((_,idx) => idx!==i))} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>
+              <div key={i} style={{ border:`1px solid ${MAGAZZINO_COLORS.line}`, borderRadius:10, padding:'10px 10px 8px', marginBottom:8 }}>
+                {/* Riga 1: Tipologia elemento */}
+                {nuovaTipologiaRiga === i ? (
+                  <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+                    <input
+                      autoFocus
+                      style={{ ...magInputStyle, flex:1, padding:'7px 10px', fontSize:13 }}
+                      value={r.tipologia || ''}
+                      onChange={e => setR(i, 'tipologia', e.target.value)}
+                      placeholder="Nome nuova tipologia…"
+                    />
+                    <button type="button" onClick={() => {
+                      const t = (r.tipologia || '').trim();
+                      if (t && !tutteTipologieContenuto.includes(t)) setTipologieLocali(p => [...p, t]);
+                      setNuovaTipologiaRiga(null);
+                    }} style={{ background:MAGAZZINO_COLORS.primary, color:'#fff', border:'none', borderRadius:8, padding:'7px 12px', fontWeight:700, fontSize:13, flexShrink:0 }}>OK</button>
+                    <button type="button" onClick={() => { setR(i,'tipologia',''); setNuovaTipologiaRiga(null); }}
+                      style={{ background:'none', border:`1px solid ${MAGAZZINO_COLORS.line}`, borderRadius:8, padding:'7px 10px', fontSize:13, color:MAGAZZINO_COLORS.muted, flexShrink:0 }}>✕</button>
+                  </div>
+                ) : (
+                  <select
+                    style={{ ...magInputStyle, padding:'7px 10px', fontSize:13, marginBottom:8 }}
+                    value={r.tipologia || ''}
+                    onChange={e => {
+                      if (e.target.value === '__nuova__') { setR(i,'tipologia',''); setNuovaTipologiaRiga(i); }
+                      else setR(i, 'tipologia', e.target.value);
+                    }}>
+                    <option value="">— tipo elemento (facoltativo) —</option>
+                    {tutteTipologieContenuto.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="__nuova__">➕ Aggiungi nuova tipologia…</option>
+                  </select>
+                )}
+                {/* Riga 2: Elemento, Qtà, Unità, Soglia, Rimuovi */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 60px 70px 70px 36px', gap:6 }}>
+                  <input style={{ ...magInputStyle, padding:'7px 10px', fontSize:13 }} value={r.elemento} onChange={e => setR(i,'elemento',e.target.value)} placeholder="Es. Fusibili 16A" />
+                  <input type="number" min="0" style={{ ...magInputStyle, padding:'7px 8px', fontSize:13 }} value={r.quantita} onChange={e => setR(i,'quantita',e.target.value)} />
+                  <select style={{ ...magInputStyle, padding:'7px 4px', fontSize:13 }} value={r.unita||'pz'} onChange={e => setR(i,'unita',e.target.value)}>{PROC_UNITA.map(u => <option key={u}>{u}</option>)}</select>
+                  <input type="number" min="0" style={{ ...magInputStyle, padding:'7px 6px', fontSize:13 }} value={r.soglia_minima ?? ''} onChange={e => setR(i,'soglia_minima',e.target.value)} placeholder="—" title="Scorta bassa quando Qtà ≤ questo valore" />
+                  <button type="button" onClick={() => { setRighe(p => p.filter((_,idx) => idx!==i)); if (nuovaTipologiaRiga===i) setNuovaTipologiaRiga(null); }}
+                    style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>
+                </div>
               </div>
             ))}
           </div>
         )}
-        <button type="button" onClick={() => setRighe(p => [...p, { elemento:'', quantita:'', unita:'pz', soglia_minima:'' }])} style={{ fontSize:13, color:MAGAZZINO_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'4px 0', display:'flex', alignItems:'center', gap:5, marginBottom:14 }}><Plus size={14}/> Aggiungi voce</button>
+        <button type="button" onClick={() => setRighe(p => [...p, { elemento:'', quantita:'', unita:'pz', soglia_minima:'', tipologia:'' }])} style={{ fontSize:13, color:MAGAZZINO_COLORS.primary, background:'none', border:'none', fontWeight:600, padding:'4px 0', display:'flex', alignItems:'center', gap:5, marginBottom:14 }}><Plus size={14}/> Aggiungi voce</button>
         <PROC_Field label="Note"><textarea rows={3} style={{ ...magInputStyle, resize:'vertical', minHeight:70 }} value={f.note||''} onChange={set('note')} placeholder="Informazioni aggiuntive sull'armadio…" /></PROC_Field>
       </div>
       {puoScrivere && (
