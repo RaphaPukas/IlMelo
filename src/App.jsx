@@ -7079,6 +7079,14 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
     const daDati = (armadi||[]).flatMap(a => (a.contenuto||[]).map(r => r.tipologia)).filter(Boolean);
     return [...new Set([...CONTENUTO_TIPOLOGIE_BASE, ...daDati, ...tipologieLocali])].sort();
   }, [armadi, tipologieLocali]);
+  // Tipologie generali dell'armadio: distinte da macrogruppo e dalle tipologie del contenuto.
+  // Stessa strategia di persistenza: estratte dal campo tipologia degli armadi esistenti.
+  const [nuovaArmadiTipologia, setNuovaArmadiTipologia] = useState(false);
+  const [tipologieArmadiLocali, setTipologieArmadiLocali] = useState([]);
+  const tutteTipologieArmadio = useMemo(() => {
+    const daDati = (armadi||[]).map(a => a.tipologia).filter(Boolean);
+    return [...new Set([...MAGAZZINO_TIPI, ...daDati, ...tipologieArmadiLocali])].sort();
+  }, [armadi, tipologieArmadiLocali]);
   const set = (k) => (e) => setF(prev => ({ ...prev, [k]:e.target.value }));
   const setR = (i, campo, val) => setRighe(p => p.map((r,idx) => idx===i ? { ...r, [campo]:val } : r));
 
@@ -7149,7 +7157,27 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <PROC_Field label="Numero *"><input style={magInputStyle} value={f.numero} onChange={set('numero')} placeholder="Es. A01" /></PROC_Field>
-          <PROC_Field label="Tipologia"><select style={magInputStyle} value={f.tipologia} onChange={set('tipologia')}>{MAGAZZINO_TIPI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+          <PROC_Field label="Tipologia armadio">
+            {!nuovaArmadiTipologia ? (
+              <select style={magInputStyle} value={f.tipologia} onChange={e => {
+                if (e.target.value === '__nuova__') { setNuovaArmadiTipologia(true); setF(p => ({ ...p, tipologia: '' })); }
+                else setF(p => ({ ...p, tipologia: e.target.value }));
+              }}>
+                <option value="">— tipo —</option>
+                {tutteTipologieArmadio.map(t => <option key={t} value={t}>{t}</option>)}
+                <option value="__nuova__">➕ Aggiungi nuova…</option>
+              </select>
+            ) : (
+              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                <input autoFocus style={{ ...magInputStyle, flex:1 }} value={f.tipologia} onChange={set('tipologia')} placeholder="Nuova tipologia armadio…" />
+                <button type="button" onClick={() => {
+                  const t = f.tipologia.trim();
+                  if (t && !tutteTipologieArmadio.includes(t)) setTipologieArmadiLocali(p => [...p, t]);
+                  setNuovaArmadiTipologia(false);
+                }} style={{ background:MAGAZZINO_COLORS.primary, color:'#fff', border:'none', borderRadius:8, padding:'10px 12px', fontWeight:700, fontSize:13, flexShrink:0 }}>OK</button>
+              </div>
+            )}
+          </PROC_Field>
         </div>
 
         <PROC_Field label="Macrogruppo">
@@ -7288,7 +7316,11 @@ function MagazzinoModule({ onHome, initialNotification }) {
     if (!puoScrivere) { flash('Non hai i permessi per modificare.'); return; }
     const { error } = await armT.remove(record);
     if (error) { flash('Errore: ' + error.message); return; }
-    flash(msg); goBack();
+    flash(msg);
+    // Dopo eliminazione torna alla lista saltando il back stack (evita schermata bianca
+    // che si verifica quando goBack() torna alla vista detail/edit di un armadio non più esistente).
+    __skipPushFor.add(setView);
+    setView({ name: 'list' });
   }
 
   if (!moduloConsentito) {
