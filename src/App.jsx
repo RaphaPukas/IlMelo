@@ -7086,19 +7086,20 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
     !pianoSel || !categoriaSel ? [] : (reparti||[]).filter(r => r.piano === pianoSel && r.categoria === categoriaSel).sort((a,b) => a.nome.localeCompare(b.nome)),
   [reparti, pianoSel, categoriaSel]);
 
-  // Resetta i livelli dipendenti quando il livello superiore cambia.
-  useEffect(() => { setCategoriaSel(''); setZonaCodice(''); }, [pianoSel]);
-  useEffect(() => { setZonaCodice(''); }, [categoriaSel]);
-
-  // Sincronizza gli stati quando si apre un armadio diverso in modifica.
+  // Resetta i livelli dipendenti solo quando l'utente cambia attivamente
+  // la selezione superiore — NON al primo mount, dove i valori sono già
+  // inizializzati correttamente da useState(initial.*).
+  // Pattern identico a useBackable: firstRun.current = true salta il primo firing.
+  const cascadeFirstRun = useRef(true);
   useEffect(() => {
-    if (!initial) return;
-    setPianoSel(initial.piano || '');
-    setCategoriaSel(initial.categoria_reparto || '');
-    setZonaCodice(initial.zona_codice || '');
-    setPosizioneLibera(initial.posizione_libera || '');
-    setMacrogruppo(initial.macrogruppo || '');
-  }, [initial?.id]);
+    if (cascadeFirstRun.current) { cascadeFirstRun.current = false; return; }
+    setCategoriaSel('');
+    setZonaCodice('');
+  }, [pianoSel]);
+  useEffect(() => {
+    if (cascadeFirstRun.current) return;
+    setZonaCodice('');
+  }, [categoriaSel]);
 
   // Ricostruisce la stringa posizione leggibile ad ogni variazione.
   useEffect(() => {
@@ -7126,7 +7127,7 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
     } catch (e) { setErrore('Errore: ' + e.message); setSalvataggio(false); }
   }
 
-  const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:MAGAZZINO_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
+
 
 
 
@@ -7184,17 +7185,7 @@ function MagazzinoForm({ initial, camere, reparti, armadi, onSave, onCancel, onD
           {f.posizione && <div style={{ fontSize:12.5, color:MAGAZZINO_COLORS.primary, fontWeight:600, marginTop:6 }}>✓ {f.posizione}</div>}
         </div>
 
-        <SectionLabel theme={MAGAZZINO_COLORS}>Foto</SectionLabel>
-        <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:14 }}>
-          {fotoEsistenti.filter(img => !fotoDaRimuovere.includes(img)).map((img, i) => (
-            <div key={i} style={thumbStyle}><div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><ImageIcon size={20} color={MAGAZZINO_COLORS.muted} /></div>{xOverlay(() => setFotoDaRimuovere(p => [...p, img]))}</div>
-          ))}
-          {fotoNuove.map((file, i) => (
-            <div key={`n${i}`} style={thumbStyle}><img src={anteprimeFoto[i]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />{xOverlay(() => setFotoNuove(p => p.filter((_,idx)=>idx!==i)))}</div>
-          ))}
-          <button type="button" onClick={() => fotoRef.current?.click()} style={{ width:72, height:72, borderRadius:10, border:`1.5px dashed ${MAGAZZINO_COLORS.line}`, background:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:MAGAZZINO_COLORS.muted, gap:3, flexShrink:0 }}><Plus size={18}/><span style={{ fontSize:10 }}>Foto</span></button>
-          <input ref={fotoRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e => { setFotoNuove(p=>[...p,...Array.from(e.target.files||[])]); e.target.value=''; }} />
-        </div>
+
 
         <SectionLabel theme={MAGAZZINO_COLORS}>Contenuto</SectionLabel>
         {righe.length > 0 && (
@@ -7271,11 +7262,16 @@ function MagazzinoModule({ onHome, initialNotification }) {
   let content;
   if (view.name === 'detail') {
     const a = arm.find(x => x.id === view.id);
-    content = a ? <MagazzinoDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', a })} puoScrivere={puoScrivere} /> : null;
+    content = a
+      ? <MagazzinoDetail armadio={a} onBack={() => goBack()} onEdit={() => setView({ name:'edit', id:a.id })} puoScrivere={puoScrivere} />
+      : null;
   } else if (view.name === 'add') {
     content = <MagazzinoForm camere={camereT.rows} reparti={repartiT.rows} armadi={arm} onSave={r => salva(r, 'Armadio salvato')} onCancel={() => goBack()} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
   } else if (view.name === 'edit') {
-    content = <MagazzinoForm initial={view.a} camere={camereT.rows} reparti={repartiT.rows} armadi={arm} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />;
+    const a = arm.find(x => x.id === view.id);
+    content = a
+      ? <MagazzinoForm initial={a} camere={camereT.rows} reparti={repartiT.rows} armadi={arm} onSave={r => salva(r, 'Aggiornato')} onCancel={() => goBack()} onDelete={r => elimina(r, 'Eliminato')} puoScrivere={puoScrivere} puoEliminare={puoScrivere} />
+      : null;
   } else {
     content = <MagazzinoScreen armadi={arm} reparti={repartiT.rows} onOpen={a => setView({ name:'detail', id:a.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} puoScrivere={puoScrivere} />;
   }
