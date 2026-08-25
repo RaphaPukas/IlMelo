@@ -4575,6 +4575,7 @@ const STR_STATO_PAGAMENTO_STYLE = {
 const STR_STATI_PAGAMENTO = Object.keys(STR_STATO_PAGAMENTO_STYLE);
 
 const STR_NAV_ITEMS = [
+  ['agenda', CalendarClock, 'Agenda'],
   ['camere', BedDouble, 'Camere'],
   ['interventi', ClipboardList, 'Interventi'],
   ['scadenze', CalendarClock, 'Scadenze'],
@@ -4586,6 +4587,7 @@ const STRUTTURA_MODULO_PERMESSO = 'struttura.visualizza';
 // Permesso granulare per ogni scheda. Chiavi allineate esattamente a quelle
 // gia' presenti in "permessi" su Supabase (confermate manualmente).
 const STRUTTURA_TAB_PERMESSI = {
+  agenda: 'struttura.visualizza', // l'Agenda è visibile a chiunque abbia accesso al modulo
   camere: 'struttura.camere',
   interventi: 'struttura.interventi',
   scadenze: 'struttura.scadenze',
@@ -5809,6 +5811,204 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
 }
 
 /* ---------- Root ---------- */
+/* ---- Agenda Struttura ---- */
+const AGENDA_GIORNO_ABBR = ['DOM','LUN','MAR','MER','GIO','VEN','SAB'];
+
+// Calcola ISO da un Date locale senza rischi UTC
+function dateToISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Restituisce i 7 giorni: oggi + 6 successivi (mai giorni passati)
+function calcolaSettimanaAgenda() {
+  const oggi = new Date();
+  oggi.setHours(0,0,0,0);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(oggi);
+    d.setDate(oggi.getDate() + i);
+    return { iso: dateToISO(d), giorno: d.getDate(), dow: d.getDay() };
+  });
+}
+
+function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenIntervento, onOpenManutenzione }) {
+  const sette = useMemo(calcolaSettimanaAgenda, []); // ricalcolato solo al mount
+  const oggiISO = sette[0].iso;
+  const [selectedISO, setSelectedISO] = useState(oggiISO);
+  const sel = sette.find(d => d.iso === selectedISO) || sette[0];
+
+  // ---- Aggregazione attività per il giorno selezionato ----
+  const { urgenti, inCorso, programmate } = useMemo(() => {
+    const isOggi = selectedISO === oggiISO;
+
+    // Interventi aperti/in corso (escludi carrozzine e chiusi/annullati).
+    // Su OGGI: tutti gli aperto/in-corso (potrebbero richiedere attenzione immediata).
+    // Su altri giorni: solo quelli creati in quel giorno specifico che non siano ancora chiusi.
+    const ivGiorno = interventi.filter(iv => {
+      if (iv.tipologia === 'carrozzina') return false;
+      if (iv.stato === 'Chiuso' || iv.stato === 'Annullato') return false;
+      if (isOggi) return true;
+      return iv.dataSegnalazione === selectedISO;
+    });
+
+    // Manutenzioni con prossimaScadenza === giorno selezionato
+    const manGiorno = manutenzioni.filter(m => m.prossimaScadenza === selectedISO);
+
+    // Ricorrenti con prossimaScadenza === giorno selezionato
+    const ricGiorno = ricorrenti.filter(r => r.prossimaScadenza === selectedISO);
+
+    const urgentiList = ivGiorno.filter(iv => iv.priorita === 'Alta' || iv.priorita === 'Urgente');
+    const inCorsoList = ivGiorno.filter(iv => iv.priorita !== 'Alta' && iv.priorita !== 'Urgente');
+    const programmateList = [
+      ...manGiorno.map(m => ({ ...m, _tipo: 'manutenzione' })),
+      ...ricGiorno.map(r => ({ ...r, _tipo: 'ricorrente' })),
+    ];
+
+    return { urgenti: urgentiList, inCorso: inCorsoList, programmate: programmateList };
+  }, [interventi, manutenzioni, ricorrenti, selectedISO, oggiISO]);
+
+  const nessuna = urgenti.length + inCorso.length + programmate.length === 0;
+
+  // ---- Rendering helpers ----
+  function DayBtn({ giorno, mini }) {
+    const isSelected = giorno.iso === selectedISO;
+    const isSun = giorno.dow === 0;
+    const isOggiBtn = giorno.iso === oggiISO;
+    const textColor = isSun ? STR_COLORS.danger : (isSelected ? '#fff' : STR_COLORS.ink);
+    return (
+      <button onClick={() => setSelectedISO(giorno.iso)} style={{
+        flex:1, padding: mini ? '10px 4px' : '14px 4px',
+        borderRadius: 12, border: 'none',
+        background: isSelected ? STR_COLORS.primary : STR_COLORS.surface,
+        cursor: 'pointer', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+        boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
+      }}>
+        <span style={{ fontSize: mini ? 10 : 11, fontWeight: 700, letterSpacing: '0.05em', color: isSelected ? 'rgba(255,255,255,0.8)' : STR_COLORS.muted }}>
+          {AGENDA_GIORNO_ABBR[giorno.dow]}
+        </span>
+        <span style={{ fontSize: mini ? 15 : 18, fontWeight: 800, color: textColor, lineHeight: 1 }}>
+          {giorno.giorno}
+        </span>
+        {isOggiBtn && (
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: isSelected ? 'rgba(255,255,255,0.7)' : STR_COLORS.primary, marginTop: 1 }}>
+            OGGI
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  function CardIntervento({ iv }) {
+    const prioritaStyle = STR_PRIORITA_STYLE[iv.priorita] || STR_PRIORITA_STYLE.Media;
+    const statoStyle = STR_STATO_INTERVENTO_STYLE[iv.stato] || {};
+    return (
+      <button onClick={() => onOpenIntervento && onOpenIntervento(iv)}
+        style={{ width:'100%', textAlign:'left', background: STR_COLORS.surface, border:`1px solid ${STR_COLORS.line}`, borderRadius:12, padding:'12px 14px', marginBottom:8, cursor:'pointer' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+          <div style={{ minWidth:0, flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:13.5, color:STR_COLORS.ink, marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {iv.descrizione || '—'}
+            </div>
+            {iv.cameraZona && <div style={{ fontSize:12, color:STR_COLORS.muted }}>{iv.cameraZona}</div>}
+            {iv.tecnico && <div style={{ fontSize:11.5, color:STR_COLORS.muted, marginTop:2 }}>👤 {iv.tecnico}</div>}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4, alignItems:'flex-end', flexShrink:0 }}>
+            {iv.priorita && <span style={{ fontSize:10, fontWeight:700, background:prioritaStyle.bg, color:prioritaStyle.fg, padding:'2px 7px', borderRadius:999 }}>{iv.priorita}</span>}
+            {iv.stato && <span style={{ fontSize:10, fontWeight:700, background:statoStyle.bg, color:statoStyle.fg, padding:'2px 7px', borderRadius:999 }}>{iv.stato}</span>}
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  function CardProgrammata({ item }) {
+    const isProg = item._tipo === 'manutenzione' || item._tipo === 'ricorrente';
+    return (
+      <button onClick={() => onOpenManutenzione && onOpenManutenzione(item)}
+        style={{ width:'100%', textAlign:'left', background: STR_COLORS.surface, border:`1px solid ${STR_COLORS.line}`, borderRadius:12, padding:'12px 14px', marginBottom:8, cursor:'pointer' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+          <div style={{ minWidth:0, flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:13.5, color:STR_COLORS.ink, marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {item.descrizione || item.tipo || '—'}
+            </div>
+            {item.cameraZona && <div style={{ fontSize:12, color:STR_COLORS.muted }}>{item.cameraZona}</div>}
+            {item.tecnico && <div style={{ fontSize:11.5, color:STR_COLORS.muted, marginTop:2 }}>👤 {item.tecnico}</div>}
+            {item.frequenza && <div style={{ fontSize:11, color:STR_COLORS.muted, marginTop:2 }}>🔁 {item.frequenza}</div>}
+          </div>
+          <div style={{ flexShrink:0 }}>
+            <span style={{ fontSize:10, fontWeight:700, background:STR_COLORS.bg, color:STR_COLORS.muted, padding:'2px 7px', borderRadius:999 }}>
+              {item._tipo === 'ricorrente' ? 'Ricorrente' : 'Manutenzione'}
+            </span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  function Sezione({ titolo, colore, children, count }) {
+    if (count === 0) return null;
+    return (
+      <div style={{ marginBottom:18 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+          <span style={{ width:10, height:10, borderRadius:999, background:colore, flexShrink:0 }} />
+          <span style={{ fontFamily:"'Archivo', sans-serif", fontWeight:800, fontSize:11.5, textTransform:'uppercase', letterSpacing:'0.06em', color:STR_COLORS.ink }}>{titolo}</span>
+          <span style={{ fontSize:11, color:STR_COLORS.muted }}>({count})</span>
+        </div>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${urgenti.length + inCorso.length + programmate.length} attività`} onBack={onHome} backIcon={Home} />
+
+      {/* Testata: giorno selezionato a piena larghezza */}
+      <div style={{ padding:'14px 14px 0', display:'flex', flexDirection:'column', gap:8 }}>
+
+        {/* Riga 1: oggi a piena larghezza */}
+        <DayBtn giorno={sette[0]} mini={false} />
+
+        {/* Riga 2: +1 +2 +3 */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+          {sette.slice(1,4).map(g => <DayBtn key={g.iso} giorno={g} mini />)}
+        </div>
+
+        {/* Riga 3: +4 +5 +6 */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+          {sette.slice(4,7).map(g => <DayBtn key={g.iso} giorno={g} mini />)}
+        </div>
+      </div>
+
+      {/* Attività del giorno */}
+      <div style={{ padding:14 }}>
+        <div style={{ fontFamily:"'Archivo', sans-serif", fontWeight:700, fontSize:13, color:STR_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:14, borderBottom:`1px solid ${STR_COLORS.line}`, paddingBottom:8 }}>
+          Attività del {fmtDate(selectedISO)}
+        </div>
+
+        {nessuna ? (
+          <div style={{ textAlign:'center', padding:'30px 0', color:STR_COLORS.muted }}>
+            <div style={{ fontSize:32, marginBottom:10 }}>✅</div>
+            <div style={{ fontSize:14, fontWeight:600 }}>Nessuna attività programmata</div>
+            <div style={{ fontSize:12, marginTop:4 }}>Tutto libero per questo giorno.</div>
+          </div>
+        ) : (
+          <>
+            <Sezione titolo="Urgenti" colore={STR_COLORS.danger} count={urgenti.length}>
+              {urgenti.map(iv => <CardIntervento key={iv.id} iv={iv} />)}
+            </Sezione>
+            <Sezione titolo="In corso / Da completare" colore={STR_COLORS.amber} count={inCorso.length}>
+              {inCorso.map(iv => <CardIntervento key={iv.id} iv={iv} />)}
+            </Sezione>
+            <Sezione titolo="Programmate" colore={STR_COLORS.info} count={programmate.length}>
+              {programmate.map(item => <CardProgrammata key={item.id} item={item} />)}
+            </Sezione>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 function StrutturaModule({ onHome, initialNotification }) {
   const camereT = useSupaTable('camere', 'codice', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
@@ -5816,10 +6016,13 @@ function StrutturaModule({ onHome, initialNotification }) {
   const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
   const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI, ['ultimaEsecuzione', 'prossimaScadenza']);
   const costiT = useSupaTable('costi', 'id', S_COSTI, ['data']);
+  // Manutenzioni ricorrenti: già presenti in ProcedureModule ma servono anche qui per l'Agenda.
+  // useSupaTable condivide la connessione realtime per la stessa tabella senza duplicare dati.
+  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
-  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
-  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
+  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready && ricT.ready;
+  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error || ricT.error;
   const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
   const tabConsentito = (key) => hasPermission(STRUTTURA_TAB_PERMESSI[key]);
   const navItemsConsentiti = STR_NAV_ITEMS.filter(([key]) => tabConsentito(key));
@@ -6054,6 +6257,17 @@ function StrutturaModule({ onHome, initialNotification }) {
         <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
+    );
+  } else if (tab === 'agenda') {
+    content = (
+      <AgendaStrScreen
+        interventi={interventi.filter(i => i.tipologia !== 'carrozzina')}
+        manutenzioni={manutenzioni}
+        ricorrenti={ricT.rows}
+        onHome={onHome}
+        onOpenIntervento={iv => { setTab('interventi'); setView({ name: 'edit', i: iv }); }}
+        onOpenManutenzione={m => { setTab('scadenze'); setView({ name: 'edit', m }); }}
+      />
     );
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
