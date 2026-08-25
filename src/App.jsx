@@ -4575,7 +4575,6 @@ const STR_STATO_PAGAMENTO_STYLE = {
 const STR_STATI_PAGAMENTO = Object.keys(STR_STATO_PAGAMENTO_STYLE);
 
 const STR_NAV_ITEMS = [
-  ['agenda', CalendarClock, 'Agenda'],
   ['camere', BedDouble, 'Camere'],
   ['interventi', ClipboardList, 'Interventi'],
   ['scadenze', CalendarClock, 'Scadenze'],
@@ -4587,7 +4586,6 @@ const STRUTTURA_MODULO_PERMESSO = 'struttura.visualizza';
 // Permesso granulare per ogni scheda. Chiavi allineate esattamente a quelle
 // gia' presenti in "permessi" su Supabase (confermate manualmente).
 const STRUTTURA_TAB_PERMESSI = {
-  agenda: 'struttura.visualizza', // l'Agenda è visibile a chiunque abbia accesso al modulo
   camere: 'struttura.camere',
   interventi: 'struttura.interventi',
   scadenze: 'struttura.scadenze',
@@ -6016,13 +6014,10 @@ function StrutturaModule({ onHome, initialNotification }) {
   const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
   const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI, ['ultimaEsecuzione', 'prossimaScadenza']);
   const costiT = useSupaTable('costi', 'id', S_COSTI, ['data']);
-  // Manutenzioni ricorrenti: già presenti in ProcedureModule ma servono anche qui per l'Agenda.
-  // useSupaTable condivide la connessione realtime per la stessa tabella senza duplicare dati.
-  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
-  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready && ricT.ready;
-  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error || ricT.error;
+  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
+  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
   const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
   const tabConsentito = (key) => hasPermission(STRUTTURA_TAB_PERMESSI[key]);
   const navItemsConsentiti = STR_NAV_ITEMS.filter(([key]) => tabConsentito(key));
@@ -6257,17 +6252,6 @@ function StrutturaModule({ onHome, initialNotification }) {
         <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
-    );
-  } else if (tab === 'agenda') {
-    content = (
-      <AgendaStrScreen
-        interventi={interventi.filter(i => i.tipologia !== 'carrozzina')}
-        manutenzioni={manutenzioni}
-        ricorrenti={ricT.rows}
-        onHome={onHome}
-        onOpenIntervento={iv => { setTab('interventi'); setView({ name: 'edit', i: iv }); }}
-        onOpenManutenzione={m => { setTab('scadenze'); setView({ name: 'edit', m }); }}
-      />
     );
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
@@ -7702,6 +7686,127 @@ function ProcedureModule({ onHome, initialNotification }) {
   );
 }
 
+/* =========================================================================
+   MODULO AGENDA — cruscotto operativo trasversale
+   L'Agenda è un modulo principale dell'Hub e aggrega le attività provenienti
+   da Struttura, Mezzi, Carrozzine/Ausili e Procedure/Ricorrenti.
+   Non crea un archivio parallelo: legge i record delle tabelle esistenti.
+   ========================================================================= */
+const AGENDA_MODULO_PERMESSO = 'agenda.visualizza';
+
+function AgendaModule({ onHome, onOpenModule }) {
+  const { hasPermission, isAdmin } = usePermessi();
+  const moduloConsentito = isAdmin || hasPermission(AGENDA_MODULO_PERMESSO) || hasPermission('struttura.visualizza');
+
+  const interventiT = useSupaTable('interventi', 'id', [], ['dataSegnalazione', 'dataChiusura']);
+  const manutenzioniT = useSupaTable('manutenzioni', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  const ricorrentiT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  const maintsT = useSupaTable('maints', 'id', [], ['data']);
+
+  const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
+  const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
+
+  const tutteAttivita = useMemo(() => {
+    const interventi = (interventiT.rows || [])
+      .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
+      .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
+
+    const ausili = (interventiT.rows || [])
+      .filter(i => i.tipologia === 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
+      .map(i => ({ ...i, _source: 'carrozzine', _date: i.dataSegnalazione, _kind: 'intervento' }));
+
+    const manutenzioni = (manutenzioniT.rows || [])
+      .filter(m => m.prossimaScadenza)
+      .map(m => ({ ...m, _source: 'struttura', _date: m.prossimaScadenza, _kind: 'manutenzione' }));
+
+    const ricorrenti = (ricorrentiT.rows || [])
+      .filter(r => r.prossimaScadenza)
+      .map(r => ({ ...r, _source: 'struttura', _date: r.prossimaScadenza, _kind: 'ricorrente' }));
+
+    const mezzi = (maintsT.rows || [])
+      .filter(m => m.stato !== 'Completato' && m.stato !== 'Chiuso' && m.data)
+      .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
+
+    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi];
+  }, [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows]);
+
+  const sette = useMemo(calcolaSettimanaAgenda, []);
+  const oggiISO = sette[0].iso;
+  const [selectedISO, setSelectedISO] = useState(oggiISO);
+  const sel = sette.find(d => d.iso === selectedISO) || sette[0];
+
+  const attivitaGiorno = useMemo(() => {
+    const oggi = selectedISO === oggiISO;
+    return tutteAttivita.filter(a => {
+      if (a._date === selectedISO) return true;
+      // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
+      return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
+    });
+  }, [tutteAttivita, selectedISO, oggiISO]);
+
+  const urgenti = attivitaGiorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente');
+  const altre = attivitaGiorno.filter(a => !urgenti.includes(a));
+
+  const sourceLabel = { struttura: 'Struttura', mezzi: 'Mezzi', carrozzine: 'Carrozzine' };
+  const sourceIcon = { struttura: '🏢', mezzi: '🚗', carrozzine: '🦽' };
+
+  const apriAttivita = (a) => {
+    if (!onOpenModule) return;
+    if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
+    else if (a._source === 'carrozzine') onOpenModule('carrozzine', { tipo: 'segnalazione_carrozzine', link_id: a.id });
+    else if (a._source === 'mezzi') onOpenModule('mezzi', { tipo: 'anomalia_mezzi', link_id: a.id });
+  };
+
+  function DayButton({ giorno, large }) {
+    const selected = giorno.iso === selectedISO;
+    const sun = giorno.dow === 0;
+    return <button onClick={() => setSelectedISO(giorno.iso)} style={{
+      width:'100%', padding:large?'14px 4px':'10px 4px', borderRadius:12, border:'none',
+      background:selected?STR_COLORS.primary:STR_COLORS.surface, color:selected?'#fff':(sun?STR_COLORS.danger:STR_COLORS.ink),
+      cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2,
+      boxShadow:selected?'0 2px 8px rgba(0,0,0,0.15)':'none'
+    }}>
+      <span style={{fontSize:large?11:10,fontWeight:700,letterSpacing:'0.05em',color:selected?'rgba(255,255,255,.8)':(sun?STR_COLORS.danger:STR_COLORS.muted)}}>{AGENDA_GIORNO_ABBR[giorno.dow]}</span>
+      <span style={{fontSize:large?18:15,fontWeight:800,lineHeight:1}}>{giorno.giorno}</span>
+      {giorno.iso===oggiISO && <span style={{fontSize:9,fontWeight:700,letterSpacing:'.08em',opacity:selected?.75:1,color:selected?'#fff':STR_COLORS.primary}}>OGGI</span>}
+    </button>;
+  }
+
+  function ActivityCard({ a }) {
+    const title = a.descrizione || a.titolo || a.tipoManutenzione || a.tipo || 'Attività';
+    const dateText = a._kind === 'ricorrente' ? 'Ricorrente' : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
+    return <button onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{fontWeight:700,fontSize:13.5,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</div>
+          <div style={{fontSize:11.5,color:STR_COLORS.muted}}>{sourceIcon[a._source] || '•'} {sourceLabel[a._source] || a._source} · {dateText}</div>
+          {(a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile) && <div style={{fontSize:11.5,color:STR_COLORS.muted,marginTop:2}}>{a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile}</div>}
+        </div>
+        {a.priorita && <span style={{fontSize:10,fontWeight:700,background:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).bg,color:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).fg,padding:'2px 7px',borderRadius:999,flexShrink:0}}>{a.priorita}</span>}
+      </div>
+    </button>;
+  }
+
+  if (!moduloConsentito) return <div style={{minHeight:'100vh',background:STR_COLORS.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:24,textAlign:'center'}}><div><div style={{fontWeight:700,color:STR_COLORS.ink,marginBottom:12}}>Non hai i permessi per accedere all'Agenda.</div><button onClick={onHome} style={{padding:'10px 18px',border:0,borderRadius:10,background:STR_COLORS.primary,color:'#fff',fontWeight:700}}>Torna alla Home</button></div></div>;
+  if (!ready) return <div style={{minHeight:'100vh',background:STR_COLORS.bg,display:'flex',alignItems:'center',justifyContent:'center',color:STR_COLORS.muted}}>Caricamento Agenda…</div>;
+
+  return <div style={{minHeight:'100vh',background:STR_COLORS.bg,fontFamily:'Inter, sans-serif',color:STR_COLORS.ink,maxWidth:480,margin:'0 auto',position:'relative'}}>
+    <style>{GLOBAL_FONTS}</style>
+    <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${attivitaGiorno.length} attività`} onBack={onHome} backIcon={Home} />
+    {dataError && <div style={{margin:'10px 14px 0',padding:'9px 11px',borderRadius:10,background:'#F7DCD9',color:'#A3352A',fontSize:12}}>Alcuni dati non sono disponibili: {dataError}</div>}
+    <div style={{padding:'14px 14px 0',display:'flex',flexDirection:'column',gap:8}}>
+      <DayButton giorno={sette[0]} large />
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>{sette.slice(1,4).map(d=><DayButton key={d.iso} giorno={d} />)}</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>{sette.slice(4,7).map(d=><DayButton key={d.iso} giorno={d} />)}</div>
+    </div>
+    <div style={{padding:'16px 14px 90px'}}>
+      {attivitaGiorno.length===0 && <Empty theme={STR_COLORS} icon={CalendarClock} text="Nessuna attività programmata per questo giorno." />}
+      {urgenti.length>0 && <div style={{marginBottom:18}}><div style={{fontFamily:"'Archivo', sans-serif",fontWeight:800,fontSize:11.5,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>🔴 Urgenti ({urgenti.length})</div>{urgenti.map(a=><ActivityCard key={`${a._source}-${a._kind}-${a.id}`} a={a}/>)}</div>}
+      {altre.length>0 && <div><div style={{fontFamily:"'Archivo', sans-serif",fontWeight:800,fontSize:11.5,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>📋 Attività ({altre.length})</div>{altre.map(a=><ActivityCard key={`${a._source}-${a._kind}-${a.id}`} a={a}/>)}</div>}
+    </div>
+  </div>;
+}
+
 const HUB_COLORS = {
   bg: '#EFEDE6',
   surface: '#FFFFFF',
@@ -7711,6 +7816,15 @@ const HUB_COLORS = {
 };
 
 const MODULES = [
+  {
+    key: 'agenda',
+    name: 'Agenda',
+    desc: 'Cruscotto operativo di tutte le attività',
+    icon: CalendarClock,
+    color: '#25454F',
+    colorSoft: '#DCE7E9',
+    stat: () => 'Attività operative',
+  },
   {
     key: 'mezzi',
     name: 'Mezzi',
@@ -8096,6 +8210,7 @@ setAlertCounts({
   return (
     <NotificheContext.Provider value={notificheCtx}>
     <RoleContext.Provider value={{ role, email: session.user.email, nome, cognome, userId: session.user.id, permessi, gruppoIds }}>
+      {screen === 'agenda' && <AgendaModule onHome={goHome} onOpenModule={(modulo, target) => { setNotificationTarget(target || null); setScreen(modulo); }} />}
       {screen === 'mezzi' && <MezziModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} />}
