@@ -7819,11 +7819,15 @@ const MODULES = [
   {
     key: 'agenda',
     name: 'Agenda',
-    desc: 'Cruscotto operativo di tutte le attività',
+    desc: '',
     icon: CalendarClock,
-    color: '#25454F',
-    colorSoft: '#DCE7E9',
-    stat: () => 'Attività operative',
+    color: '#B71C1C',
+    colorSoft: '#FDECEA',
+    stat: (d, ac) => {
+      const tot = (ac?.mezzi || 0) + (ac?.struttura || 0) + (ac?.carrozzine || 0);
+      return tot > 0 ? `${tot} attività pendenti` : 'Tutto in ordine';
+    },
+    isMain: true,
   },
   {
     key: 'mezzi',
@@ -7960,17 +7964,22 @@ return (
             <div
               key={m.key}
               onClick={() => onOpen(m.key)}
-              style={{ background: HUB_COLORS.surface, border: `1px solid ${HUB_COLORS.line}`, borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
+              style={{
+                background: m.isMain ? m.colorSoft : HUB_COLORS.surface,
+                border: m.isMain ? `2px solid ${m.color}30` : `1px solid ${HUB_COLORS.line}`,
+                borderRadius: 16, padding: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
+                boxShadow: m.isMain ? '0 2px 10px rgba(183,28,28,0.10)' : 'none',
+              }}
             >
-              <div style={{ width: 50, height: 50, borderRadius: 13, background: m.colorSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={24} color={m.color} />
+              <div style={{ width: 50, height: 50, borderRadius: 13, background: m.isMain ? `${m.color}18` : m.colorSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={m.isMain ? 27 : 24} color={m.color} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 16.5, marginBottom: 2 }}>{m.name}</div>
-                <div style={{ fontSize: 12.5, color: HUB_COLORS.muted, marginBottom: 6 }}>{m.desc}</div>
+                <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: m.isMain ? 20 : 16.5, marginBottom: m.isMain ? 4 : 2, color: m.isMain ? m.color : HUB_COLORS.ink }}>{m.name}</div>
+                {m.desc && <div style={{ fontSize: 12.5, color: HUB_COLORS.muted, marginBottom: 6 }}>{m.desc}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-  <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.colorSoft, padding: '2.5px 8px', borderRadius: 999 }}>
-    {m.stat(counts)}
+  <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.isMain ? `${m.color}18` : m.colorSoft, padding: '2.5px 8px', borderRadius: 999 }}>
+    {m.stat(counts, alertCounts)}
   </span>
 
   {alertCounts?.[m.key] > 0 && (
