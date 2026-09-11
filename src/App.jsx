@@ -6014,10 +6014,11 @@ function StrutturaModule({ onHome, initialNotification }) {
   const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
   const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI, ['ultimaEsecuzione', 'prossimaScadenza']);
   const costiT = useSupaTable('costi', 'id', S_COSTI, ['data']);
+  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
-  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
-  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
+  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready && ricT.ready;
+  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error || ricT.error;
   const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
   const tabConsentito = (key) => hasPermission(STRUTTURA_TAB_PERMESSI[key]);
   const navItemsConsentiti = STR_NAV_ITEMS.filter(([key]) => tabConsentito(key));
@@ -6035,7 +6036,20 @@ function StrutturaModule({ onHome, initialNotification }) {
   useBackable(subScreen, setSubScreen);
   useBackable(view, setView);
 
-  useEffect(() => { setView(LIST_VIEW); setFiltroRiepilogo(null); }, [tab, subScreen]);
+  // Ref che permette di navigare da Agenda a un record specifico senza che il cambio
+  // di tab sovrascriva il view appena impostato.
+  const skipViewResetRef = useRef(false);
+  useEffect(() => {
+    if (skipViewResetRef.current) { skipViewResetRef.current = false; return; }
+    setView(LIST_VIEW); setFiltroRiepilogo(null);
+  }, [tab, subScreen]);
+
+  // Navigazione da Agenda: imposta il ref PRIMA di cambiare il tab.
+  const navigaDaAgenda = (nuovoTab, nuovoView) => {
+    skipViewResetRef.current = true;
+    setTab(nuovoTab);
+    setView(nuovoView);
+  };
 
   // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
   // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
@@ -6252,6 +6266,17 @@ function StrutturaModule({ onHome, initialNotification }) {
         <span style={{ color: STR_COLORS.ink, fontWeight: 700 }}>Non hai i permessi per vedere questa sezione.</span>
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
+    );
+  } else if (tab === 'agenda') {
+    content = (
+      <AgendaStrScreen
+        interventi={interventi.filter(i => i.tipologia !== 'carrozzina')}
+        manutenzioni={manutenzioni}
+        ricorrenti={ricT.rows}
+        onHome={onHome}
+        onOpenIntervento={iv => navigaDaAgenda('interventi', { name: 'edit', i: iv })}
+        onOpenManutenzione={m => navigaDaAgenda('scadenze', { name: 'edit', m })}
+      />
     );
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
@@ -7823,9 +7848,11 @@ const MODULES = [
     icon: CalendarClock,
     color: '#B71C1C',
     colorSoft: '#FDECEA',
-    stat: (d, ac) => {
-      const tot = (ac?.mezzi || 0) + (ac?.struttura || 0) + (ac?.carrozzine || 0);
-      return tot > 0 ? `${tot} attività pendenti` : 'Tutto in ordine';
+    stat: (d, ac, ag) => {
+      const tot = ag?.totale ?? 0;
+      const alta = ag?.alta ?? 0;
+      if (tot === 0) return 'Nessuna attività oggi';
+      return alta > 0 ? `${tot} attività · 🔴 ${alta} urgenti` : `${tot} attività oggi`;
     },
     isMain: true,
   },
@@ -7875,7 +7902,7 @@ const MODULES = [
     stat: (d) => `${(d.armadi || []).length} armadi`,
   },
 ];
-function HubScreen({ onOpen, counts, alertCounts, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
+function HubScreen({ onOpen, counts, alertCounts, agendaStats, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
@@ -7979,7 +8006,7 @@ return (
                 {m.desc && <div style={{ fontSize: 12.5, color: HUB_COLORS.muted, marginBottom: 6 }}>{m.desc}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
   <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.isMain ? `${m.color}18` : m.colorSoft, padding: '2.5px 8px', borderRadius: 999 }}>
-    {m.stat(counts, alertCounts)}
+    {m.stat(counts, alertCounts, agendaStats)}
   </span>
 
   {alertCounts?.[m.key] > 0 && (
@@ -8119,6 +8146,7 @@ export default function ManutenzioneApp() {
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
+  const [agendaStats, setAgendaStats] = useState({ totale: 0, alta: 0 });
   const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
@@ -8153,7 +8181,11 @@ const [
   armRes,
   vAlertRes,
   cAlertRes,
-  caAlertRes
+  caAlertRes,
+  agInterRes,
+  agAltaRes,
+  agManRes,
+  agRicRes,
 ] = await Promise.all([
   supabase.from('vehicles').select('*', { count: 'exact', head: true }),
   supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
@@ -8180,6 +8212,27 @@ const [
     .select('*', { count: 'exact', head: true })
     .neq('stato', 'Chiuso')
     .or('tipologia.is.null,tipologia.neq.carrozzina'),
+
+  // Agenda: tutti gli interventi struttura aperti/in-corso (visibili OGGI)
+  supabase
+    .from('interventi')
+    .select('*', { count: 'exact', head: true })
+    .neq('tipologia', 'carrozzina')
+    .not('stato', 'in', '("Chiuso","Annullato")'),
+
+  // Agenda: interventi ad alta priorità
+  supabase
+    .from('interventi')
+    .select('*', { count: 'exact', head: true })
+    .neq('tipologia', 'carrozzina')
+    .not('stato', 'in', '("Chiuso","Annullato")')
+    .in('priorita', ['Alta', 'Urgente']),
+
+  // Agenda: manutenzioni con scadenza oggi (data locale)
+  (() => { const d = new Date(); const t = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return supabase.from('manutenzioni').select('*', { count: 'exact', head: true }).eq('prossimaScadenza', t); })(),
+
+  // Agenda: ricorrenti con scadenza oggi
+  (() => { const d = new Date(); const t = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return supabase.from('manutenzioni_ricorrenti').select('*', { count: 'exact', head: true }).eq('prossimaScadenza', t); })(),
 ]);
       if (!mounted) return;
       const vc = vRes.count ?? 0;
@@ -8197,6 +8250,10 @@ setAlertCounts({
   mezzi: vAlertRes.count ?? 0,
   carrozzine: cAlertRes.count ?? 0,
   struttura: caAlertRes.count ?? 0,
+});
+setAgendaStats({
+  totale: (agInterRes.count ?? 0) + (agManRes.count ?? 0) + (agRicRes.count ?? 0),
+  alta: agAltaRes.count ?? 0,
 });
     })();
     return () => { mounted = false; };
@@ -8236,6 +8293,7 @@ setAlertCounts({
           onOpen={setScreen}
           counts={counts}
           alertCounts={alertCounts}
+          agendaStats={agendaStats}
           nomeVisualizzato={nomeVisualizzato({ nome, cognome, email: session.user.email })}
           role={role}
           permessiUtente={permessi}
