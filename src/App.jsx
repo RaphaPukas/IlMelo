@@ -6588,11 +6588,25 @@ async function urlFirmateFileProc(files) {
   const { data } = await supabase.storage.from(PROC_BUCKET).createSignedUrls(files.map(f => f.path), 3600);
   const map = {}; (data || []).forEach(d => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; }); return map;
 }
+// Calcola la prossima scadenza usando vera aritmetica di calendario.
+// Evita il bug dei giorni fissi (es. "mensile = 30gg" fa slittare le date nel tempo).
+// Usa data locale (T00:00:00) per evitare shift UTC.
 function calcProssima(ultima, frequenza) {
   if (!ultima) return '';
   const d = new Date(ultima + 'T00:00:00');
-  d.setDate(d.getDate() + (FREQ_GIORNI[frequenza] || 30));
-  return d.toISOString().slice(0, 10);
+  switch (frequenza) {
+    case 'Giornaliera':      d.setDate(d.getDate() + 1);       break;
+    case 'Settimanale':      d.setDate(d.getDate() + 7);       break;
+    case 'Ogni 2 settimane': d.setDate(d.getDate() + 14);      break;
+    case 'Ogni 3 settimane': d.setDate(d.getDate() + 21);      break;
+    case 'Mensile':          d.setMonth(d.getMonth() + 1);     break;
+    case 'Bimestrale':       d.setMonth(d.getMonth() + 2);     break;
+    case 'Trimestrale':      d.setMonth(d.getMonth() + 3);     break;
+    case 'Semestrale':       d.setMonth(d.getMonth() + 6);     break;
+    case 'Annuale':          d.setFullYear(d.getFullYear() + 1); break;
+    default:                 d.setDate(d.getDate() + 7);       break;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 /* ---- Procedure ---- */
