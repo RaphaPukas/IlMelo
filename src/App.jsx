@@ -5851,8 +5851,17 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
     // Manutenzioni con prossimaScadenza === giorno selezionato
     const manGiorno = manutenzioni.filter(m => m.prossimaScadenza === selectedISO);
 
-    // Ricorrenti con prossimaScadenza === giorno selezionato
-    const ricGiorno = ricorrenti.filter(r => r.prossimaScadenza === selectedISO);
+    // Ricorrenti con prossimaScadenza === giorno selezionato,
+    // OPPURE giornaliere/settimanali con giorni configurati che includono il giorno della settimana selezionato.
+    const selDow = new Date(selectedISO + 'T00:00:00').getDay(); // 0=Dom … 6=Sab
+    const ricGiorno = ricorrenti.filter(r => {
+      if (r.prossimaScadenza === selectedISO) return true;
+      // Ricorrente giornaliera con giorni configurati: appare su tutti i giorni selezionati
+      if (r.frequenza === 'Giornaliera' && r.giorni?.length > 0) {
+        return r.giorni.includes(selDow);
+      }
+      return false;
+    });
 
     const urgentiList = ivGiorno.filter(iv => iv.priorita === 'Alta' || iv.priorita === 'Urgente');
     const inCorsoList = ivGiorno.filter(iv => iv.priorita !== 'Alta' && iv.priorita !== 'Urgente');
@@ -6349,7 +6358,7 @@ const PROC_COLORS = {
 // (stesso pattern gia' usato da STR_CATEGORIE_REPARTO / RepartoForm: nessuna
 // tabella nuova, la tipologia resta una semplice stringa su procedure_manuali).
 const PROC_TIPOLOGIE = ['Idraulico','Elettrico','Muratura/Edile','Climatizzazione','Antincendio','Informatica','Sicurezza','Generale'];
-const PROC_FREQUENZE = ['Giornaliera','Settimanale','Mensile','Trimestrale','Semestrale','Annuale'];
+const PROC_FREQUENZE = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane','Mensile','Bimestrale','Trimestrale','Semestrale','Annuale'];
 const PROC_UNITA = ['pz','kg','lt','m','conf','scatola','rotolo','pacco'];
 const FREQ_GIORNI = { Giornaliera:1, Settimanale:7, Mensile:30, Trimestrale:90, Semestrale:180, Annuale:365 };
 
@@ -6589,22 +6598,33 @@ async function urlFirmateFileProc(files) {
   const map = {}; (data || []).forEach(d => { if (d.signedUrl && d.path) map[d.path] = d.signedUrl; }); return map;
 }
 // Calcola la prossima scadenza usando vera aritmetica di calendario.
-// Evita il bug dei giorni fissi (es. "mensile = 30gg" fa slittare le date nel tempo).
-// Usa data locale (T00:00:00) per evitare shift UTC.
-function calcProssima(ultima, frequenza) {
+// Per frequenza Giornaliera con giorni selezionati: avanza di 1 giorno alla volta
+// finché non trova un giorno della settimana incluso in `giorni`.
+function calcProssima(ultima, frequenza, giorni) {
   if (!ultima) return '';
   const d = new Date(ultima + 'T00:00:00');
+  const giorniSet = giorni instanceof Set ? giorni : new Set(giorni || []);
   switch (frequenza) {
-    case 'Giornaliera':      d.setDate(d.getDate() + 1);       break;
-    case 'Settimanale':      d.setDate(d.getDate() + 7);       break;
-    case 'Ogni 2 settimane': d.setDate(d.getDate() + 14);      break;
-    case 'Ogni 3 settimane': d.setDate(d.getDate() + 21);      break;
-    case 'Mensile':          d.setMonth(d.getMonth() + 1);     break;
-    case 'Bimestrale':       d.setMonth(d.getMonth() + 2);     break;
-    case 'Trimestrale':      d.setMonth(d.getMonth() + 3);     break;
-    case 'Semestrale':       d.setMonth(d.getMonth() + 6);     break;
+    case 'Giornaliera': {
+      d.setDate(d.getDate() + 1);
+      if (giorniSet.size > 0) {
+        // Avanza finché non si trova un giorno valido (max 7 iterazioni)
+        for (let i = 0; i < 7; i++) {
+          if (giorniSet.has(d.getDay())) break;
+          d.setDate(d.getDate() + 1);
+        }
+      }
+      break;
+    }
+    case 'Settimanale':      d.setDate(d.getDate() + 7);        break;
+    case 'Ogni 2 settimane': d.setDate(d.getDate() + 14);       break;
+    case 'Ogni 3 settimane': d.setDate(d.getDate() + 21);       break;
+    case 'Mensile':          d.setMonth(d.getMonth() + 1);      break;
+    case 'Bimestrale':       d.setMonth(d.getMonth() + 2);      break;
+    case 'Trimestrale':      d.setMonth(d.getMonth() + 3);      break;
+    case 'Semestrale':       d.setMonth(d.getMonth() + 6);      break;
     case 'Annuale':          d.setFullYear(d.getFullYear() + 1); break;
-    default:                 d.setDate(d.getDate() + 7);       break;
+    default:                 d.setDate(d.getDate() + 7);        break;
   }
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
@@ -7083,20 +7103,41 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
-  const [f, setF] = useState(() => { if (initial) { const { days, ...clean } = initial; return clean; } return { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' }; });
+  const [f, setF] = useState(() => initial || { id:uid(), titolo:'', categoria:'', frequenza:'Mensile', descrizione:'', ultimaEsecuzione:'', prossimaScadenza:'', responsabile:'', note:'' });
+  // Giorni della settimana selezionati (0=Dom, 1=Lun … 6=Sab).
+  // Visibili solo per frequenze giornaliere o settimanali.
+  const [giorni, setGiorni] = useState(() => new Set(initial?.giorni || []));
+
+  const mostraGiorni = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane'].includes(f.frequenza);
+  const GIORNI_LABEL = ['D','L','M','M','G','V','S'];
+  const GIORNI_NOME  = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
+
+  const toggleGiorno = (i) => setGiorni(prev => {
+    const n = new Set(prev);
+    if (n.has(i)) n.delete(i); else n.add(i);
+    return n;
+  });
+
   const set = (k) => (e) => {
     const v = e.target.value;
     setF(prev => {
       const n = { ...prev, [k]: v };
-      if (k === 'ultimaEsecuzione' && v) n.prossimaScadenza = calcProssima(v, n.frequenza);
-      if (k === 'frequenza' && prev.ultimaEsecuzione) n.prossimaScadenza = calcProssima(prev.ultimaEsecuzione, v);
+      if (k === 'ultimaEsecuzione' && v) n.prossimaScadenza = calcProssima(v, n.frequenza, giorni);
+      if (k === 'frequenza' && prev.ultimaEsecuzione) n.prossimaScadenza = calcProssima(prev.ultimaEsecuzione, v, giorni);
       return n;
     });
   };
+
   function segnaOggi() {
     const oggi = todayISO();
-    setF(prev => ({ ...prev, ultimaEsecuzione:oggi, prossimaScadenza:calcProssima(oggi, prev.frequenza) }));
+    setF(prev => ({ ...prev, ultimaEsecuzione:oggi, prossimaScadenza:calcProssima(oggi, prev.frequenza, giorni) }));
   }
+
+  function handleSave() {
+    const record = { ...f, giorni: [...giorni] };
+    onSave(record);
+  }
+
   return (
     <>
       <TopBar theme={PROC_COLORS} title={initial ? 'Modifica ricorrente' : 'Nuova ricorrente'} onBack={onCancel} />
@@ -7104,6 +7145,32 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
         <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
         <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{PROC_FREQUENZE.map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+
+        {mostraGiorni && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:PROC_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:8 }}>
+              Giorni della settimana
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              {GIORNI_LABEL.map((lbl, i) => (
+                <button key={i} type="button" onClick={() => toggleGiorno(i)}
+                  title={GIORNI_NOME[i]}
+                  style={{
+                    width:38, height:38, borderRadius:999, border:'none', fontWeight:700, fontSize:13,
+                    background: giorni.has(i) ? PROC_COLORS.primary : PROC_COLORS.bg,
+                    color: giorni.has(i) ? '#fff' : PROC_COLORS.muted,
+                    cursor:'pointer',
+                    // Domenica in rosso se non selezionata
+                    outline: i === 0 ? `2px solid ${PROC_COLORS.danger}22` : 'none',
+                  }}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            {giorni.size === 0 && <div style={{ fontSize:11.5, color:PROC_COLORS.muted, marginTop:6 }}>Nessun giorno selezionato: l'attività apparirà ogni giorno.</div>}
+          </div>
+        )}
+
         <PROC_Field label="Descrizione"><textarea style={{ ...procInputStyle, minHeight:70, resize:'vertical' }} value={f.descrizione||''} onChange={set('descrizione')} /></PROC_Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <PROC_Field label="Ultima esecuzione"><input type="date" style={procInputStyle} value={f.ultimaEsecuzione||''} onChange={set('ultimaEsecuzione')} /></PROC_Field>
@@ -7117,7 +7184,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
       </div>
       {puoScrivere && (
         <div style={{ padding:'0 16px' }}>
-          <button onClick={() => onSave(f)} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8 }}>Salva</button>
+          <button onClick={handleSave} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'14px', fontWeight:700, fontSize:15, marginBottom:8 }}>Salva</button>
           {initial && puoEliminare && <button onClick={() => setConfermaElimina(true)} style={{ width:'100%', background:'none', border:'none', color:PROC_COLORS.danger, fontWeight:600, fontSize:13.5, padding:'8px 0 16px' }}>Elimina</button>}
         </div>
       )}
