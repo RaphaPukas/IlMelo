@@ -5836,16 +5836,13 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
 
   // ---- Aggregazione attività per il giorno selezionato ----
   const { urgenti, inCorso, programmate } = useMemo(() => {
-    const isOggi = selectedISO === oggiISO;
-
-    // Interventi aperti/in corso (escludi carrozzine e chiusi/annullati).
-    // Su OGGI: tutti gli aperto/in-corso (potrebbero richiedere attenzione immediata).
-    // Su altri giorni: solo quelli creati in quel giorno specifico che non siano ancora chiusi.
+    // Interventi: tutti gli aperti/in corso compaiono su ogni giorno dell'agenda,
+    // indipendentemente dalla data di segnalazione. Rappresentano lavoro ancora
+    // pendente: non ha senso farli sparire navigando verso un giorno futuro.
     const ivGiorno = interventi.filter(iv => {
       if (iv.tipologia === 'carrozzina') return false;
       if (iv.stato === 'Chiuso' || iv.stato === 'Annullato') return false;
-      if (isOggi) return true;
-      return iv.dataSegnalazione === selectedISO;
+      return true;
     });
 
     // Manutenzioni con prossimaScadenza === giorno selezionato
