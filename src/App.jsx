@@ -7131,12 +7131,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   }
 
   function handleSave() {
-    // NOTA: giorni richiede la colonna jsonb nel DB:
-    //   ALTER TABLE manutenzioni_ricorrenti ADD COLUMN IF NOT EXISTS giorni jsonb DEFAULT '[]';
-    // Finché la migrazione non è applicata, escludi giorni per evitare errori Supabase.
-    // Dopo la migrazione: ripristina con `const record = { ...f, giorni: [...giorni] };`
-    const { giorni: _skip, ...fSafe } = f; // eslint-disable-line no-unused-vars
-    const record = { ...fSafe };
+    const record = { ...f, giorni: [...giorni] };
     onSave(record);
   }
 
