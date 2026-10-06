@@ -3972,17 +3972,48 @@ const SEED = [
 function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
   const { nomeVisualizzato } = usePermessi();
   const [f, setF] = useState({ carrozzinaId: items[0]?.id || '', descrizione: '', priorita: 'Media' });
+  const [q, setQ] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const filtrate = useMemo(() => {
+    if (!q.trim()) return items;
+    const qLow = q.trim().toLowerCase();
+    return items.filter(w => {
+      const cerca = [
+        w.marca, w.modello,
+        fmtCarrozzinaId(w.id),
+        w.ospite,
+        w.nucleo,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return cerca.includes(qLow);
+    });
+  }, [items, q]);
+
+  // Se la carrozzina selezionata esce dai risultati filtrati, seleziona la prima disponibile
+  const idEffettivo = filtrate.find(w => w.id === f.carrozzinaId) ? f.carrozzinaId : (filtrate[0]?.id || '');
 
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title="Segnala problema" onBack={onCancel} backIcon={Home} />
       <div style={{ padding: 14 }}>
+        <Field label="Cerca carrozzina">
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Cerca per modello, numero, ospite…"
+            style={{ ...inputStyle, marginBottom: 8 }}
+          />
+        </Field>
         <Field label="Carrozzina">
-          <select value={f.carrozzinaId} onChange={set('carrozzinaId')} style={{ ...inputStyle, background: '#FCFBF7' }}>
-            {items.map(w => (
-              <option key={w.id} value={w.id}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</option>
-            ))}
+          <select value={idEffettivo} onChange={e => setF({ ...f, carrozzinaId: e.target.value })} style={{ ...inputStyle, background: '#FCFBF7' }}>
+            {filtrate.length === 0
+              ? <option value="">— nessun risultato —</option>
+              : filtrate.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {fmtCarrozzinaId(w.id)} — {labelOf(w)}{w.ospite ? ` · ${w.ospite}` : ''}
+                  </option>
+                ))
+            }
           </select>
         </Field>
         <Field label="Descrizione problema">
@@ -5848,14 +5879,19 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
     // Manutenzioni con prossimaScadenza === giorno selezionato
     const manGiorno = manutenzioni.filter(m => m.prossimaScadenza === selectedISO);
 
-    // Ricorrenti con prossimaScadenza === giorno selezionato,
-    // OPPURE giornaliere/settimanali con giorni configurati che includono il giorno della settimana selezionato.
     const selDow = new Date(selectedISO + 'T00:00:00').getDay(); // 0=Dom … 6=Sab
+    const FREQ_CON_GIORNI = ['Giornaliera', 'Settimanale', 'Ogni 2 settimane', 'Ogni 3 settimane'];
     const ricGiorno = ricorrenti.filter(r => {
       if (r.prossimaScadenza === selectedISO) return true;
-      // Ricorrente giornaliera con giorni configurati: appare su tutti i giorni selezionati
-      if (r.frequenza === 'Giornaliera' && r.giorni?.length > 0) {
-        return r.giorni.includes(selDow);
+      if (FREQ_CON_GIORNI.includes(r.frequenza)) {
+        if (r.giorni?.length > 0) {
+          // Con giorni configurati: appare solo nei giorni selezionati
+          return r.giorni.includes(selDow);
+        }
+        if (r.frequenza === 'Giornaliera') {
+          // Giornaliera senza giorni configurati → appare ogni giorno
+          return true;
+        }
       }
       return false;
     });
