@@ -5859,7 +5859,7 @@ function calcolaSettimanaAgenda() {
   });
 }
 
-function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenIntervento, onOpenManutenzione }) {
+function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenIntervento, onOpenManutenzione, onOpenRicorrente }) {
   const sette = useMemo(calcolaSettimanaAgenda, []); // ricalcolato solo al mount
   const oggiISO = sette[0].iso;
   const [selectedISO, setSelectedISO] = useState(oggiISO);
@@ -5971,7 +5971,7 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
   function CardProgrammata({ item }) {
     const isProg = item._tipo === 'manutenzione' || item._tipo === 'ricorrente';
     return (
-      <button onClick={() => onOpenManutenzione && onOpenManutenzione(item)}
+      <button onClick={() => item._tipo === 'ricorrente' ? (onOpenRicorrente && onOpenRicorrente(item)) : (onOpenManutenzione && onOpenManutenzione(item))}
         style={{ width:'100%', textAlign:'left', background: STR_COLORS.surface, border:`1px solid ${STR_COLORS.line}`, borderRadius:12, padding:'12px 14px', marginBottom:8, cursor:'pointer' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
           <div style={{ minWidth:0, flex:1 }}>
@@ -6057,7 +6057,7 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
   );
 }
 
-function StrutturaModule({ onHome, initialNotification }) {
+function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   const camereT = useSupaTable('camere', 'codice', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
   const tecniciT = useSupaTable('tecnici', 'id', S_TECNICI);
@@ -6326,6 +6326,7 @@ function StrutturaModule({ onHome, initialNotification }) {
         onHome={onHome}
         onOpenIntervento={iv => navigaDaAgenda('interventi', { name: 'edit', i: iv })}
         onOpenManutenzione={m => navigaDaAgenda('scadenze', { name: 'edit', m })}
+        onOpenRicorrente={r => onOpenModulo && onOpenModulo('procedure', { tipo: 'ricorrente', link_id: r.id })}
       />
     );
   } else if (tab === 'camere') {
@@ -7716,7 +7717,7 @@ function ProcedureModule({ onHome, initialNotification }) {
   const [procGruppi, setProcGruppi] = useState([]);
   const [procGruppiReady, setProcGruppiReady] = useState(false);
   const ready = procT.ready && ricT.ready && gruppiT.ready && procGruppiReady;
-  const [tab, setTab]   = useState('procedure');
+  const [tab, setTab]   = useState(() => initialNotification?.tipo === 'ricorrente' ? 'ricorrenti' : 'procedure');
   const [view, setView] = useState({ name:'list' });
   const [showExport, setShowExport] = useState(false);
   const [toast, setToast] = useState('');
@@ -7724,6 +7725,20 @@ function ProcedureModule({ onHome, initialNotification }) {
   useBackable(tab, setTab);
   useBackable(view, setView);
   useEffect(() => { setView({ name:'list' }); }, [tab]);
+
+  // Apertura diretta di una ricorrente arrivata dall'Agenda. Il tab e' gia' 'ricorrenti'
+  // dal montaggio, quindi nessun cambio di tab sovrascrive la vista impostata qui.
+  const ricorrenteHandledRef = useRef(null);
+  useEffect(() => {
+    if (!initialNotification || initialNotification.tipo !== 'ricorrente') return;
+    if (!ricT.ready) return;
+    const key = initialNotification.link_id;
+    if (ricorrenteHandledRef.current === key) return;
+    const r = ricT.rows.find(x => x.id === key);
+    if (!r) return;
+    ricorrenteHandledRef.current = key;
+    setView({ name:'edit', r });
+  }, [initialNotification, ricT.ready, ricT.rows]);
 
   // Collegamento procedure <-> gruppi (tabella ponte, riusa i "gruppi" gia' esistenti nell'app).
   useEffect(() => {
@@ -8401,7 +8416,7 @@ setAgendaStats({
       {screen === 'agenda' && <AgendaModule onHome={goHome} onOpenModule={(modulo, target) => { setNotificationTarget(target || null); setScreen(modulo); }} />}
       {screen === 'mezzi' && <MezziModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'carrozzine' && <CarrozzineModule onHome={goHome} initialNotification={notificationTarget} />}
-      {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} />}
+      {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} onOpenModulo={(modulo, target) => { setNotificationTarget(target); setScreen(modulo); }} />}
       {screen === 'procedure' && <ProcedureModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'magazzino' && <MagazzinoModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
