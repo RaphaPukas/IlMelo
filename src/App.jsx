@@ -7856,6 +7856,20 @@ function ProcedureModule({ onHome, initialNotification }) {
    ========================================================================= */
 const AGENDA_MODULO_PERMESSO = 'agenda.visualizza';
 
+// Una ricorrente compare in un giorno se: e' la sua prossimaScadenza, oppure
+// (Giornaliera/Settimanali) il giorno della settimana rientra nei giorni configurati.
+// Giornaliera senza giorni configurati = ogni giorno.
+function ricorrenteAppareIl(r, iso) {
+  if (r.prossimaScadenza === iso) return true;
+  const dow = new Date(iso + 'T00:00:00').getDay();
+  const giorniArr = Array.isArray(r.giorni) && r.giorni.length > 0 ? r.giorni : null;
+  if (r.frequenza === 'Giornaliera') return giorniArr ? giorniArr.some(g => Number(g) === dow) : true;
+  if (['Settimanale', 'Ogni 2 settimane', 'Ogni 3 settimane'].includes(r.frequenza) && giorniArr) {
+    return giorniArr.some(g => Number(g) === dow);
+  }
+  return false;
+}
+
 function AgendaModule({ onHome, onOpenModule }) {
   const { hasPermission, isAdmin } = usePermessi();
   const moduloConsentito = isAdmin || hasPermission(AGENDA_MODULO_PERMESSO) || hasPermission('struttura.visualizza');
@@ -7901,6 +7915,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     const oggi = selectedISO === oggiISO;
     return tutteAttivita.filter(a => {
       if (a._date === selectedISO) return true;
+      if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
       // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
       return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
     });
@@ -7914,7 +7929,10 @@ function AgendaModule({ onHome, onOpenModule }) {
 
   const apriAttivita = (a) => {
     if (!onOpenModule) return;
-    if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
+    // Le ricorrenti hanno _source 'struttura' ma vivono in Procedure → Ricorrenti:
+    // vanno gestite prima, altrimenti finiscono in Struttura.
+    if (a._kind === 'ricorrente') onOpenModule('procedure', { tipo: 'ricorrente', link_id: a.id });
+    else if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
     else if (a._source === 'carrozzine') onOpenModule('carrozzine', { tipo: 'segnalazione_carrozzine', link_id: a.id });
     else if (a._source === 'mezzi') onOpenModule('mezzi', { tipo: 'anomalia_mezzi', link_id: a.id });
   };
