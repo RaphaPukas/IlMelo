@@ -5880,19 +5880,27 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
     const manGiorno = manutenzioni.filter(m => m.prossimaScadenza === selectedISO);
 
     const selDow = new Date(selectedISO + 'T00:00:00').getDay(); // 0=Dom … 6=Sab
-    const FREQ_CON_GIORNI = ['Giornaliera', 'Settimanale', 'Ogni 2 settimane', 'Ogni 3 settimane'];
     const ricGiorno = ricorrenti.filter(r => {
+      // Caso 1: scadenza esatta → sempre visibile
       if (r.prossimaScadenza === selectedISO) return true;
-      if (FREQ_CON_GIORNI.includes(r.frequenza)) {
-        const giorniArr = Array.isArray(r.giorni) ? r.giorni : [];
-        if (giorniArr.length > 0) {
-          // Confronto type-safe: JSONB può restituire numeri o stringhe
-          return giorniArr.some(g => Number(g) === selDow);
-        }
-        // Nessun giorno configurato (o colonna mancante):
-        // Giornaliera → ogni giorno; Settimanale → solo su prossimaScadenza (già gestita sopra)
-        if (r.frequenza === 'Giornaliera') return true;
+
+      const giorniArr = Array.isArray(r.giorni) && r.giorni.length > 0 ? r.giorni : null;
+
+      // Caso 2: Giornaliera → appare ogni giorno dell'agenda
+      // Se giorni sono configurati, appare solo nei giorni selezionati
+      if (r.frequenza === 'Giornaliera') {
+        if (giorniArr) return giorniArr.some(g => Number(g) === selDow);
+        return true; // nessuna restrizione → ogni giorno
       }
+
+      // Caso 3: Settimanale/bi-tri-settimanale → appare nel giorno-settimana corretto
+      // Usa il giorno della settimana di prossimaScadenza come riferimento
+      if (['Settimanale', 'Ogni 2 settimane', 'Ogni 3 settimane'].includes(r.frequenza)) {
+        if (giorniArr) return giorniArr.some(g => Number(g) === selDow);
+        const ref = r.prossimaScadenza || r.ultimaEsecuzione;
+        if (ref) return new Date(ref + 'T00:00:00').getDay() === selDow;
+      }
+
       return false;
     });
 
