@@ -6950,6 +6950,7 @@ function ProceduraForm({ initial, tipologieDisponibili, gruppi, gruppiSelezionat
 
   const xBtn = (onClick) => (<button type="button" onClick={onClick} style={{ background:'none', border:'none', color:PROC_COLORS.danger, padding:4, display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={15} /></button>);
   const thumbStyle = { position:'relative', width:72, height:72, borderRadius:10, overflow:'hidden', background:PROC_COLORS.bg, border:`1px solid ${PROC_COLORS.line}`, flexShrink:0 };
+  const xOverlay = (onClick) => (<button type="button" onClick={onClick} style={{ position:'absolute', top:2, right:2, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:999, width:20, height:20, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}><XIcon size={12} /></button>);
 
 
   return (
@@ -8349,6 +8350,7 @@ export default function ManutenzioneApp() {
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
+  const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   // Dati dell'Agenda per il conteggio della card: stesse regole della schermata Agenda.
   const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [] });
   useEffect(() => {
@@ -8379,7 +8381,6 @@ export default function ManutenzioneApp() {
     const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints), oggi, oggi);
     return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length };
   }, [agendaRows]);
-  const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
   useEffect(() => {
