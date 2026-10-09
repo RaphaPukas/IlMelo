@@ -6101,6 +6101,19 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
     setView(nuovoView);
   };
 
+  // Apertura diretta di una manutenzione programmata arrivata dall'Agenda della Dashboard.
+  const manutenzioneHandledRef = useRef(null);
+  useEffect(() => {
+    if (!initialNotification || initialNotification.tipo !== 'manutenzione_struttura') return;
+    if (!manutenzioniT.ready) return;
+    const key = initialNotification.link_id;
+    if (manutenzioneHandledRef.current === key) return;
+    const m = manutenzioni.find(x => x.id === key);
+    if (!m) return;
+    manutenzioneHandledRef.current = key;
+    navigaDaAgenda('scadenze', { name: 'edit', m });
+  }, [initialNotification, manutenzioniT.ready, manutenzioni]);
+
   // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
   // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
   useEffect(() => {
@@ -7149,6 +7162,9 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   // Giorni della settimana selezionati (0=Dom, 1=Lun … 6=Sab).
   // Visibili solo per frequenze giornaliere o settimanali.
   const [giorni, setGiorni] = useState(() => new Set(initial?.giorni || []));
+  // Modulo di origine e ambito: per gli ausili l'ambito e' il nucleo (o "Tutti").
+  const [modulo, setModulo] = useState(initial?.modulo || 'Struttura');
+  const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
 
   const mostraGiorni = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane'].includes(f.frequenza);
   const GIORNI_LABEL = ['D','L','M','M','G','V','S'];
@@ -7176,7 +7192,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   }
 
   function handleSave() {
-    const record = { ...f, giorni: [...giorni] };
+    const record = { ...f, giorni: [...giorni], modulo, ambito: modulo === 'Ausili' ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7213,6 +7229,10 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
           </div>
         )}
 
+        <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
+        {modulo === 'Ausili' && (
+          <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
+        )}
         <PROC_Field label="Descrizione"><textarea style={{ ...procInputStyle, minHeight:70, resize:'vertical' }} value={f.descrizione||''} onChange={set('descrizione')} /></PROC_Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <PROC_Field label="Ultima esecuzione"><input type="date" style={procInputStyle} value={f.ultimaEsecuzione||''} onChange={set('ultimaEsecuzione')} /></PROC_Field>
@@ -7870,6 +7890,44 @@ function ricorrenteAppareIl(r, iso) {
   return false;
 }
 
+function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows) {
+    const interventi = (interventiRows || [])
+      .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
+      .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
+
+    const ausili = (interventiRows || [])
+      .filter(i => i.tipologia === 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
+      .map(i => ({ ...i, _source: 'carrozzine', _date: i.dataSegnalazione, _kind: 'intervento' }));
+
+    const manutenzioni = (manutenzioniRows || [])
+      .filter(m => m.prossimaScadenza)
+      .map(m => ({ ...m, _source: 'struttura', _date: m.prossimaScadenza, _kind: 'manutenzione' }));
+
+    // Include anche le ricorrenti senza prossimaScadenza se ricorrono per giorni della settimana:
+    // il giorno lo decide ricorrenteAppareIl, non la data singola.
+    const ricorrenti = (ricorrentiRows || [])
+      .filter(r => r.prossimaScadenza || r.frequenza === 'Giornaliera' || (Array.isArray(r.giorni) && r.giorni.length > 0))
+      .map(r => ({ ...r, _source: 'struttura', _date: r.prossimaScadenza || null, _kind: 'ricorrente' }));
+
+    const mezzi = (maintsRows || [])
+      .filter(m => m.stato !== 'Completato' && m.stato !== 'Chiuso' && m.data)
+      .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
+
+    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi];
+}
+
+function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
+    const oggi = selectedISO === oggiISO;
+    return tutte.filter(a => {
+      if (a._date === selectedISO) return true;
+      if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
+      // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
+      // Intervento aperto con data passata: resta in agenda oggi finche' non viene chiuso.
+      if (oggi && (a._kind === 'intervento' || a._kind === 'manutenzione') && a._date && a._date < oggiISO) return true;
+      return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
+    }).sort((x, y) => (x._date ? 0 : 1) - (y._date ? 0 : 1));
+}
+
 function AgendaModule({ onHome, onOpenModule }) {
   const { hasPermission, isAdmin } = usePermessi();
   const moduloConsentito = isAdmin || hasPermission(AGENDA_MODULO_PERMESSO) || hasPermission('struttura.visualizza');
@@ -7878,48 +7936,19 @@ function AgendaModule({ onHome, onOpenModule }) {
   const manutenzioniT = useSupaTable('manutenzioni', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const ricorrentiT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const maintsT = useSupaTable('maints', 'id', [], ['data']);
+  const carrozzineT = useSupaTable('carrozzine', 'id', [], ['data']);
 
   const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
   const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
 
-  const tutteAttivita = useMemo(() => {
-    const interventi = (interventiT.rows || [])
-      .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
-      .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
-
-    const ausili = (interventiT.rows || [])
-      .filter(i => i.tipologia === 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
-      .map(i => ({ ...i, _source: 'carrozzine', _date: i.dataSegnalazione, _kind: 'intervento' }));
-
-    const manutenzioni = (manutenzioniT.rows || [])
-      .filter(m => m.prossimaScadenza)
-      .map(m => ({ ...m, _source: 'struttura', _date: m.prossimaScadenza, _kind: 'manutenzione' }));
-
-    const ricorrenti = (ricorrentiT.rows || [])
-      .filter(r => r.prossimaScadenza)
-      .map(r => ({ ...r, _source: 'struttura', _date: r.prossimaScadenza, _kind: 'ricorrente' }));
-
-    const mezzi = (maintsT.rows || [])
-      .filter(m => m.stato !== 'Completato' && m.stato !== 'Chiuso' && m.data)
-      .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
-
-    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi];
-  }, [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows]);
+  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows]);
 
   const sette = useMemo(calcolaSettimanaAgenda, []);
   const oggiISO = sette[0].iso;
   const [selectedISO, setSelectedISO] = useState(oggiISO);
   const sel = sette.find(d => d.iso === selectedISO) || sette[0];
 
-  const attivitaGiorno = useMemo(() => {
-    const oggi = selectedISO === oggiISO;
-    return tutteAttivita.filter(a => {
-      if (a._date === selectedISO) return true;
-      if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
-      // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
-      return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
-    });
-  }, [tutteAttivita, selectedISO, oggiISO]);
+  const attivitaGiorno = useMemo(() => filtraAttivitaGiorno(tutteAttivita, selectedISO, oggiISO), [tutteAttivita, selectedISO, oggiISO]);
 
   const urgenti = attivitaGiorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente');
   const altre = attivitaGiorno.filter(a => !urgenti.includes(a));
@@ -7932,6 +7961,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     // Le ricorrenti hanno _source 'struttura' ma vivono in Procedure → Ricorrenti:
     // vanno gestite prima, altrimenti finiscono in Struttura.
     if (a._kind === 'ricorrente') onOpenModule('procedure', { tipo: 'ricorrente', link_id: a.id });
+    else if (a._kind === 'manutenzione') onOpenModule('struttura', { tipo: 'manutenzione_struttura', link_id: a.id });
     else if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
     else if (a._source === 'carrozzine') onOpenModule('carrozzine', { tipo: 'segnalazione_carrozzine', link_id: a.id });
     else if (a._source === 'mezzi') onOpenModule('mezzi', { tipo: 'anomalia_mezzi', link_id: a.id });
@@ -7952,19 +7982,37 @@ function AgendaModule({ onHome, onOpenModule }) {
     </button>;
   }
 
+  // Segna una manutenzione come eseguita: oggi diventa l'ultima esecuzione e la prossima
+  // scadenza viene ricalcolata dalla frequenza. Usa il record originale in Supabase.
+  const segnaManutenzioneEseguita = async (a) => {
+    const oggiLocale = todayISO();
+    const prossima = (!a.frequenza || a.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, a.frequenza);
+    const { _source, _date, _kind, ...pulito } = a;
+    const { error } = await manutenzioniT.save({ ...pulito, ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
+    if (error) window.alert('Errore: ' + error.message);
+  };
+
   function ActivityCard({ a }) {
     const title = a.descrizione || a.titolo || a.tipoManutenzione || a.tipo || 'Attività';
-    const dateText = a._kind === 'ricorrente' ? 'Ricorrente' : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
-    return <button onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer'}}>
+    const ausiliN = a._kind === 'ricorrente' && a.modulo === 'Ausili'
+      ? (carrozzineT.rows || []).filter(w => !a.ambito || a.ambito === 'Tutti' || w.nucleo === a.ambito).length
+      : null;
+    const dateText = a._kind === 'ricorrente'
+      ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili` : 'Ricorrente')
+      : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
+    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione') && a._date && a._date < oggiISO;
+    const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
+    return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
         <div style={{minWidth:0,flex:1}}>
           <div style={{fontWeight:700,fontSize:13.5,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</div>
-          <div style={{fontSize:11.5,color:STR_COLORS.muted}}>{sourceIcon[a._source] || '•'} {sourceLabel[a._source] || a._source} · {dateText}</div>
+          <div style={{fontSize:11.5,color:STR_COLORS.muted}}>{sourceIcon[a._source] || '•'} {sourceLabel[a._source] || a._source} · {dateText}{!a._date && a._kind !== 'ricorrente' && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#E8E5DC',color:'#79715F',padding:'1px 6px',borderRadius:999}}>Senza data</span>}{inRitardo && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#FDECEA',color:'#B71C1C',padding:'1px 6px',borderRadius:999}}>In ritardo · da eseguire</span>}</div>
           {(a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile) && <div style={{fontSize:11.5,color:STR_COLORS.muted,marginTop:2}}>{a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile}</div>}
         </div>
         {a.priorita && <span style={{fontSize:10,fontWeight:700,background:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).bg,color:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).fg,padding:'2px 7px',borderRadius:999,flexShrink:0}}>{a.priorita}</span>}
       </div>
-    </button>;
+      {puoSegnare && <button type="button" onClick={(e) => { e.stopPropagation(); segnaManutenzioneEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>}
+    </div>;
   }
 
   if (!moduloConsentito) return <div style={{minHeight:'100vh',background:STR_COLORS.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:24,textAlign:'center'}}><div><div style={{fontWeight:700,color:STR_COLORS.ink,marginBottom:12}}>Non hai i permessi per accedere all'Agenda.</div><button onClick={onHome} style={{padding:'10px 18px',border:0,borderRadius:10,background:STR_COLORS.primary,color:'#fff',fontWeight:700}}>Torna alla Home</button></div></div>;
@@ -7972,7 +8020,7 @@ function AgendaModule({ onHome, onOpenModule }) {
 
   return <div style={{minHeight:'100vh',background:STR_COLORS.bg,fontFamily:'Inter, sans-serif',color:STR_COLORS.ink,maxWidth:480,margin:'0 auto',position:'relative'}}>
     <style>{GLOBAL_FONTS}</style>
-    <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${attivitaGiorno.length} attività`} onBack={onHome} backIcon={Home} />
+    <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${attivitaGiorno.length} attività · v2`} onBack={onHome} backIcon={Home} />
     {dataError && <div style={{margin:'10px 14px 0',padding:'9px 11px',borderRadius:10,background:'#F7DCD9',color:'#A3352A',fontSize:12}}>Alcuni dati non sono disponibili: {dataError}</div>}
     <div style={{padding:'14px 14px 0',display:'flex',flexDirection:'column',gap:8}}>
       <DayButton giorno={sette[0]} large />
@@ -8301,7 +8349,36 @@ export default function ManutenzioneApp() {
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [counts, setCounts] = useState({ vehicles: [], carrozzine: [], camere: [] });
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
-  const [agendaStats, setAgendaStats] = useState({ totale: 0, alta: 0 });
+  // Dati dell'Agenda per il conteggio della card: stesse regole della schermata Agenda.
+  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [] });
+  useEffect(() => {
+    if (!session) return undefined;
+    let mounted = true;
+    const carica = async () => {
+      const [i, m, r, mt] = await Promise.all([
+        supabase.from('interventi').select('*'),
+        supabase.from('manutenzioni').select('*'),
+        supabase.from('manutenzioni_ricorrenti').select('*'),
+        supabase.from('maints').select('*'),
+      ]);
+      if (!mounted) return;
+      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [] });
+    };
+    carica();
+    const ch = supabase.channel('hub-agenda')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'interventi' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'manutenzioni' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'manutenzioni_ricorrenti' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maints' }, carica)
+      .subscribe();
+    return () => { mounted = false; supabase.removeChannel(ch); };
+  }, [session]);
+
+  const agendaStats = useMemo(() => {
+    const oggi = todayISO();
+    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints), oggi, oggi);
+    return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length };
+  }, [agendaRows]);
   const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
@@ -8337,10 +8414,6 @@ const [
   vAlertRes,
   cAlertRes,
   caAlertRes,
-  agInterRes,
-  agAltaRes,
-  agManRes,
-  agRicRes,
 ] = await Promise.all([
   supabase.from('vehicles').select('*', { count: 'exact', head: true }),
   supabase.from('carrozzine').select('*', { count: 'exact', head: true }),
@@ -8368,26 +8441,6 @@ const [
     .neq('stato', 'Chiuso')
     .or('tipologia.is.null,tipologia.neq.carrozzina'),
 
-  // Agenda: tutti gli interventi struttura aperti/in-corso (visibili OGGI)
-  supabase
-    .from('interventi')
-    .select('*', { count: 'exact', head: true })
-    .neq('tipologia', 'carrozzina')
-    .not('stato', 'in', '("Chiuso","Annullato")'),
-
-  // Agenda: interventi ad alta priorità
-  supabase
-    .from('interventi')
-    .select('*', { count: 'exact', head: true })
-    .neq('tipologia', 'carrozzina')
-    .not('stato', 'in', '("Chiuso","Annullato")')
-    .in('priorita', ['Alta', 'Urgente']),
-
-  // Agenda: manutenzioni con scadenza oggi (data locale)
-  (() => { const d = new Date(); const t = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return supabase.from('manutenzioni').select('*', { count: 'exact', head: true }).eq('prossimaScadenza', t); })(),
-
-  // Agenda: ricorrenti con scadenza oggi
-  (() => { const d = new Date(); const t = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return supabase.from('manutenzioni_ricorrenti').select('*', { count: 'exact', head: true }).eq('prossimaScadenza', t); })(),
 ]);
       if (!mounted) return;
       const vc = vRes.count ?? 0;
@@ -8405,10 +8458,6 @@ setAlertCounts({
   mezzi: vAlertRes.count ?? 0,
   carrozzine: cAlertRes.count ?? 0,
   struttura: caAlertRes.count ?? 0,
-});
-setAgendaStats({
-  totale: (agInterRes.count ?? 0) + (agManRes.count ?? 0) + (agRicRes.count ?? 0),
-  alta: agAltaRes.count ?? 0,
 });
     })();
     return () => { mounted = false; };
