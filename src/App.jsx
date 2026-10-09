@@ -5884,14 +5884,14 @@ function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenI
     const ricGiorno = ricorrenti.filter(r => {
       if (r.prossimaScadenza === selectedISO) return true;
       if (FREQ_CON_GIORNI.includes(r.frequenza)) {
-        if (r.giorni?.length > 0) {
-          // Con giorni configurati: appare solo nei giorni selezionati
-          return r.giorni.includes(selDow);
+        const giorniArr = Array.isArray(r.giorni) ? r.giorni : [];
+        if (giorniArr.length > 0) {
+          // Confronto type-safe: JSONB può restituire numeri o stringhe
+          return giorniArr.some(g => Number(g) === selDow);
         }
-        if (r.frequenza === 'Giornaliera') {
-          // Giornaliera senza giorni configurati → appare ogni giorno
-          return true;
-        }
+        // Nessun giorno configurato (o colonna mancante):
+        // Giornaliera → ogni giorno; Settimanale → solo su prossimaScadenza (già gestita sopra)
+        if (r.frequenza === 'Giornaliera') return true;
       }
       return false;
     });
