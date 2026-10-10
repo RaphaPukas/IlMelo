@@ -7806,7 +7806,6 @@ function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
       if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
       // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
       // Intervento aperto con data passata: resta in agenda oggi finche' non viene chiuso.
-      if (oggi && (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO) return true;
       return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
     }).sort((x, y) => (x._date ? 0 : 1) - (y._date ? 0 : 1));
 }
@@ -7865,7 +7864,16 @@ function AgendaModule({ onHome, onOpenModule }) {
   const [selectedISO, setSelectedISO] = useState(oggiISO);
   const sel = sette.find(d => d.iso === selectedISO) || sette[0];
 
-  const attivitaGiorno = useMemo(() => filtraAttivitaGiorno(tutteAttivita.filter(a => attivitaVisibile(a, isAdmin, hasPermission)), selectedISO, oggiISO), [tutteAttivita, selectedISO, oggiISO, isAdmin, hasPermission]);
+  // Attivita' in ritardo: interventi, manutenzioni e anomalie mezzi con data passata, non ancora chiusi.
+  const attivitaRitardo = useMemo(() => tutteAttivita
+    .filter(a => attivitaVisibile(a, isAdmin, hasPermission))
+    .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO)
+    .sort((x, y) => (x._date || '').localeCompare(y._date || '')),
+  [tutteAttivita, isAdmin, hasPermission, oggiISO]);
+  const attivitaGiorno = useMemo(() => selectedISO === '__ritardo__'
+    ? attivitaRitardo
+    : filtraAttivitaGiorno(tutteAttivita.filter(a => attivitaVisibile(a, isAdmin, hasPermission)), selectedISO, oggiISO),
+  [tutteAttivita, selectedISO, oggiISO, isAdmin, hasPermission, attivitaRitardo]);
 
   const urgenti = attivitaGiorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente');
   const altre = attivitaGiorno.filter(a => !urgenti.includes(a));
@@ -7901,27 +7909,26 @@ function AgendaModule({ onHome, onOpenModule }) {
 
   // Righe da esportare: giorno selezionato, oppure i 7 giorni visibili (attivita' visibili a chi esporta).
   const righeEsporto = () => {
+    const tipoDi = (a) => a._kind === 'ricorrente' ? 'Ricorrente' : a._kind === 'manutenzione' ? 'Manutenzione' : a._kind === 'mezzo' ? 'Mezzo' : 'Intervento';
+    const origineDi = (a) => a._kind === 'ricorrente' ? (a.modulo || 'Struttura') : (a._source === 'mezzi' ? 'Mezzi' : (a._source === 'carrozzine' ? 'Ausili' : 'Struttura'));
+    const dettaglioDi = (a) => a._kind === 'ricorrente'
+      ? [a.frequenza, a.ambito && a.ambito !== 'Tutti' ? a.ambito : ''].filter(Boolean).join(' · ')
+      : (a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile || '');
+    const riga = (a, iso, ritardo) => ({
+      Data: iso ? fmtDate(iso) : '',
+      Tipo: tipoDi(a),
+      Attivita: a.titolo || a.descrizione || a.tipoManutenzione || a.targa || '—',
+      Origine: origineDi(a),
+      Dettaglio: dettaglioDi(a),
+      Priorita: a.priorita || '',
+      Stato: ritardo ? 'In ritardo' : (a._date ? '' : 'Senza data'),
+    });
+    if (scopeExport === 'ritardo') return attivitaRitardo.map(a => riga(a, a._date, true));
     const giorni = scopeExport === 'giorno' ? [selectedISO] : sette.map(g => g.iso);
     const visibili = tutteAttivita.filter(a => attivitaVisibile(a, isAdmin, hasPermission));
     const out = [];
     giorni.forEach(iso => {
-      filtraAttivitaGiorno(visibili, iso, oggiISO).forEach(a => {
-        const tipo = a._kind === 'ricorrente' ? 'Ricorrente' : a._kind === 'manutenzione' ? 'Manutenzione' : a._kind === 'mezzo' ? 'Mezzo' : 'Intervento';
-        const origine = a._kind === 'ricorrente' ? (a.modulo || 'Struttura') : (a._source === 'mezzi' ? 'Mezzi' : (a._source === 'carrozzine' ? 'Ausili' : 'Struttura'));
-        const dettaglio = a._kind === 'ricorrente'
-          ? [a.frequenza, a.ambito && a.ambito !== 'Tutti' ? a.ambito : ''].filter(Boolean).join(' · ')
-          : (a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile || '');
-        const ritardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO;
-        out.push({
-          Data: fmtDate(iso),
-          Tipo: tipo,
-          Attivita: a.titolo || a.descrizione || a.tipoManutenzione || a.targa || '—',
-          Origine: origine,
-          Dettaglio: dettaglio,
-          Priorita: a.priorita || '',
-          Stato: ritardo ? 'In ritardo' : (a._date ? '' : 'Senza data'),
-        });
-      });
+      filtraAttivitaGiorno(visibili, iso, oggiISO).forEach(a => out.push(riga(a, iso, false)));
     });
     return out;
   };
@@ -7931,12 +7938,12 @@ function AgendaModule({ onHome, onOpenModule }) {
     const ws = XLSX.utils.json_to_sheet(righe);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Agenda');
-    XLSX.writeFile(wb, scopeExport === 'giorno' ? `Agenda ${selectedISO}.xlsx` : `Agenda ${oggiISO} settimana.xlsx`);
+    XLSX.writeFile(wb, scopeExport === 'ritardo' ? `Agenda in ritardo ${oggiISO}.xlsx` : (scopeExport === 'giorno' ? `Agenda ${selectedISO}.xlsx` : `Agenda ${oggiISO} settimana.xlsx`));
   };
   const stampaAgenda = () => {
     const righe = righeEsporto();
     if (!righe.length) { setAvviso('Nessuna attività da stampare.'); return; }
-    const titolo = scopeExport === 'giorno' ? `Agenda · ${fmtDate(selectedISO)}` : `Agenda · dal ${fmtDate(oggiISO)} per 7 giorni`;
+    const titolo = scopeExport === 'ritardo' ? 'Agenda · attività in ritardo' : (scopeExport === 'giorno' ? `Agenda · ${fmtDate(selectedISO)}` : `Agenda · dal ${fmtDate(oggiISO)} per 7 giorni`);
     const corpo = righe.map(r => `<tr><td>${escapeHtml(r.Data)}</td><td>${escapeHtml(r.Tipo)}</td><td><b>${escapeHtml(r.Attivita)}</b></td><td>${escapeHtml(r.Origine)}</td><td>${escapeHtml(r.Dettaglio)}</td><td>${escapeHtml(r.Priorita)}</td><td>${escapeHtml(r.Stato)}</td></tr>`).join('');
     const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${escapeHtml(titolo)}</title><style>
       body{font-family:Arial,Helvetica,sans-serif;color:#1B2A2E;padding:16mm}
@@ -8040,7 +8047,7 @@ function AgendaModule({ onHome, onOpenModule }) {
       {avviso && <div onClick={() => setAvviso('')} style={{margin:'10px 14px 0',background:'#FDECEA',color:'#B71C1C',borderRadius:10,padding:'10px 12px',fontSize:13,fontWeight:600}}>{avviso}</div>}
       <div style={{display:'flex',gap:8,alignItems:'center',padding:'10px 14px 0',flexWrap:'wrap'}}>
         <div style={{display:'flex',background:'#F2EEF8',borderRadius:999,padding:3}}>
-          {[['giorno','Giorno'],['settimana','Settimana']].map(([k,l]) => (
+          {[['giorno','Giorno'],['settimana','Settimana'],['ritardo','In ritardo']].map(([k,l]) => (
             <button key={k} type="button" onClick={() => setScopeExport(k)} style={{border:'none',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',background:scopeExport===k?'#25454F':'transparent',color:scopeExport===k?'#fff':'#25454F'}}>{l}</button>
           ))}
         </div>
@@ -8048,7 +8055,12 @@ function AgendaModule({ onHome, onOpenModule }) {
         <button type="button" onClick={() => stampaAgenda()} style={{border:'none',borderRadius:10,padding:'7px 12px',fontSize:12.5,fontWeight:700,background:'#E8EEF5',color:'#1E4D73',cursor:'pointer'}}>Stampa</button>
       </div>
     {dataError && <div style={{margin:'10px 14px 0',padding:'9px 11px',borderRadius:10,background:'#F7DCD9',color:'#A3352A',fontSize:12}}>Alcuni dati non sono disponibili: {dataError}</div>}
-    <div style={{padding:'14px 14px 0',display:'flex',flexDirection:'column',gap:8}}>
+    <div style={{padding:'14px 14px 0'}}>
+      <button type="button" onClick={() => setSelectedISO('__ritardo__')} style={{width:'100%',border:'none',borderRadius:12,padding:'10px 14px',fontWeight:800,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',background:selectedISO==='__ritardo__'?'#B71C1C':'#FDECEA',color:selectedISO==='__ritardo__'?'#fff':'#B71C1C'}}>
+        <span>⚠️ In ritardo</span><span>{attivitaRitardo.length}</span>
+      </button>
+    </div>
+    <div style={{padding:'10px 14px 0',display:'flex',flexDirection:'column',gap:8}}>
       <DayButton giorno={sette[0]} large />
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>{sette.slice(1,4).map(d=><DayButton key={d.iso} giorno={d} />)}</div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>{sette.slice(4,7).map(d=><DayButton key={d.iso} giorno={d} />)}</div>
