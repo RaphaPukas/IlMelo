@@ -5900,6 +5900,14 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
 }
 
 /* ---------- Root ---------- */
+// Un'attivita' e' visibile solo a chi ha il permesso del suo modulo (admin: tutto).
+function attivitaVisibile(a, isAdmin, hasPerm) {
+  if (isAdmin) return true;
+  const mod = a._kind === 'ricorrente' ? (a.modulo || 'Struttura') : (a._source === 'mezzi' ? 'Mezzi' : (a._source === 'carrozzine' ? 'Ausili' : 'Struttura'));
+  const chiave = { Mezzi: 'mezzi.visualizza', Struttura: 'struttura.visualizza', Ausili: 'carrozzine.visualizza' }[mod];
+  return chiave ? !!hasPerm(chiave) : true;
+}
+
 /* ---- Agenda Struttura ---- */
 const AGENDA_GIORNO_ABBR = ['DOM','LUN','MAR','MER','GIO','VEN','SAB'];
 
@@ -6415,6 +6423,11 @@ function pdfScriviProcedura(doc, procedura, gruppiMap) {
   }
 
   return y;
+}
+
+// Escape dei testi inseriti nei documenti di stampa (evita che il contenuto rompa il documento).
+function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function stampaProceduraSingola(procedura, gruppiMap) {
@@ -7793,7 +7806,7 @@ function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
       if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
       // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
       // Intervento aperto con data passata: resta in agenda oggi finche' non viene chiuso.
-      if (oggi && (a._kind === 'intervento' || a._kind === 'manutenzione') && a._date && a._date < oggiISO) return true;
+      if (oggi && (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO) return true;
       return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
     }).sort((x, y) => (x._date ? 0 : 1) - (y._date ? 0 : 1));
 }
@@ -7809,10 +7822,20 @@ function AgendaModule({ onHome, onOpenModule }) {
   const carrozzineT = useSupaTable('carrozzine', 'id', [], ['data']);
   // Checklist ausili: quale attivita' ha la checklist aperta.
   const [checklistAperta, setChecklistAperta] = useState(null);
+  // Avvisi dentro l'app (al posto dei pop-up del browser)
+  const [avviso, setAvviso] = useState('');
+  const [scopeExport, setScopeExport] = useState('giorno');
   // Ausili che rientrano nell'ambito di una procedura (tutti, oppure un nucleo).
   const ausiliDellAmbito = (rec) => (carrozzineT.rows || []).filter(w => !rec.ambito || rec.ambito === 'Tutti' || w.nucleo === rec.ambito);
   // Spunta/togli un ausilio. Quando sono spuntati tutti, la procedura risulta eseguita
   // e la prossima scadenza viene calcolata come per "Segna come eseguita".
+  const segnaRicorrenteEseguita = async (rec) => {
+    const oggiLocale = todayISO();
+    const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni);
+    const { _source, _date, _kind, ...pulito } = rec;
+    const { error } = await ricorrentiT.save({ ...pulito, completati: [], ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
+    if (error) setAvviso('Errore: ' + error.message); else setAvviso('Procedura segnata come eseguita');
+  };
   const toggleAusilio = async (rec, ausilioId) => {
     const { _source, _date, _kind, ...pulito } = rec;
     const fatti = new Set((rec.completati || []).map(String));
@@ -7823,10 +7846,10 @@ function AgendaModule({ onHome, onOpenModule }) {
       const oggiLocale = todayISO();
       const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni);
       const { error } = await ricorrentiT.save({ ...pulito, completati: [], ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
-      if (error) window.alert('Errore: ' + error.message);
+      if (error) setAvviso('Errore: ' + error.message);
     } else {
       const { error } = await ricorrentiT.save({ ...pulito, completati: [...fatti] });
-      if (error) window.alert('Errore: ' + error.message);
+      if (error) setAvviso('Errore: ' + error.message);
     }
   };
   const camereT = useSupaTable('camere', 'codice', [], []);
@@ -7842,7 +7865,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   const [selectedISO, setSelectedISO] = useState(oggiISO);
   const sel = sette.find(d => d.iso === selectedISO) || sette[0];
 
-  const attivitaGiorno = useMemo(() => filtraAttivitaGiorno(tutteAttivita, selectedISO, oggiISO), [tutteAttivita, selectedISO, oggiISO]);
+  const attivitaGiorno = useMemo(() => filtraAttivitaGiorno(tutteAttivita.filter(a => attivitaVisibile(a, isAdmin, hasPermission)), selectedISO, oggiISO), [tutteAttivita, selectedISO, oggiISO, isAdmin, hasPermission]);
 
   const urgenti = attivitaGiorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente');
   const altre = attivitaGiorno.filter(a => !urgenti.includes(a));
@@ -7876,6 +7899,61 @@ function AgendaModule({ onHome, onOpenModule }) {
     </button>;
   }
 
+  // Righe da esportare: giorno selezionato, oppure i 7 giorni visibili (attivita' visibili a chi esporta).
+  const righeEsporto = () => {
+    const giorni = scopeExport === 'giorno' ? [selectedISO] : sette.map(g => g.iso);
+    const visibili = tutteAttivita.filter(a => attivitaVisibile(a, isAdmin, hasPermission));
+    const out = [];
+    giorni.forEach(iso => {
+      filtraAttivitaGiorno(visibili, iso, oggiISO).forEach(a => {
+        const tipo = a._kind === 'ricorrente' ? 'Ricorrente' : a._kind === 'manutenzione' ? 'Manutenzione' : a._kind === 'mezzo' ? 'Mezzo' : 'Intervento';
+        const origine = a._kind === 'ricorrente' ? (a.modulo || 'Struttura') : (a._source === 'mezzi' ? 'Mezzi' : (a._source === 'carrozzine' ? 'Ausili' : 'Struttura'));
+        const dettaglio = a._kind === 'ricorrente'
+          ? [a.frequenza, a.ambito && a.ambito !== 'Tutti' ? a.ambito : ''].filter(Boolean).join(' · ')
+          : (a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile || '');
+        const ritardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO;
+        out.push({
+          Data: fmtDate(iso),
+          Tipo: tipo,
+          Attivita: a.titolo || a.descrizione || a.tipoManutenzione || a.targa || '—',
+          Origine: origine,
+          Dettaglio: dettaglio,
+          Priorita: a.priorita || '',
+          Stato: ritardo ? 'In ritardo' : (a._date ? '' : 'Senza data'),
+        });
+      });
+    });
+    return out;
+  };
+  const esportaAgendaExcel = () => {
+    const righe = righeEsporto();
+    if (!righe.length) { setAvviso('Nessuna attività da esportare.'); return; }
+    const ws = XLSX.utils.json_to_sheet(righe);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Agenda');
+    XLSX.writeFile(wb, scopeExport === 'giorno' ? `Agenda ${selectedISO}.xlsx` : `Agenda ${oggiISO} settimana.xlsx`);
+  };
+  const stampaAgenda = () => {
+    const righe = righeEsporto();
+    if (!righe.length) { setAvviso('Nessuna attività da stampare.'); return; }
+    const titolo = scopeExport === 'giorno' ? `Agenda · ${fmtDate(selectedISO)}` : `Agenda · dal ${fmtDate(oggiISO)} per 7 giorni`;
+    const corpo = righe.map(r => `<tr><td>${escapeHtml(r.Data)}</td><td>${escapeHtml(r.Tipo)}</td><td><b>${escapeHtml(r.Attivita)}</b></td><td>${escapeHtml(r.Origine)}</td><td>${escapeHtml(r.Dettaglio)}</td><td>${escapeHtml(r.Priorita)}</td><td>${escapeHtml(r.Stato)}</td></tr>`).join('');
+    const html = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>${escapeHtml(titolo)}</title><style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#1B2A2E;padding:16mm}
+      h1{font-size:18pt;margin:0 0 4mm} .sub{color:#667;font-size:10pt;margin-bottom:6mm}
+      table{width:100%;border-collapse:collapse;font-size:10.5pt} th{background:#25454F;color:#fff;text-align:left;padding:6px;font-size:10pt}
+      td{border-bottom:1px solid #d8dfe2;padding:7px 6px;vertical-align:top} tr:nth-child(even) td{background:#f5f8f9}
+      @page{size:A4 landscape;margin:12mm} </style></head><body>
+      <h1>${escapeHtml(titolo)}</h1><div class="sub">Il Melo · stampato il ${escapeHtml(fmtDate(todayISO()))}</div>
+      <table><thead><tr><th>Data</th><th>Tipo</th><th>Attività</th><th>Origine</th><th>Dettaglio</th><th>Priorità</th><th>Stato</th></tr></thead><tbody>${corpo}</tbody></table>
+      </body></html>`;
+    const w = window.open('', '_blank', 'width=1000,height=800');
+    if (!w) { setAvviso('Il browser ha bloccato la finestra di stampa. Abilita i popup per questa pagina.'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+    w.onload = () => { w.focus(); w.print(); };
+    setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 500);
+  };
+
   // Segna una manutenzione come eseguita: oggi diventa l'ultima esecuzione e la prossima
   // scadenza viene ricalcolata dalla frequenza. Usa il record originale in Supabase.
   const segnaManutenzioneEseguita = async (a) => {
@@ -7883,7 +7961,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     const prossima = (!a.frequenza || a.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, a.frequenza);
     const { _source, _date, _kind, ...pulito } = a;
     const { error } = await manutenzioniT.save({ ...pulito, ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
-    if (error) window.alert('Errore: ' + error.message);
+    if (error) setAvviso('Errore: ' + error.message);
   };
 
   function ActivityCard({ a }) {
@@ -7908,7 +7986,7 @@ function AgendaModule({ onHome, onOpenModule }) {
       ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili`
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
-    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione') && a._date && a._date < oggiISO;
+    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
     return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
@@ -7946,6 +8024,9 @@ function AgendaModule({ onHome, onOpenModule }) {
           </div>
         );
       })()}
+      {a._kind === 'ricorrente' && a.modulo !== 'Ausili' && (isAdmin || hasPermission('procedure.modifica')) && (
+        <button type="button" onClick={(e) => { e.stopPropagation(); segnaRicorrenteEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>
+      )}
       {puoSegnare && <button type="button" onClick={(e) => { e.stopPropagation(); segnaManutenzioneEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>}
     </div>;
   }
@@ -7956,6 +8037,16 @@ function AgendaModule({ onHome, onOpenModule }) {
   return <div style={{minHeight:'100vh',background:STR_COLORS.bg,fontFamily:'Inter, sans-serif',color:STR_COLORS.ink,maxWidth:480,margin:'0 auto',position:'relative'}}>
     <style>{GLOBAL_FONTS}</style>
     <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${attivitaGiorno.length} attività · v2`} onBack={onHome} backIcon={Home} />
+      {avviso && <div onClick={() => setAvviso('')} style={{margin:'10px 14px 0',background:'#FDECEA',color:'#B71C1C',borderRadius:10,padding:'10px 12px',fontSize:13,fontWeight:600}}>{avviso}</div>}
+      <div style={{display:'flex',gap:8,alignItems:'center',padding:'10px 14px 0',flexWrap:'wrap'}}>
+        <div style={{display:'flex',background:'#F2EEF8',borderRadius:999,padding:3}}>
+          {[['giorno','Giorno'],['settimana','Settimana']].map(([k,l]) => (
+            <button key={k} type="button" onClick={() => setScopeExport(k)} style={{border:'none',borderRadius:999,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',background:scopeExport===k?'#25454F':'transparent',color:scopeExport===k?'#fff':'#25454F'}}>{l}</button>
+          ))}
+        </div>
+        <button type="button" onClick={() => esportaAgendaExcel()} style={{border:'none',borderRadius:10,padding:'7px 12px',fontSize:12.5,fontWeight:700,background:'#E7F4EC',color:'#1F6B45',cursor:'pointer'}}>Esporta Excel</button>
+        <button type="button" onClick={() => stampaAgenda()} style={{border:'none',borderRadius:10,padding:'7px 12px',fontSize:12.5,fontWeight:700,background:'#E8EEF5',color:'#1E4D73',cursor:'pointer'}}>Stampa</button>
+      </div>
     {dataError && <div style={{margin:'10px 14px 0',padding:'9px 11px',borderRadius:10,background:'#F7DCD9',color:'#A3352A',fontSize:12}}>Alcuni dati non sono disponibili: {dataError}</div>}
     <div style={{padding:'14px 14px 0',display:'flex',flexDirection:'column',gap:8}}>
       <DayButton giorno={sette[0]} large />
@@ -8312,9 +8403,10 @@ export default function ManutenzioneApp() {
 
   const agendaStats = useMemo(() => {
     const oggi = todayISO();
-    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints), oggi, oggi);
+    const adminRadice = profile?.role === 'admin';
+    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
     return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length };
-  }, [agendaRows]);
+  }, [agendaRows, permessi, profile]);
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
   useEffect(() => {
