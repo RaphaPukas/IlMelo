@@ -8090,10 +8090,15 @@ const MODULES = [
     color: '#B71C1C',
     colorSoft: '#FDECEA',
     stat: (d, ac, ag) => {
-      const tot = ag?.totale ?? 0;
-      const alta = ag?.alta ?? 0;
-      if (tot === 0) return 'Nessuna attività oggi';
-      return alta > 0 ? `${tot} attività · 🔴 ${alta} urgenti` : `${tot} attività oggi`;
+      const tot = ag?.totale ?? 0, alta = ag?.alta ?? 0, rit = ag?.ritardo ?? 0;
+      const pallino = (pieno) => <span style={{display:'inline-block',width:9,height:9,borderRadius:999,background: pieno ? '#B71C1C' : 'transparent',border:'2px solid #B71C1C',boxSizing:'border-box',marginRight:5,verticalAlign:'middle'}} />;
+      return (
+        <span style={{display:'inline-flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span>{tot === 0 ? 'Nessuna attività oggi' : `${tot} attività oggi`}</span>
+          {alta > 0 && <span style={{display:'inline-flex',alignItems:'center'}}>{pallino(true)}{alta} urgenti</span>}
+          {rit > 0 && <span style={{display:'inline-flex',alignItems:'center'}}>{pallino(false)}{rit} in ritardo</span>}
+        </span>
+      );
     },
     isMain: true,
   },
@@ -8417,7 +8422,9 @@ export default function ManutenzioneApp() {
     const oggi = todayISO();
     const adminRadice = profile?.role === 'admin';
     const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
-    return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length };
+    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
+    const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
+    return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length, ritardo };
   }, [agendaRows, permessi, profile]);
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
