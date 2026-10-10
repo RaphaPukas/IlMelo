@@ -2994,9 +2994,8 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 
 /* ---------- Root ---------- */
 /* ---- Procedure ricorrenti per modulo (scheda Scadenze / Controlli) ---- */
-function ControlliRicorrenti({ modulo, theme }) {
+function ControlliRicorrenti({ modulo, theme, veicoli }) {
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
-  const veicoliT = useSupaTable('vehicles', 'id', [], []);
   const rows = (ricT.rows || [])
     .filter(r => (r.modulo || 'Struttura') === modulo)
     .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
@@ -3024,7 +3023,7 @@ function ControlliRicorrenti({ modulo, theme }) {
           : modulo === 'Struttura'
             ? (r.ambito && r.ambito.startsWith('piano:') ? `Piano ${r.ambito.slice(6)}` : (r.ambito && r.ambito.startsWith('nucleo:') ? `Nucleo ${r.ambito.slice(7)}` : 'Tutta la struttura'))
             : modulo === 'Mezzi'
-              ? (r.ambito && r.ambito.startsWith('mezzo:') ? ((veicoliT.rows || []).find(v => v.id === r.ambito.slice(6))?.targa || 'Mezzo') : 'Tutti i mezzi')
+              ? (r.ambito && r.ambito.startsWith('mezzo:') ? ((veicoli || []).find(v => v.id === r.ambito.slice(6))?.targa || 'Mezzo') : 'Tutti i mezzi')
               : null;
         return (
           <div key={r.id} style={{ background: surface, border: `1px solid ${line}`, borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
@@ -3242,7 +3241,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     content = (<>
       <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />
-      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Mezzi" theme={MEZZI_COLORS} /></div>
+      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} /></div>
     </>);
   } else {
     content = <DashboardScreen vehicles={vehicles} maints={maints} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -3420,7 +3419,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   const [q, setQ] = useState('');
   const filtered = items.filter(w => {
     if (filtro?.tipo === 'nucleo' && w.nucleo !== filtro.valore) return false;
-    if (filtro?.tipo === 'stato' && w.stato !== filtro.valore) return false;
+    if (filtro?.tipo === 'stato' && (filtro.valore === '__nessuno__' ? !!w.stato : w.stato !== filtro.valore)) return false;
     if (filtro?.tipo === 'attenzione' && !needsAttention(w)) return false;
     if (filtro?.tipo === 'marca' && w.marca !== filtro.valore) return false;
     const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtCarrozzinaId(w.id)}`.toLowerCase();
@@ -3440,7 +3439,8 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
           <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: CARROZZINE_COLORS.muted }}>Filtro:</span>
             {filtro.tipo === 'nucleo' && <NucleoTag nucleo={filtro.valore} />}
-            {filtro.tipo === 'stato' && <Pill style={STATO_STYLE[filtro.valore] || {}}>{filtro.valore}</Pill>}
+            {filtro.tipo === 'stato' && filtro.valore === '__nessuno__' && <Pill style={{ bg: '#EAE7DC', fg: '#6E7972' }}>Senza stato assegnato</Pill>}
+            {filtro.tipo === 'stato' && filtro.valore !== '__nessuno__' && <Pill style={STATO_STYLE[filtro.valore] || {}}>{filtro.valore}</Pill>}
             {filtro.tipo === 'attenzione' && <Pill style={{ bg: '#F7DCD9', fg: '#A3352A' }}>Da controllare</Pill>}
             {filtro.tipo === 'marca' && <Pill style={{ bg: '#E8EEF5', fg: '#1E4D73' }}>{filtro.valore}</Pill>}
             <button onClick={() => setFiltro(null)} style={{ background: 'none', border: 'none', color: CARROZZINE_COLORS.muted, fontSize: 12, textDecoration: 'underline' }}>rimuovi</button>
@@ -3876,9 +3876,15 @@ function RiepilogoScreen({ items, onMenu, onHome, onFilterStato, onFilterAttenzi
             </div>
           ))}
           {senzaStato > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${CARROZZINE_COLORS.line}` }}>
+            <div
+              onClick={() => onFilterStato('__nessuno__')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: `1px solid ${CARROZZINE_COLORS.line}`, cursor: 'pointer' }}
+            >
               <span style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted }}>Senza stato assegnato</span>
-              <span style={{ fontWeight: 700, fontSize: 14, color: CARROZZINE_COLORS.muted }}>{senzaStato}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: CARROZZINE_COLORS.muted }}>{senzaStato}</span>
+                <ChevronRight size={14} color={CARROZZINE_COLORS.muted} />
+              </span>
             </div>
           )}
         </Card>
@@ -8000,7 +8006,7 @@ const MODULES = [
   {
     key: 'carrozzine',
     name: 'Ausili',
-    desc: 'Inventario, nuclei e controlli componenti',
+    desc: 'Carrozzine e deambulatori',
     icon: Armchair,
     color: '#33594E',
     colorSoft: '#DCEAE3',
