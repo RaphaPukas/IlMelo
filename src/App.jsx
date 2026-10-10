@@ -2274,7 +2274,7 @@ const SEED_MAINTS = [
   { id: 'm5', targa: 'EV-388-FY', data: '2026-07-14', km: null, tipo: 'Revisione', descrizione: '', officina: 'Riparazioni Dario', costo: 64.75, stato: 'Completato' },
 ];
 
-const DEFAULT_PARAMS = { ivaRate: 22, urgentDays: 30, mediumDays: 90 };
+const DEFAULT_PARAMS = { ivaRate: 22, urgentDays: 30, mediumDays: 45 };
 const MEZZI_NAV_ITEMS = [
   ['veicoli', Car, 'Veicoli'],
   ['manutenzioni', Wrench, 'Interventi'],
@@ -2814,14 +2814,15 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome }) {
         });
       }
     });
-    return out.sort((a, b) => a.days - b.days);
+    // Mostro solo le scadenze da seguire: rosse (urgenti) e gialle (attenzione). Le verdi, a lungo termine, non servono qui.
+    return out.filter(r => r.u === 'urgent' || r.u === 'medium' || r.u === 'soon').sort((a, b) => a.days - b.days);
   }, [vehicles, params]);
 
   return (
     <>
-      <TopBar theme={MEZZI_COLORS} title="Scadenze" subtitle={`${rows.length} scadenze in archivio`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={MEZZI_COLORS} title="Scadenze" subtitle={`${rows.length} da seguire`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
-        {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza registrata." />}
+        {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza in arrivo." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {rows.map(r => (
             <Card theme={MEZZI_COLORS} key={r.key}>
@@ -2998,6 +2999,7 @@ function ControlliRicorrenti({ modulo, theme, veicoli }) {
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const rows = (ricT.rows || [])
     .filter(r => (r.modulo || 'Struttura') === modulo)
+    .filter(r => { const g = daysUntil(r.prossimaScadenza); return g == null || g <= 45; })
     .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
   const surface = theme.surface || '#FFFFFF';
   const line = theme.line || '#E2E0D2';
@@ -3006,9 +3008,8 @@ function ControlliRicorrenti({ modulo, theme, veicoli }) {
   const stato = (r) => {
     const g = daysUntil(r.prossimaScadenza);
     if (g == null) return { label: 'Nessuna scadenza', bg: '#EAE7DC', fg: '#6E7972' };
-    if (g < 0) return { label: 'Scaduta', bg: '#FDECEA', fg: '#B71C1C' };
-    if (g <= 7) return { label: 'In scadenza', bg: '#FBE3C7', fg: '#B15C00' };
-    return { label: 'Programmata', bg: '#DCE8F0', fg: '#1E4D73' };
+    if (g <= 30) return { label: g < 0 ? 'Scaduta' : 'Urgente', bg: '#FDECEA', fg: '#B71C1C' };
+    return { label: 'Attenzione', bg: '#FBF1DC', fg: '#9A6B03' };
   };
   return (
     <div style={{ marginTop: 16 }}>
@@ -3732,7 +3733,6 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
             <ControlliRicorrenti modulo="Ausili" theme={CARROZZINE_COLORS} />
             <Gruppo titolo="Scaduti" colore={CONTROLLO_ACCENT.scaduto} rows={scaduti} />
             <Gruppo titolo="In scadenza" colore={CONTROLLO_ACCENT.in_scadenza} rows={inScadenza} />
-            <Gruppo titolo="Programmati" colore={CONTROLLO_ACCENT.programmato} rows={programmati} />
 
             {storicoEffettuati.length > 0 && (
               <>
