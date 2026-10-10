@@ -2996,6 +2996,7 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 /* ---- Procedure ricorrenti per modulo (scheda Scadenze / Controlli) ---- */
 function ControlliRicorrenti({ modulo, theme }) {
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  const veicoliT = useSupaTable('vehicles', 'id', [], []);
   const rows = (ricT.rows || [])
     .filter(r => (r.modulo || 'Struttura') === modulo)
     .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
@@ -3018,7 +3019,13 @@ function ControlliRicorrenti({ modulo, theme }) {
       {ricT.ready && rows.length === 0 && <div style={{ fontSize: 12.5, color: muted }}>Nessuna procedura ricorrente per questo modulo.</div>}
       {rows.map(r => {
         const s = stato(r);
-        const ambito = modulo === 'Ausili' ? (r.ambito && r.ambito !== 'Tutti' ? `Nucleo ${r.ambito}` : 'Tutti gli ausili') : null;
+        const ambito = modulo === 'Ausili'
+          ? (r.ambito && r.ambito !== 'Tutti' ? `Nucleo ${r.ambito}` : 'Tutti gli ausili')
+          : modulo === 'Struttura'
+            ? (r.ambito && r.ambito.startsWith('piano:') ? `Piano ${r.ambito.slice(6)}` : (r.ambito && r.ambito.startsWith('nucleo:') ? `Nucleo ${r.ambito.slice(7)}` : 'Tutta la struttura'))
+            : modulo === 'Mezzi'
+              ? (r.ambito && r.ambito.startsWith('mezzo:') ? ((veicoliT.rows || []).find(v => v.id === r.ambito.slice(6))?.targa || 'Mezzo') : 'Tutti i mezzi')
+              : null;
         return (
           <div key={r.id} style={{ background: surface, border: `1px solid ${line}`, borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
@@ -5906,204 +5913,6 @@ function calcolaSettimanaAgenda() {
   });
 }
 
-function AgendaStrScreen({ interventi, manutenzioni, ricorrenti, onHome, onOpenIntervento, onOpenManutenzione, onOpenRicorrente }) {
-  const sette = useMemo(calcolaSettimanaAgenda, []); // ricalcolato solo al mount
-  const oggiISO = sette[0].iso;
-  const [selectedISO, setSelectedISO] = useState(oggiISO);
-  const sel = sette.find(d => d.iso === selectedISO) || sette[0];
-
-  // ---- Aggregazione attività per il giorno selezionato ----
-  const { urgenti, inCorso, programmate } = useMemo(() => {
-    // Interventi: tutti gli aperti/in corso compaiono su ogni giorno dell'agenda,
-    // indipendentemente dalla data di segnalazione. Rappresentano lavoro ancora
-    // pendente: non ha senso farli sparire navigando verso un giorno futuro.
-    const ivGiorno = interventi.filter(iv => {
-      if (iv.tipologia === 'carrozzina') return false;
-      if (iv.stato === 'Chiuso' || iv.stato === 'Annullato') return false;
-      return true;
-    });
-
-    // Manutenzioni con prossimaScadenza === giorno selezionato
-    const manGiorno = manutenzioni.filter(m => m.prossimaScadenza === selectedISO);
-
-    const selDow = new Date(selectedISO + 'T00:00:00').getDay(); // 0=Dom … 6=Sab
-    const ricGiorno = ricorrenti.filter(r => {
-      // Caso 1: scadenza esatta → sempre visibile
-      if (r.prossimaScadenza === selectedISO) return true;
-
-      const giorniArr = Array.isArray(r.giorni) && r.giorni.length > 0 ? r.giorni : null;
-
-      // Caso 2: Giornaliera → appare ogni giorno dell'agenda
-      // Se giorni sono configurati, appare solo nei giorni selezionati
-      if (r.frequenza === 'Giornaliera') {
-        if (giorniArr) return giorniArr.some(g => Number(g) === selDow);
-        return true; // nessuna restrizione → ogni giorno
-      }
-
-      // Caso 3: Settimanale/bi-tri-settimanale → appare nel giorno-settimana corretto
-      // Usa il giorno della settimana di prossimaScadenza come riferimento
-      if (['Settimanale', 'Ogni 2 settimane', 'Ogni 3 settimane'].includes(r.frequenza)) {
-        if (giorniArr) return giorniArr.some(g => Number(g) === selDow);
-        const ref = r.prossimaScadenza || r.ultimaEsecuzione;
-        if (ref) return new Date(ref + 'T00:00:00').getDay() === selDow;
-      }
-
-      return false;
-    });
-
-    const urgentiList = ivGiorno.filter(iv => iv.priorita === 'Alta' || iv.priorita === 'Urgente');
-    const inCorsoList = ivGiorno.filter(iv => iv.priorita !== 'Alta' && iv.priorita !== 'Urgente');
-    const programmateList = [
-      ...manGiorno.map(m => ({ ...m, _tipo: 'manutenzione' })),
-      ...ricGiorno.map(r => ({ ...r, _tipo: 'ricorrente' })),
-    ];
-
-    return { urgenti: urgentiList, inCorso: inCorsoList, programmate: programmateList };
-  }, [interventi, manutenzioni, ricorrenti, selectedISO, oggiISO]);
-
-  const nessuna = urgenti.length + inCorso.length + programmate.length === 0;
-
-  // ---- Rendering helpers ----
-  function DayBtn({ giorno, mini }) {
-    const isSelected = giorno.iso === selectedISO;
-    const isSun = giorno.dow === 0;
-    const isOggiBtn = giorno.iso === oggiISO;
-    const textColor = isSun ? STR_COLORS.danger : (isSelected ? '#fff' : STR_COLORS.ink);
-    return (
-      <button onClick={() => setSelectedISO(giorno.iso)} style={{
-        flex:1, padding: mini ? '10px 4px' : '14px 4px',
-        borderRadius: 12, border: 'none',
-        background: isSelected ? STR_COLORS.primary : STR_COLORS.surface,
-        cursor: 'pointer', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-        boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
-      }}>
-        <span style={{ fontSize: mini ? 10 : 11, fontWeight: 700, letterSpacing: '0.05em', color: isSelected ? 'rgba(255,255,255,0.8)' : STR_COLORS.muted }}>
-          {AGENDA_GIORNO_ABBR[giorno.dow]}
-        </span>
-        <span style={{ fontSize: mini ? 15 : 18, fontWeight: 800, color: textColor, lineHeight: 1 }}>
-          {giorno.giorno}
-        </span>
-        {isOggiBtn && (
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: isSelected ? 'rgba(255,255,255,0.7)' : STR_COLORS.primary, marginTop: 1 }}>
-            OGGI
-          </span>
-        )}
-      </button>
-    );
-  }
-
-  function CardIntervento({ iv }) {
-    const prioritaStyle = STR_PRIORITA_STYLE[iv.priorita] || STR_PRIORITA_STYLE.Media;
-    const statoStyle = STR_STATO_INTERVENTO_STYLE[iv.stato] || {};
-    return (
-      <button onClick={() => onOpenIntervento && onOpenIntervento(iv)}
-        style={{ width:'100%', textAlign:'left', background: STR_COLORS.surface, border:`1px solid ${STR_COLORS.line}`, borderRadius:12, padding:'12px 14px', marginBottom:8, cursor:'pointer' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-          <div style={{ minWidth:0, flex:1 }}>
-            <div style={{ fontWeight:700, fontSize:13.5, color:STR_COLORS.ink, marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {iv.descrizione || '—'}
-            </div>
-            {iv.cameraZona && <div style={{ fontSize:12, color:STR_COLORS.muted }}>{iv.cameraZona}</div>}
-            {iv.tecnico && <div style={{ fontSize:11.5, color:STR_COLORS.muted, marginTop:2 }}>👤 {iv.tecnico}</div>}
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:4, alignItems:'flex-end', flexShrink:0 }}>
-            {iv.priorita && <span style={{ fontSize:10, fontWeight:700, background:prioritaStyle.bg, color:prioritaStyle.fg, padding:'2px 7px', borderRadius:999 }}>{iv.priorita}</span>}
-            {iv.stato && <span style={{ fontSize:10, fontWeight:700, background:statoStyle.bg, color:statoStyle.fg, padding:'2px 7px', borderRadius:999 }}>{iv.stato}</span>}
-          </div>
-        </div>
-      </button>
-    );
-  }
-
-  function CardProgrammata({ item }) {
-    const isProg = item._tipo === 'manutenzione' || item._tipo === 'ricorrente';
-    return (
-      <button onClick={() => item._tipo === 'ricorrente' ? (onOpenRicorrente && onOpenRicorrente(item)) : (onOpenManutenzione && onOpenManutenzione(item))}
-        style={{ width:'100%', textAlign:'left', background: STR_COLORS.surface, border:`1px solid ${STR_COLORS.line}`, borderRadius:12, padding:'12px 14px', marginBottom:8, cursor:'pointer' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-          <div style={{ minWidth:0, flex:1 }}>
-            <div style={{ fontWeight:700, fontSize:13.5, color:STR_COLORS.ink, marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {item.descrizione || item.tipo || '—'}
-            </div>
-            {item.cameraZona && <div style={{ fontSize:12, color:STR_COLORS.muted }}>{item.cameraZona}</div>}
-            {item.tecnico && <div style={{ fontSize:11.5, color:STR_COLORS.muted, marginTop:2 }}>👤 {item.tecnico}</div>}
-            {item.frequenza && <div style={{ fontSize:11, color:STR_COLORS.muted, marginTop:2 }}>🔁 {item.frequenza}</div>}
-          </div>
-          <div style={{ flexShrink:0 }}>
-            <span style={{ fontSize:10, fontWeight:700, background:STR_COLORS.bg, color:STR_COLORS.muted, padding:'2px 7px', borderRadius:999 }}>
-              {item._tipo === 'ricorrente' ? 'Ricorrente' : 'Manutenzione'}
-            </span>
-          </div>
-        </div>
-      </button>
-    );
-  }
-
-  function Sezione({ titolo, colore, children, count }) {
-    if (count === 0) return null;
-    return (
-      <div style={{ marginBottom:18 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
-          <span style={{ width:10, height:10, borderRadius:999, background:colore, flexShrink:0 }} />
-          <span style={{ fontFamily:"'Archivo', sans-serif", fontWeight:800, fontSize:11.5, textTransform:'uppercase', letterSpacing:'0.06em', color:STR_COLORS.ink }}>{titolo}</span>
-          <span style={{ fontSize:11, color:STR_COLORS.muted }}>({count})</span>
-        </div>
-        {children}
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${urgenti.length + inCorso.length + programmate.length} attività`} onBack={onHome} backIcon={Home} />
-
-      {/* Testata: giorno selezionato a piena larghezza */}
-      <div style={{ padding:'14px 14px 0', display:'flex', flexDirection:'column', gap:8 }}>
-
-        {/* Riga 1: oggi a piena larghezza */}
-        <DayBtn giorno={sette[0]} mini={false} />
-
-        {/* Riga 2: +1 +2 +3 */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-          {sette.slice(1,4).map(g => <DayBtn key={g.iso} giorno={g} mini />)}
-        </div>
-
-        {/* Riga 3: +4 +5 +6 */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-          {sette.slice(4,7).map(g => <DayBtn key={g.iso} giorno={g} mini />)}
-        </div>
-      </div>
-
-      {/* Attività del giorno */}
-      <div style={{ padding:14 }}>
-        <div style={{ fontFamily:"'Archivo', sans-serif", fontWeight:700, fontSize:13, color:STR_COLORS.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:14, borderBottom:`1px solid ${STR_COLORS.line}`, paddingBottom:8 }}>
-          Attività del {fmtDate(selectedISO)}
-        </div>
-
-        {nessuna ? (
-          <div style={{ textAlign:'center', padding:'30px 0', color:STR_COLORS.muted }}>
-            <div style={{ fontSize:32, marginBottom:10 }}>✅</div>
-            <div style={{ fontSize:14, fontWeight:600 }}>Nessuna attività programmata</div>
-            <div style={{ fontSize:12, marginTop:4 }}>Tutto libero per questo giorno.</div>
-          </div>
-        ) : (
-          <>
-            <Sezione titolo="Urgenti" colore={STR_COLORS.danger} count={urgenti.length}>
-              {urgenti.map(iv => <CardIntervento key={iv.id} iv={iv} />)}
-            </Sezione>
-            <Sezione titolo="In corso / Da completare" colore={STR_COLORS.amber} count={inCorso.length}>
-              {inCorso.map(iv => <CardIntervento key={iv.id} iv={iv} />)}
-            </Sezione>
-            <Sezione titolo="Programmate" colore={STR_COLORS.info} count={programmate.length}>
-              {programmate.map(item => <CardProgrammata key={item.id} item={item} />)}
-            </Sezione>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
 function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   const camereT = useSupaTable('camere', 'codice', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
@@ -6111,11 +5920,10 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
   const manutenzioniT = useSupaTable('manutenzioni', 'id', S_MANUTENZIONI, ['ultimaEsecuzione', 'prossimaScadenza']);
   const costiT = useSupaTable('costi', 'id', S_COSTI, ['data']);
-  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const camere = camereT.rows, reparti = repartiT.rows, tecnici = tecniciT.rows;
   const interventi = interventiT.rows, manutenzioni = manutenzioniT.rows, costi = costiT.rows;
-  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready && ricT.ready;
-  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error || ricT.error;
+  const ready = camereT.ready && repartiT.ready && tecniciT.ready && interventiT.ready && manutenzioniT.ready && costiT.ready;
+  const dataError = camereT.error || repartiT.error || tecniciT.error || interventiT.error || manutenzioniT.error || costiT.error;
   const { nomeVisualizzato, hasPermission, isAdmin } = usePermessi();
   const tabConsentito = (key) => hasPermission(STRUTTURA_TAB_PERMESSI[key]);
   const navItemsConsentiti = STR_NAV_ITEMS.filter(([key]) => tabConsentito(key));
@@ -6377,18 +6185,6 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: STR_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
     );
-  } else if (tab === 'agenda') {
-    content = (
-      <AgendaStrScreen
-        interventi={interventi.filter(i => i.tipologia !== 'carrozzina')}
-        manutenzioni={manutenzioni}
-        ricorrenti={ricT.rows}
-        onHome={onHome}
-        onOpenIntervento={iv => navigaDaAgenda('interventi', { name: 'edit', i: iv })}
-        onOpenManutenzione={m => navigaDaAgenda('scadenze', { name: 'edit', m })}
-        onOpenRicorrente={r => onOpenModulo && onOpenModulo('procedure', { tipo: 'ricorrente', link_id: r.id })}
-      />
-    );
   } else if (tab === 'camere') {
     if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
@@ -6465,7 +6261,6 @@ const PROC_COLORS = {
 const PROC_TIPOLOGIE = ['Idraulico','Elettrico','Muratura/Edile','Climatizzazione','Antincendio','Informatica','Sicurezza','Generale'];
 const PROC_FREQUENZE = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane','Mensile','Bimestrale','Trimestrale','Semestrale','Annuale'];
 const PROC_UNITA = ['pz','kg','lt','m','conf','scatola','rotolo','pacco'];
-const FREQ_GIORNI = { Giornaliera:1, Settimanale:7, Mensile:30, Trimestrale:90, Semestrale:180, Annuale:365 };
 
 const PROC_STATI = ['Attiva', 'In revisione', 'Obsoleta'];
 const PROC_STATO_STYLE = {
@@ -7216,6 +7011,11 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   // Modulo di origine e ambito: per gli ausili l'ambito e' il nucleo (o "Tutti").
   const [modulo, setModulo] = useState(initial?.modulo || 'Struttura');
   const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
+  // Piani e nuclei della struttura: letti dalle camere (stessa sorgente della scheda Camere).
+  const camereT = useSupaTable('camere', 'codice', [], []);
+  const pianiCamere = [...new Set((camereT.rows || []).map(c => c.piano).filter(Boolean))].sort();
+  const nucleiCamere = [...new Set((camereT.rows || []).map(c => c.nucleo).filter(Boolean))].sort();
+  const veicoliT = useSupaTable('vehicles', 'id', [], []);
 
   const mostraGiorni = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane'].includes(f.frequenza);
   const GIORNI_LABEL = ['D','L','M','M','G','V','S'];
@@ -7243,7 +7043,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   }
 
   function handleSave() {
-    const record = { ...f, giorni: [...giorni], modulo, ambito: modulo === 'Ausili' ? ambito : 'Tutti' };
+    const record = { ...f, giorni: [...giorni], modulo, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7283,6 +7083,19 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
+        )}
+        {modulo === 'Mezzi' && (
+          <PROC_Field label="Ambito (mezzi)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
+            <option value="Tutti">Tutti i mezzi</option>
+            {(veicoliT.rows || []).map(v => <option key={'mezzo:' + v.id} value={'mezzo:' + v.id}>{v.targa}{v.marca ? ` · ${v.marca} ${v.modello || ''}` : ''}</option>)}
+          </select></PROC_Field>
+        )}
+        {modulo === 'Struttura' && (
+          <PROC_Field label="Ambito (struttura)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
+            <option value="Tutti">Tutta la struttura</option>
+            {pianiCamere.map(p => <option key={'piano:' + p} value={'piano:' + p}>Piano {p}</option>)}
+            {nucleiCamere.map(n => <option key={'nucleo:' + n} value={'nucleo:' + n}>Nucleo {n}</option>)}
+          </select></PROC_Field>
         )}
         <PROC_Field label="Descrizione"><textarea style={{ ...procInputStyle, minHeight:70, resize:'vertical' }} value={f.descrizione||''} onChange={set('descrizione')} /></PROC_Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
@@ -7988,6 +7801,30 @@ function AgendaModule({ onHome, onOpenModule }) {
   const ricorrentiT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const maintsT = useSupaTable('maints', 'id', [], ['data']);
   const carrozzineT = useSupaTable('carrozzine', 'id', [], ['data']);
+  // Checklist ausili: quale attivita' ha la checklist aperta.
+  const [checklistAperta, setChecklistAperta] = useState(null);
+  // Ausili che rientrano nell'ambito di una procedura (tutti, oppure un nucleo).
+  const ausiliDellAmbito = (rec) => (carrozzineT.rows || []).filter(w => !rec.ambito || rec.ambito === 'Tutti' || w.nucleo === rec.ambito);
+  // Spunta/togli un ausilio. Quando sono spuntati tutti, la procedura risulta eseguita
+  // e la prossima scadenza viene calcolata come per "Segna come eseguita".
+  const toggleAusilio = async (rec, ausilioId) => {
+    const { _source, _date, _kind, ...pulito } = rec;
+    const fatti = new Set((rec.completati || []).map(String));
+    if (fatti.has(ausilioId)) fatti.delete(ausilioId); else fatti.add(ausilioId);
+    const ids = ausiliDellAmbito(rec).map(w => String(w.id));
+    const tuttiFatti = ids.length > 0 && ids.every(id => fatti.has(id));
+    if (tuttiFatti) {
+      const oggiLocale = todayISO();
+      const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni);
+      const { error } = await ricorrentiT.save({ ...pulito, completati: [], ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
+      if (error) window.alert('Errore: ' + error.message);
+    } else {
+      const { error } = await ricorrentiT.save({ ...pulito, completati: [...fatti] });
+      if (error) window.alert('Errore: ' + error.message);
+    }
+  };
+  const camereT = useSupaTable('camere', 'codice', [], []);
+  const veicoliAgendaT = useSupaTable('vehicles', 'id', [], []);
 
   const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
   const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
@@ -8048,8 +7885,22 @@ function AgendaModule({ onHome, onOpenModule }) {
     const ausiliN = a._kind === 'ricorrente' && a.modulo === 'Ausili'
       ? (carrozzineT.rows || []).filter(w => !a.ambito || a.ambito === 'Tutti' || w.nucleo === a.ambito).length
       : null;
+    // Struttura: conteggio delle camere attive nell'ambito (tutta la struttura, un piano o un nucleo)
+    const struttN = a._kind === 'ricorrente' && a.modulo === 'Struttura'
+      ? (camereT.rows || []).filter(c => (c.stato || 'Attiva') === 'Attiva' && (
+          !a.ambito || a.ambito === 'Tutti' ||
+          (a.ambito.startsWith('piano:') ? c.piano === a.ambito.slice(6) : (a.ambito.startsWith('nucleo:') ? c.nucleo === a.ambito.slice(7) : true))
+        )).length
+      : null;
+    const struttLabel = a.ambito && a.ambito.startsWith('piano:') ? `Piano ${a.ambito.slice(6)}`
+      : (a.ambito && a.ambito.startsWith('nucleo:') ? `Nucleo ${a.ambito.slice(7)}` : 'Tutta la struttura');
+    const mezziN = a._kind === 'ricorrente' && a.modulo === 'Mezzi'
+      ? (a.ambito && a.ambito.startsWith('mezzo:') ? 1 : (veicoliAgendaT.rows || []).length) : null;
+    const mezziLabel = a.ambito && a.ambito.startsWith('mezzo:')
+      ? ((veicoliAgendaT.rows || []).find(v => v.id === a.ambito.slice(6))?.targa || 'Mezzo') : 'Tutti i mezzi';
     const dateText = a._kind === 'ricorrente'
-      ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili` : 'Ricorrente')
+      ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili`
+          : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
     const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione') && a._date && a._date < oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
@@ -8062,6 +7913,33 @@ function AgendaModule({ onHome, onOpenModule }) {
         </div>
         {a.priorita && <span style={{fontSize:10,fontWeight:700,background:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).bg,color:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).fg,padding:'2px 7px',borderRadius:999,flexShrink:0}}>{a.priorita}</span>}
       </div>
+      {a._kind === 'ricorrente' && a.modulo === 'Ausili' && (() => {
+        const ausili = ausiliDellAmbito(a);
+        const fatti = new Set((a.completati || []).map(String));
+        const aperta = checklistAperta === a.id;
+        return (
+          <div onClick={(e) => e.stopPropagation()} style={{marginTop:10}}>
+            <button type="button" onClick={(e) => { e.stopPropagation(); setChecklistAperta(aperta ? null : a.id); }} style={{width:'100%',background:'#F2EEF8',color:'#3D2466',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>
+              Checklist ausili · {ausili.filter(w => fatti.has(String(w.id))).length}/{ausili.length} {aperta ? '▲' : '▼'}
+            </button>
+            {aperta && (
+              <div style={{marginTop:8,display:'flex',flexDirection:'column',gap:4}}>
+                {ausili.length === 0 && <div style={{fontSize:12,color:STR_COLORS.muted}}>Nessun ausilio in questo ambito.</div>}
+                {ausili.map(w => {
+                  const id = String(w.id);
+                  const fatto = fatti.has(id);
+                  return (
+                    <label key={id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 4px',fontSize:13,cursor:'pointer'}}>
+                      <input type="checkbox" checked={fatto} onChange={() => toggleAusilio(a, id)} style={{width:18,height:18}} />
+                      <span style={{textDecoration: fatto ? 'line-through' : 'none', color: fatto ? STR_COLORS.muted : STR_COLORS.ink}}>{fmtCarrozzinaId(w.id)} · {labelOf(w)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {puoSegnare && <button type="button" onClick={(e) => { e.stopPropagation(); segnaManutenzioneEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>}
     </div>;
   }
@@ -8121,12 +7999,12 @@ const MODULES = [
   },
   {
     key: 'carrozzine',
-    name: 'Carrozzine',
+    name: 'Ausili',
     desc: 'Inventario, nuclei e controlli componenti',
     icon: Armchair,
     color: '#33594E',
     colorSoft: '#DCEAE3',
-    stat: (d) => `${d.carrozzine.length} carrozzine`,
+    stat: (d) => `${d.carrozzine.length} ausili`,
   },
   {
     key: 'struttura',
