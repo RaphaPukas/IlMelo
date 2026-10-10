@@ -2604,8 +2604,9 @@ function VehicleForm({ initial, onSave, onCancel }) {
 }
 
 /* ---------- Maintenance ---------- */
-function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome }) {
+function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, onComplete }) {
   const [tabM, setTabM] = useState('programmati');
+  const [confermaId, setConfermaId] = useState(null);
   const vOf = (targa) => vehicles.find(v => v.targa === targa);
 
   const programmati = [...maints]
@@ -2658,6 +2659,21 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome })
                   <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}</div>
                 </div>
               </div>
+              {onComplete && tabM === 'programmati' && (
+                <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}`, paddingTop: 10 }}>
+                  {confermaId !== m.id ? (
+                    <button type="button" onClick={() => setConfermaId(m.id)} style={{ width: '100%', padding: 9, borderRadius: 10, border: 'none', background: '#E7F4EC', color: '#1F6B45', fontWeight: 700, fontSize: 12.5 }}>✓ Segna come completato</button>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Confermi: intervento completato?</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" onClick={() => setConfermaId(null)} style={{ flex: 1, padding: 9, borderRadius: 10, border: `1.5px solid ${MEZZI_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Annulla</button>
+                        <button type="button" onClick={() => { setConfermaId(null); onComplete(m); }} style={{ flex: 1, padding: 9, borderRadius: 10, border: 'none', background: '#1F6B45', color: '#fff', fontWeight: 700 }}>Sì, completato</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </Card>
           ))}
         </div>
@@ -3199,13 +3215,13 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
-    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
       content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
     } else {
       const segnalazioni = [...maints]
-        .filter(m => m.tipo === 'Segnalazione anomalia')
+        .filter(m => m.tipo === 'Segnalazione anomalia' && m.stato !== 'Completato')
         .sort((a, b) => ({ Alta: 0, Media: 1, Bassa: 2 }[a.priorita] ?? 1) - ({ Alta: 0, Media: 1, Bassa: 2 }[b.priorita] ?? 1));
       content = (
         <div style={{ minHeight: '100vh', background: MEZZI_COLORS.bg }}>
