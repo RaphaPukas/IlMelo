@@ -2993,6 +2993,49 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 }
 
 /* ---------- Root ---------- */
+/* ---- Procedure ricorrenti per modulo (scheda Scadenze / Controlli) ---- */
+function ControlliRicorrenti({ modulo, theme }) {
+  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  const rows = (ricT.rows || [])
+    .filter(r => (r.modulo || 'Struttura') === modulo)
+    .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
+  const surface = theme.surface || '#FFFFFF';
+  const line = theme.line || '#E2E0D2';
+  const ink = theme.ink || '#212823';
+  const muted = theme.muted || '#6E7972';
+  const stato = (r) => {
+    const g = daysUntil(r.prossimaScadenza);
+    if (g == null) return { label: 'Nessuna scadenza', bg: '#EAE7DC', fg: '#6E7972' };
+    if (g < 0) return { label: 'Scaduta', bg: '#FDECEA', fg: '#B71C1C' };
+    if (g <= 7) return { label: 'In scadenza', bg: '#FBE3C7', fg: '#B15C00' };
+    return { label: 'Programmata', bg: '#DCE8F0', fg: '#1E4D73' };
+  };
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '0.06em', color: ink, marginBottom: 8 }}>
+        Procedure ricorrenti ({rows.length})
+      </div>
+      {ricT.ready && rows.length === 0 && <div style={{ fontSize: 12.5, color: muted }}>Nessuna procedura ricorrente per questo modulo.</div>}
+      {rows.map(r => {
+        const s = stato(r);
+        const ambito = modulo === 'Ausili' ? (r.ambito && r.ambito !== 'Tutti' ? `Nucleo ${r.ambito}` : 'Tutti gli ausili') : null;
+        return (
+          <div key={r.id} style={{ background: surface, border: `1px solid ${line}`, borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: ink }}>{r.titolo || 'Senza titolo'}</div>
+                <div style={{ fontSize: 11.5, color: muted, marginTop: 2 }}>{r.frequenza || '—'}{ambito ? ` · ${ambito}` : ''}</div>
+                <div style={{ fontSize: 11.5, color: muted, marginTop: 2 }}>Ultima: {fmtDate(r.ultimaEsecuzione)} · Prossima: {fmtDate(r.prossimaScadenza)}</div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, background: s.bg, color: s.fg, padding: '2px 7px', borderRadius: 999, flexShrink: 0 }}>{s.label}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MezziModule({ onHome, initialNotification }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
@@ -3190,7 +3233,10 @@ function MezziModule({ onHome, initialNotification }) {
       );
     }
   } else if (tab === 'scadenze') {
-    content = <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    content = (<>
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />
+      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Mezzi" theme={MEZZI_COLORS} /></div>
+    </>);
   } else {
     content = <DashboardScreen vehicles={vehicles} maints={maints} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   }
@@ -3676,6 +3722,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
             {!controlliReady && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, padding: '6px 2px 20px' }}>Caricamento controlli…</div>}
             {nessunControllo && <Empty theme={CARROZZINE_COLORS} icon={ClipboardList} text="Nessun controllo periodico programmato." />}
 
+            <ControlliRicorrenti modulo="Ausili" theme={CARROZZINE_COLORS} />
             <Gruppo titolo="Scaduti" colore={CONTROLLO_ACCENT.scaduto} rows={scaduti} />
             <Gruppo titolo="In scadenza" colore={CONTROLLO_ACCENT.in_scadenza} rows={inScadenza} />
             <Gruppo titolo="Programmati" colore={CONTROLLO_ACCENT.programmato} rows={programmati} />
@@ -6355,7 +6402,10 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
-    else content = <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />;
+    else content = (<>
+      <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />
+      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Struttura" theme={STR_COLORS} /></div>
+    </>);
   } else if (tab === 'reparti') {
     if (view.name === 'add') content = <RepartoForm reparti={reparti} onSave={saveReparto} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RepartoForm reparti={reparti} initial={view.r} onSave={saveReparto} onCancel={() => goBack()} onDelete={deleteReparto} />;
