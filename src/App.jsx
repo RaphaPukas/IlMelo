@@ -7868,7 +7868,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   const attivitaRitardo = useMemo(() => tutteAttivita
     .filter(a => attivitaVisibile(a, isAdmin, hasPermission))
     .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO)
-    .sort((x, y) => (x._date || '').localeCompare(y._date || '')),
+    .sort((x, y) => (((x.priorita === 'Alta' || x.priorita === 'Urgente') ? 0 : 1) - ((y.priorita === 'Alta' || y.priorita === 'Urgente') ? 0 : 1)) || (x._date || '').localeCompare(y._date || '')),
   [tutteAttivita, isAdmin, hasPermission, oggiISO]);
   const attivitaGiorno = useMemo(() => selectedISO === '__ritardo__'
     ? attivitaRitardo
@@ -8424,7 +8424,14 @@ export default function ManutenzioneApp() {
     const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
     const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
-    return { totale: giorno.length, alta: giorno.filter(a => a.priorita === 'Alta' || a.priorita === 'Urgente').length, ritardo };
+    // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
+    // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
+    const aperte = visibili.filter(a => a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo');
+    const isUrg = (a) => a.priorita === 'Alta' || a.priorita === 'Urgente';
+    const isRit = (a) => !!(a._date && a._date < oggi);
+    const urgenti = giorno.filter(isUrg).length + aperte.filter(a => isRit(a) && isUrg(a)).length;
+    const soloRitardo = aperte.filter(a => isRit(a) && !isUrg(a)).length;
+    return { totale: giorno.length, alta: urgenti, ritardo: soloRitardo };
   }, [agendaRows, permessi, profile]);
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
