@@ -7839,6 +7839,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   const [checklistAperta, setChecklistAperta] = useState(null);
   // Avvisi dentro l'app (al posto dei pop-up del browser)
   const [avviso, setAvviso] = useState('');
+  useEffect(() => { if (!avviso) return undefined; const t = setTimeout(() => setAvviso(''), 2600); return () => clearTimeout(t); }, [avviso]);
   const [scopeExport, setScopeExport] = useState('giorno');
   // Ausili che rientrano nell'ambito di una procedura (tutti, oppure un nucleo).
   const ausiliDellAmbito = (rec) => (carrozzineT.rows || []).filter(w => !rec.ambito || rec.ambito === 'Tutti' || w.nucleo === rec.ambito);
@@ -7883,7 +7884,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   // Attivita' in ritardo: interventi, manutenzioni e anomalie mezzi con data passata, non ancora chiusi.
   const attivitaRitardo = useMemo(() => tutteAttivita
     .filter(a => attivitaVisibile(a, isAdmin, hasPermission))
-    .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO)
+    .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO)
     .sort((x, y) => (((x.priorita === 'Alta' || x.priorita === 'Urgente') ? 0 : 1) - ((y.priorita === 'Alta' || y.priorita === 'Urgente') ? 0 : 1)) || (x._date || '').localeCompare(y._date || '')),
   [tutteAttivita, isAdmin, hasPermission, oggiISO]);
   const attivitaGiorno = useMemo(() => selectedISO === '__ritardo__'
@@ -7984,7 +7985,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     const prossima = (!a.frequenza || a.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, a.frequenza);
     const { _source, _date, _kind, ...pulito } = a;
     const { error } = await manutenzioniT.save({ ...pulito, ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
-    if (error) setAvviso('Errore: ' + error.message);
+    if (error) setAvviso('Errore: ' + error.message); else setAvviso('Attività segnata come eseguita');
   };
 
   function ActivityCard({ a }) {
@@ -8009,14 +8010,15 @@ function AgendaModule({ onHome, onOpenModule }) {
       ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili`
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
-    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggiISO;
+    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
     return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
         <div style={{minWidth:0,flex:1}}>
           <div style={{fontWeight:700,fontSize:13.5,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</div>
           <div style={{fontSize:11.5,color:STR_COLORS.muted}}>{sourceIcon[a._source] || '•'} {sourceLabel[a._source] || a._source} · {dateText}{!a._date && a._kind !== 'ricorrente' && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#E8E5DC',color:'#79715F',padding:'1px 6px',borderRadius:999}}>Senza data</span>}{inRitardo && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#FDECEA',color:'#B71C1C',padding:'1px 6px',borderRadius:999}}>In ritardo · da eseguire</span>}</div>
-          {(a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile) && <div style={{fontSize:11.5,color:STR_COLORS.muted,marginTop:2}}>{a.cameraZona || a.targa || a.officina || a.tecnico || a.responsabile}</div>}
+          {(a.cameraZona || a.targa || a.officina) && <div style={{fontSize:11.5,color:STR_COLORS.muted,marginTop:2}}>{a.cameraZona || a.targa || a.officina}</div>}
+          {(a.tecnico || a.responsabile) && <div style={{fontSize:12.5,fontWeight:700,color:STR_COLORS.ink,marginTop:4}}>👤 {a.tecnico || a.responsabile}</div>}
         </div>
         {a.priorita && <span style={{fontSize:10,fontWeight:700,background:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).bg,color:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).fg,padding:'2px 7px',borderRadius:999,flexShrink:0}}>{a.priorita}</span>}
       </div>
@@ -8060,7 +8062,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   return <div style={{minHeight:'100vh',background:STR_COLORS.bg,fontFamily:'Inter, sans-serif',color:STR_COLORS.ink,maxWidth:480,margin:'0 auto',position:'relative'}}>
     <style>{GLOBAL_FONTS}</style>
     <TopBar theme={STR_COLORS} title="Agenda" subtitle={`${AGENDA_GIORNO_ABBR[sel.dow]} ${sel.giorno} — ${attivitaGiorno.length} attività · v2`} onBack={onHome} backIcon={Home} />
-      {avviso && <div onClick={() => setAvviso('')} style={{margin:'10px 14px 0',background:'#FDECEA',color:'#B71C1C',borderRadius:10,padding:'10px 12px',fontSize:13,fontWeight:600}}>{avviso}</div>}
+      {avviso && <div onClick={() => setAvviso('')} style={{position:'fixed',bottom:92,left:'50%',transform:'translateX(-50%)',background:avviso.startsWith('Errore') ? '#B71C1C' : '#25454F',color:'#fff',padding:'11px 18px',borderRadius:999,fontSize:13,fontWeight:700,zIndex:40,maxWidth:360,textAlign:'center',boxShadow:'0 4px 14px rgba(0,0,0,.2)'}}>{avviso}</div>}
       <div style={{display:'flex',gap:8,alignItems:'center',padding:'10px 14px 0',flexWrap:'wrap'}}>
         <div style={{display:'flex',background:'#F2EEF8',borderRadius:999,padding:3}}>
           {[['giorno','Giorno'],['settimana','Settimana'],['ritardo','In ritardo']].map(([k,l]) => (
@@ -8442,7 +8444,7 @@ export default function ManutenzioneApp() {
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
     // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
     // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
-    const aperte = visibili.filter(a => a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo');
+    const aperte = visibili.filter(a => a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente');
     const isUrg = (a) => a.priorita === 'Alta' || a.priorita === 'Urgente';
     const isRit = (a) => !!(a._date && a._date < oggi);
     const urgenti = giorno.filter(isUrg).length + aperte.filter(a => isRit(a) && isUrg(a)).length;
