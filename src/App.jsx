@@ -8012,7 +8012,8 @@ function AgendaModule({ onHome, onOpenModule }) {
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
     const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO;
-    const fatta = (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === oggiISO;
+    // Eseguita solo nel giorno che si sta guardando: un'esecuzione di lunedi' non vale per martedi'.
+    const fatta = (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === selectedISO && selectedISO === oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
     return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:fatta?'#F3FAF6':STR_COLORS.surface,border:fatta?'2px solid #1F6B45':inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,opacity:fatta?0.85:1,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
