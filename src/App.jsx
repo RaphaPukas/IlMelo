@@ -7822,6 +7822,7 @@ function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
       if (a._kind === 'ricorrente' && ricorrenteAppareIl(a, selectedISO)) return true;
       // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
       // Intervento aperto con data passata: resta in agenda oggi finche' non viene chiuso.
+      if (oggi && (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === oggiISO) return true;
       return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
     }).sort((x, y) => (x._date ? 0 : 1) - (y._date ? 0 : 1));
 }
@@ -8011,18 +8012,20 @@ function AgendaModule({ onHome, onOpenModule }) {
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
     const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO;
+    const fatta = (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
-    return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:STR_COLORS.surface,border:inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
+    return <div role="button" onClick={() => apriAttivita(a)} style={{width:'100%',textAlign:'left',background:fatta?'#F3FAF6':STR_COLORS.surface,border:fatta?'2px solid #1F6B45':inRitardo?'2px solid #B71C1C':`1px solid ${STR_COLORS.line}`,opacity:fatta?0.85:1,borderRadius:12,padding:'12px 14px',marginBottom:8,cursor:'pointer',boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
         <div style={{minWidth:0,flex:1}}>
-          <div style={{fontWeight:700,fontSize:13.5,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</div>
+          <div style={{fontWeight:700,fontSize:13.5,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textDecoration:fatta?'line-through':'none',color:fatta?STR_COLORS.muted:STR_COLORS.ink}}>{fatta ? '✓ ' : ''}{title}</div>
           <div style={{fontSize:11.5,color:STR_COLORS.muted}}>{sourceIcon[a._source] || '•'} {sourceLabel[a._source] || a._source} · {dateText}{!a._date && a._kind !== 'ricorrente' && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#E8E5DC',color:'#79715F',padding:'1px 6px',borderRadius:999}}>Senza data</span>}{inRitardo && <span style={{marginLeft:6,fontSize:10,fontWeight:700,background:'#FDECEA',color:'#B71C1C',padding:'1px 6px',borderRadius:999}}>In ritardo · da eseguire</span>}</div>
           {(a.cameraZona || a.targa || a.officina) && <div style={{fontSize:11.5,color:STR_COLORS.muted,marginTop:2}}>{a.cameraZona || a.targa || a.officina}</div>}
           {(a.tecnico || a.responsabile) && <div style={{fontSize:12.5,fontWeight:700,color:STR_COLORS.ink,marginTop:4}}>👤 {a.tecnico || a.responsabile}</div>}
         </div>
         {a.priorita && <span style={{fontSize:10,fontWeight:700,background:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).bg,color:(STR_PRIORITA_STYLE[a.priorita]||STR_PRIORITA_STYLE.Media).fg,padding:'2px 7px',borderRadius:999,flexShrink:0}}>{a.priorita}</span>}
       </div>
-      {a._kind === 'ricorrente' && a.modulo === 'Ausili' && (() => {
+      {fatta && <div style={{marginTop:8,fontSize:12.5,fontWeight:700,color:'#1F6B45'}}>✓ Eseguita oggi</div>}
+      {a._kind === 'ricorrente' && a.modulo === 'Ausili' && !fatta && (() => {
         const ausili = ausiliDellAmbito(a);
         const fatti = new Set((a.completati || []).map(String));
         const aperta = checklistAperta === a.id;
@@ -8049,10 +8052,10 @@ function AgendaModule({ onHome, onOpenModule }) {
           </div>
         );
       })()}
-      {a._kind === 'ricorrente' && a.modulo !== 'Ausili' && (isAdmin || hasPermission('procedure.modifica')) && (
+      {a._kind === 'ricorrente' && a.modulo !== 'Ausili' && !fatta && (isAdmin || hasPermission('procedure.modifica')) && (
         <button type="button" onClick={(e) => { e.stopPropagation(); segnaRicorrenteEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>
       )}
-      {puoSegnare && <button type="button" onClick={(e) => { e.stopPropagation(); segnaManutenzioneEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>}
+      {puoSegnare && !fatta && <button type="button" onClick={(e) => { e.stopPropagation(); segnaManutenzioneEseguita(a); }} style={{marginTop:10,width:'100%',background:'#E7F4EC',color:'#1F6B45',border:'none',borderRadius:10,padding:'9px',fontWeight:700,fontSize:12.5,cursor:'pointer'}}>✓ Segna come eseguita</button>}
     </div>;
   }
 
@@ -8444,12 +8447,13 @@ export default function ManutenzioneApp() {
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
     // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
     // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
+    const giornoAperte = giorno.filter(a => !((a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === oggi));
     const aperte = visibili.filter(a => a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente');
     const isUrg = (a) => a.priorita === 'Alta' || a.priorita === 'Urgente';
     const isRit = (a) => !!(a._date && a._date < oggi);
-    const urgenti = giorno.filter(isUrg).length + aperte.filter(a => isRit(a) && isUrg(a)).length;
+    const urgenti = giornoAperte.filter(isUrg).length + aperte.filter(a => isRit(a) && isUrg(a)).length;
     const soloRitardo = aperte.filter(a => isRit(a) && !isUrg(a)).length;
-    return { totale: giorno.length, alta: urgenti, ritardo: soloRitardo };
+    return { totale: giornoAperte.length, alta: urgenti, ritardo: soloRitardo };
   }, [agendaRows, permessi, profile]);
   const notificheCtx = useNotifications(session?.user?.id || null, profile?.role || 'lettore');
 
