@@ -7105,6 +7105,34 @@ function RicorrentiScreen({ items, onOpen, onAdd, onHome, titolo }) {
   );
 }
 
+/* ---- Dettaglio di una ricorrenza: passi a checklist, esecuzioni, modifica ---- */
+function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
+  const { isAdmin, hasPermission } = usePermessi();
+  const puoModificare = isAdmin || hasPermission('procedure.modifica');
+  const ambito = !r.modulo || r.modulo === 'Generale' ? 'Generale' : `${r.modulo}${r.ambito && r.ambito !== 'Tutti' ? ' · ' + r.ambito : ''}`;
+  const senzaPassi = !(r.passi || '').trim();
+  return (
+    <>
+      <TopBar theme={PROC_COLORS} title={r.titolo || 'Procedura'} subtitle={`${r.tipo === 'Stagionale' ? 'Stagionale' : 'Ricorrente'} · ${r.frequenza || ''}`} onBack={onBack} backIcon={Home} />
+      <div style={{ padding:14 }}>
+        <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+          <InfoRow theme={PROC_COLORS} icon={Hash} label="Ambito" value={ambito} />
+          <InfoRow theme={PROC_COLORS} icon={CalendarClock} label="Ultima esecuzione" value={fmtDate(r.ultimaEsecuzione)} />
+          <InfoRow theme={PROC_COLORS} icon={CalendarClock} label="Prossima scadenza" value={fmtDate(r.prossimaScadenza)} />
+          {r.responsabile && <InfoRow theme={PROC_COLORS} icon={Hash} label="Responsabile" value={r.responsabile} />}
+        </Card>
+        {r.descrizione && <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:14, lineHeight:1.6 }}>{r.descrizione}</p></Card>}
+        {senzaPassi
+          ? <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:13, color:PROC_COLORS.muted }}>Nessun passo definito. Aggiungi i passi dal form di modifica per usare la checklist.</p></Card>
+          : <ChecklistPassi steps={r.passi} esecuzioni={r.esecuzioni || []} onSalva={onSalvaEsecuzioni} />}
+        {puoModificare && (
+          <button onClick={onEdit} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'13px', fontWeight:700, fontSize:15, marginTop:8 }}>Modifica procedura</button>
+        )}
+      </div>
+    </>
+  );
+}
+
 function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
@@ -7117,6 +7145,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   const [modulo, setModulo] = useState(initial?.modulo || (initial ? 'Struttura' : 'Generale'));
   // Tipo: Ordinaria (ricorrenze classiche) oppure Stagionale (cambio di stagione: semestrale o annuale).
   const [tipo, setTipo] = useState(initial?.tipo || tipoIniziale || 'Ordinaria');
+  const [passi, setPassi] = useState(initial?.passi || '');
   const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
   // Piani e nuclei della struttura: letti dalle camere (stessa sorgente della scheda Camere).
   const camereT = useSupaTable('camere', 'codice', [], []);
@@ -7150,7 +7179,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   }
 
   function handleSave() {
-    const record = { ...f, giorni: [...giorni], modulo, tipo, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
+    const record = { ...f, giorni: [...giorni], modulo, tipo, passi, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7206,6 +7235,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
           </select></PROC_Field>
         )}
         <PROC_Field label="Descrizione"><textarea style={{ ...procInputStyle, minHeight:70, resize:'vertical' }} value={f.descrizione||''} onChange={set('descrizione')} /></PROC_Field>
+        <PROC_Field label="Passi (uno per riga)"><textarea style={{ ...procInputStyle, minHeight:110, resize:'vertical' }} value={passi} onChange={e => setPassi(e.target.value)} placeholder={'1. Chiudere la valvola\n2. Aprire lo scarico\n3. Verificare la pressione'} /></PROC_Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <PROC_Field label="Ultima esecuzione"><input type="date" style={procInputStyle} value={f.ultimaEsecuzione||''} onChange={set('ultimaEsecuzione')} /></PROC_Field>
           <PROC_Field label="Prossima scadenza"><input type="date" style={procInputStyle} value={f.prossimaScadenza||''} onChange={set('prossimaScadenza')} /></PROC_Field>
@@ -7729,7 +7759,7 @@ function ProcedureModule({ onHome, initialNotification }) {
     const r = ricT.rows.find(x => x.id === key);
     if (!r) return;
     ricorrenteHandledRef.current = key;
-    setView({ name:'edit', r });
+    setView({ name:'detail', id: r.id });
   }, [initialNotification, ricT.ready, ricT.rows]);
 
   // Collegamento procedure <-> gruppi (tabella ponte, riusa i "gruppi" gia' esistenti nell'app).
@@ -7794,10 +7824,22 @@ function ProcedureModule({ onHome, initialNotification }) {
     flash('Eliminata');
     goBack();
   }
+  // Completare tutti i passi di una ricorrenza la registra come eseguita: aggiorna ultima e prossima scadenza.
+  async function salvaEsecuzioniRic(r, nuove) {
+    const prima = (r.esecuzioni || []).filter(e => e.completata).length;
+    const dopo = nuove.filter(e => e.completata).length;
+    const oggiLocale = todayISO();
+    const date = dopo > prima
+      ? { ultimaEsecuzione: oggiLocale, prossimaScadenza: (!r.frequenza || r.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, r.frequenza, r.giorni) }
+      : {};
+    const { error } = await ricT.save({ ...r, esecuzioni: nuove, ...date });
+    if (error) flash('Errore: ' + error.message);
+  }
   async function salva(tbl, record, msg) {
     if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
     const tableOf = { manutenzioni_ricorrenti: ricT };
-    const { error } = await tableOf[tbl].save(record);
+    const corrente = tbl === 'manutenzioni_ricorrenti' ? ricT.rows.find(x => x.id === record.id) : null;
+    const { error } = await tableOf[tbl].save(corrente ? { ...record, esecuzioni: corrente.esecuzioni ?? [] } : record);
     if (error) { flash('Errore: ' + error.message); return; }
     flash(msg); goBack();
   }
@@ -7833,9 +7875,13 @@ function ProcedureModule({ onHome, initialNotification }) {
   } else {
     const stagionali = tab === 'stagionali';
     const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : r.tipo !== 'Stagionale');
-    if (view.name === 'add') content = <RicorrenteForm tipoIniziale={stagionali ? 'Stagionale' : 'Ordinaria'} onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
+    if (view.name === 'detail') {
+      const rr = ricT.rows.find(x => x.id === view.id);
+      content = rr ? <RicorrenteDetail r={rr} onBack={() => goBack()} onEdit={() => setView({ name:'edit', r: rr })} onSalvaEsecuzioni={(nuove) => salvaEsecuzioniRic(rr, nuove)} /> : null;
+    }
+    else if (view.name === 'add') content = <RicorrenteForm tipoIniziale={stagionali ? 'Stagionale' : 'Ordinaria'} onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
-    else content = <RicorrentiScreen titolo={stagionali ? 'Procedure stagionali' : 'Manutenzioni ricorrenti'} items={listaRic} onOpen={r => setView({ name:'edit', r })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
+    else content = <RicorrentiScreen titolo={stagionali ? 'Procedure stagionali' : 'Manutenzioni ricorrenti'} items={listaRic} onOpen={r => setView({ name:'detail', id:r.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
   }
 
   return (
