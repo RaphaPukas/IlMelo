@@ -6302,6 +6302,7 @@ const PROC_STATO_STYLE = {
 const PROC_NAV_ITEMS = [
   ['procedure', BookOpen, 'Procedure'],
   ['ricorrenti', RefreshCw, 'Ricorrenti'],
+  ['stagionali', CalendarClock, 'Stagionali'],
 ];
 // Nel DB esistono solo questi due permessi per Procedure (nessun permesso
 // granulare per singola scheda procedure/ricorrenti).
@@ -6636,7 +6637,76 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
   );
 }
 
-function ProceduraDetail({ procedura, gruppiMap, onBack, onEdit, onDelete }) {
+/* ---- Checklist dei passi: spunte salvate sulla procedura (chi, quando) ---- */
+// Applica la spunta di un passo all'esecuzione in corso (o ne apre una nuova). Funzione pura.
+function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale) {
+  const lista = esecuzioni || [];
+  const aperta = lista.find(e => !e.completata);
+  const adesso = new Date();
+  const ora = String(adesso.getHours()).padStart(2, '0') + ':' + String(adesso.getMinutes()).padStart(2, '0');
+  if (!aperta) {
+    const completata = totale === 1;
+    return [...lista, { id: uid(), data: todayISO(), ora, esecutore: nome, passi: [i], completata, completataIl: completata ? adesso.toISOString() : null }];
+  }
+  const passi = aperta.passi.includes(i) ? aperta.passi.filter(x => x !== i) : [...aperta.passi, i];
+  const completata = passi.length === totale;
+  const nuova = { ...aperta, passi, completata, completataIl: completata ? adesso.toISOString() : null };
+  return lista.map(e => (e.id === aperta.id ? nuova : e));
+}
+
+function ChecklistPassi({ steps, esecuzioni, onSalva }) {
+  const { nomeVisualizzato } = usePermessi();
+  const items = (steps || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+  if (items.length === 0) return null;
+  const lista = esecuzioni || [];
+  const aperta = lista.find(e => !e.completata);
+  const fatti = aperta ? aperta.passi : [];
+  const fatte = fatti.length;
+  const tutte = fatte === items.length;
+  const ultime = lista.filter(e => e.completata)
+    .sort((x, y) => (y.completataIl || '').localeCompare(x.completataIl || ''))
+    .slice(0, 5);
+  const spunta = (i) => onSalva && onSalva(applicaSpuntaEsecuzione(lista, i, nomeVisualizzato, items.length));
+  const azzera = () => onSalva && onSalva(lista.filter(e => !aperta || e.id !== aperta.id));
+  return (
+    <>
+      <SectionLabel theme={PROC_COLORS}>Checklist ({fatte}/{items.length})</SectionLabel>
+      <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+        {aperta && (
+          <div style={{ fontSize:12, color:PROC_COLORS.muted, marginBottom:6 }}>
+            In corso · avviata da {aperta.esecutore} alle {aperta.ora} del {fmtDate(aperta.data)}
+          </div>
+        )}
+        {items.map((testo, i) => (
+          <label key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 2px', borderTop: i ? `1px solid ${PROC_COLORS.line}` : 'none', cursor:'pointer' }}>
+            <input type="checkbox" checked={fatti.includes(i)} onChange={() => spunta(i)} style={{ width:20, height:20, marginTop:2, accentColor:PROC_COLORS.primary, flexShrink:0 }} />
+            <span style={{ fontSize:14, lineHeight:1.5, textDecoration: fatti.includes(i) ? 'line-through' : 'none', color: fatti.includes(i) ? PROC_COLORS.muted : PROC_COLORS.ink }}>{testo}</span>
+          </label>
+        ))}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:`1px solid ${PROC_COLORS.line}` }}>
+          {tutte
+            ? <span style={{ fontSize:13, fontWeight:700, color:'#1F6B45' }}>✓ Tutti i passi completati</span>
+            : <span style={{ fontSize:12.5, color:PROC_COLORS.muted }}>{items.length - fatte} passi da completare</span>}
+          {fatte > 0 && <button type="button" onClick={azzera} style={{ background:'none', border:'none', color:PROC_COLORS.primary, fontWeight:700, fontSize:12.5 }}>Azzera</button>}
+        </div>
+      </Card>
+      {ultime.length > 0 && (
+        <>
+          <SectionLabel theme={PROC_COLORS}>Esecuzioni completate</SectionLabel>
+          <Card theme={PROC_COLORS} style={{ marginBottom:12 }}>
+            {ultime.map((e, i) => (
+              <div key={e.id} style={{ padding:'8px 2px', borderTop: i ? `1px solid ${PROC_COLORS.line}` : 'none', fontSize:13 }}>
+                ✓ Eseguita il {fmtDate(e.data)} alle {e.ora} da <b>{e.esecutore}</b>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+    </>
+  );
+}
+
+function ProceduraDetail({ procedura, gruppiMap, onBack, onEdit, onDelete, onSalvaEsecuzioni }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [urls, setUrls] = useState({});
@@ -6678,7 +6748,7 @@ function ProceduraDetail({ procedura, gruppiMap, onBack, onEdit, onDelete }) {
         )}
 
         {procedura.descrizione && <Card theme={PROC_COLORS} style={{ marginBottom:12 }}><p style={{ margin:0, fontSize:14, lineHeight:1.6 }}>{procedura.descrizione}</p></Card>}
-        {procedura.steps && (<><SectionLabel theme={PROC_COLORS}>Procedura passo-passo</SectionLabel><Card theme={PROC_COLORS} style={{ marginBottom:12 }}><pre style={{ margin:0, fontSize:13.5, lineHeight:1.7, fontFamily:'Inter, sans-serif', whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{procedura.steps}</pre></Card></>)}
+        <ChecklistPassi steps={procedura.steps} esecuzioni={procedura.esecuzioni || []} onSalva={onSalvaEsecuzioni} />
 
         {procedura.immagini?.length > 0 && (
           <>
@@ -7003,11 +7073,11 @@ function EsportaProcedureModal({ procedure, tipologieDisponibili, gruppiMap, onC
 }
 
 /* ---- Manutenzioni Ricorrenti ---- */
-function RicorrentiScreen({ items, onOpen, onAdd, onHome }) {
+function RicorrentiScreen({ items, onOpen, onAdd, onHome, titolo }) {
   const lista = [...items].map(r => ({ ...r, days: r.prossimaScadenza ? daysUntil(r.prossimaScadenza) : null })).sort((a,b) => (a.days??9999)-(b.days??9999));
   return (
     <>
-      <TopBar theme={PROC_COLORS} title="Manutenzioni ricorrenti" subtitle={`${items.length} attività`} onBack={onHome} backIcon={Home} />
+      <TopBar theme={PROC_COLORS} title={titolo || "Manutenzioni ricorrenti"} subtitle={`${items.length} attività`} onBack={onHome} backIcon={Home} />
       <div style={{ padding:14 }}>
         {lista.length === 0 && <Empty theme={PROC_COLORS} icon={RefreshCw} text="Nessuna manutenzione ricorrente." />}
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
@@ -7035,7 +7105,7 @@ function RicorrentiScreen({ items, onOpen, onAdd, onHome }) {
   );
 }
 
-function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
+function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
@@ -7044,7 +7114,9 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   // Visibili solo per frequenze giornaliere o settimanali.
   const [giorni, setGiorni] = useState(() => new Set(initial?.giorni || []));
   // Modulo di origine e ambito: per gli ausili l'ambito e' il nucleo (o "Tutti").
-  const [modulo, setModulo] = useState(initial?.modulo || 'Struttura');
+  const [modulo, setModulo] = useState(initial?.modulo || (initial ? 'Struttura' : 'Generale'));
+  // Tipo: Ordinaria (ricorrenze classiche) oppure Stagionale (cambio di stagione: semestrale o annuale).
+  const [tipo, setTipo] = useState(initial?.tipo || tipoIniziale || 'Ordinaria');
   const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
   // Piani e nuclei della struttura: letti dalle camere (stessa sorgente della scheda Camere).
   const camereT = useSupaTable('camere', 'codice', [], []);
@@ -7078,7 +7150,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
   }
 
   function handleSave() {
-    const record = { ...f, giorni: [...giorni], modulo, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
+    const record = { ...f, giorni: [...giorni], modulo, tipo, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7088,7 +7160,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
         <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{PROC_FREQUENZE.map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
@@ -7115,7 +7187,8 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete }) {
           </div>
         )}
 
-        <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
+        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); }}>{['Ordinaria','Stagionale'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
         )}
@@ -7696,7 +7769,8 @@ function ProcedureModule({ onHome, initialNotification }) {
 
   async function salvaProcedura({ record, gruppiIds }) {
     if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
-    const { error, data } = await procT.save(record);
+    const esistente = procT.rows.find(x => x.id === record.id);
+    const { error, data } = await procT.save({ ...record, esecuzioni: esistente?.esecuzioni ?? record.esecuzioni ?? [] });
     if (error) { flash('Errore: ' + error.message); return; }
     const proceduraId = data?.id || record.id;
     await supabase.from('procedure_gruppi').delete().eq('procedura_id', proceduraId);
@@ -7704,6 +7778,12 @@ function ProcedureModule({ onHome, initialNotification }) {
     setProcGruppi(prev => [...prev.filter(pg => pg.procedura_id !== proceduraId), ...gruppiIds.map(gid => ({ procedura_id: proceduraId, gruppo_id: gid }))]);
     flash('Procedura salvata');
     goBack();
+  }
+  // Salva le spunte/esecuzioni direttamente sulla procedura (non si perdono se esci o ricarichi).
+  async function salvaEsecuzioni(procedura, nuove) {
+    const { gruppi_ids, ...base } = procedura;
+    const { error } = await procT.save({ ...base, esecuzioni: nuove });
+    if (error) flash('Errore: ' + error.message);
   }
   async function eliminaProcedura(record) {
     if (!puoModificare) { flash('Non hai i permessi per modificare.'); return; }
@@ -7745,15 +7825,17 @@ function ProcedureModule({ onHome, initialNotification }) {
   if (tab === 'procedure') {
     if (view.name === 'detail') {
       const p = procedureVisibili.find(x => x.id === view.id) || procConGruppi.find(x => x.id === view.id);
-      content = p ? <ProceduraDetail procedura={p} gruppiMap={gruppiMap} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => eliminaProcedura(r)} /> : null;
+      content = p ? <ProceduraDetail procedura={p} gruppiMap={gruppiMap} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => eliminaProcedura(r)} onSalvaEsecuzioni={(nuove) => salvaEsecuzioni(p, nuove)} /> : null;
     }
     else if (view.name === 'add') content = <ProceduraForm tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} onSave={salvaProcedura} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ProceduraForm initial={view.p} tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} gruppiSelezionati={view.p.gruppi_ids} onSave={salvaProcedura} onCancel={() => goBack()} onDelete={r => eliminaProcedura(r)} />;
     else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
   } else {
-    if (view.name === 'add') content = <RicorrenteForm onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
+    const stagionali = tab === 'stagionali';
+    const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : r.tipo !== 'Stagionale');
+    if (view.name === 'add') content = <RicorrenteForm tipoIniziale={stagionali ? 'Stagionale' : 'Ordinaria'} onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
-    else content = <RicorrentiScreen items={ricT.rows} onOpen={r => setView({ name:'edit', r })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
+    else content = <RicorrentiScreen titolo={stagionali ? 'Procedure stagionali' : 'Manutenzioni ricorrenti'} items={listaRic} onOpen={r => setView({ name:'edit', r })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
   }
 
   return (
