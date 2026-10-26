@@ -3010,6 +3010,11 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 }
 
 /* ---------- Root ---------- */
+// Tipi di tagliando: ordinario (officina) e interno (controllo della manutenzione interna).
+function isTagliando(r) {
+  return !!r && ['Tagliando', 'Tagliando ordinario', 'Tagliandino interno'].includes(r.tipo);
+}
+
 // Stato di un'auto nel tagliando: fatto, in corso, da fare, in scadenza o in ritardo.
 function statoTagliandoAuto(r, esecuzioni, mezzoId) {
   const lista = (esecuzioni || []).filter(e => e.mezzo === mezzoId);
@@ -3062,7 +3067,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, theme }) {
         return (
           <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
             <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink }}>{t.titolo || 'Tagliando'}</div>
-            <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
+            <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.tipo || 'Tagliando'} · {t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
             {righe.map(({ v, s }) => {
               const k = t.id + ':' + v.id;
               const open = aperto === k;
@@ -3096,7 +3101,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, theme }) {
 /* ---- Procedure ricorrenti per modulo (scheda Scadenze / Controlli) ---- */
 function filtraRicorrenti(rows, modulo) {
   return (rows || [])
-    .filter(r => (r.modulo || 'Struttura') === modulo && r.tipo !== 'Tagliando')
+    .filter(r => (r.modulo || 'Struttura') === modulo && !isTagliando(r))
     .filter(r => { const g = daysUntil(r.prossimaScadenza); return g == null || g <= 45; })
     .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
 }
@@ -3355,7 +3360,7 @@ function MezziModule({ onHome, initialNotification }) {
     content = (<>
       <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />
       <div style={{ padding: '0 14px 14px' }}>
-        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Tagliando' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} theme={MEZZI_COLORS} />
+        <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
       </div>
     </>);
@@ -7278,8 +7283,8 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   }
 
   function handleSave() {
-    const modEff = tipo === 'Tagliando' ? 'Mezzi' : modulo;
-    const record = { ...f, giorni: [...giorni], modulo: modEff, tipo, passi, ambito: (tipo !== 'Tagliando' && (modEff === 'Ausili' || modEff === 'Struttura' || modEff === 'Mezzi')) ? ambito : 'Tutti' };
+    const modEff = isTagliando({ tipo }) ? 'Mezzi' : modulo;
+    const record = { ...f, giorni: [...giorni], modulo: modEff, tipo, passi, ambito: (!isTagliando({ tipo }) && (modEff === 'Ausili' || modEff === 'Struttura' || modEff === 'Mezzi')) ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7289,7 +7294,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
         <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Tagliando' ? ['Mensile','Trimestrale','Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Tagliando ordinario' ? ['Semestrale','Annuale'] : tipo === 'Tagliandino interno' ? ['Mensile','Trimestrale','Semestrale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
@@ -7316,7 +7321,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
           </div>
         )}
 
-        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando' && !['Mensile','Trimestrale','Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno' && !['Mensile','Trimestrale','Semestrale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando ordinario','Tagliandino interno'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
@@ -7974,7 +7979,7 @@ function ProcedureModule({ onHome, initialNotification }) {
     else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
   } else {
     const stagionali = tab === 'stagionali';
-    const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : !['Stagionale','Tagliando'].includes(r.tipo));
+    const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : (r.tipo !== 'Stagionale' && !isTagliando(r)));
     if (view.name === 'detail') {
       const rr = ricT.rows.find(x => x.id === view.id);
       content = rr ? <RicorrenteDetail r={rr} onBack={() => goBack()} onEdit={() => setView({ name:'edit', r: rr })} onSalvaEsecuzioni={(nuove) => salvaEsecuzioniRic(rr, nuove)} /> : null;
