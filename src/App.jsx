@@ -3010,13 +3010,101 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
 }
 
 /* ---------- Root ---------- */
+// Stato di un'auto nel tagliando: fatto, in corso, da fare, in scadenza o in ritardo.
+function statoTagliandoAuto(r, esecuzioni, mezzoId) {
+  const lista = (esecuzioni || []).filter(e => e.mezzo === mezzoId);
+  const aperta = lista.find(e => !e.completata);
+  const fatte = lista.filter(e => e.completata).sort((x, y) => (y.completataIl || '').localeCompare(x.completataIl || ''));
+  const ultimaISO = fatte[0] ? (fatte[0].completataIl || '').slice(0, 10) : null;
+  const prossima = ultimaISO ? calcProssima(ultimaISO, r.frequenza) : (r.prossimaScadenza || '');
+  const g = daysUntil(prossima);
+  if (aperta && aperta.passi.length > 0) return { label: 'In corso', bg: '#DCE8F0', fg: '#1E4D73', ultimaISO, prossima };
+  if (ultimaISO) {
+    if (g != null && g > 0) return { label: 'Fatto', bg: '#DCEEE3', fg: '#1F6B45', ultimaISO, prossima };
+    return { label: g === 0 ? 'Oggi' : 'In ritardo', bg: '#FDECEA', fg: '#B71C1C', ultimaISO, prossima };
+  }
+  if (g == null) return { label: 'Da fare', bg: '#EAE7DC', fg: '#6E7972', ultimaISO, prossima };
+  if (g < 0) return { label: 'In ritardo', bg: '#FDECEA', fg: '#B71C1C', ultimaISO, prossima };
+  if (g <= 45) return { label: 'In scadenza', bg: '#FBF1DC', fg: '#9A6B03', ultimaISO, prossima };
+  return { label: 'Da fare', bg: '#EAE7DC', fg: '#6E7972', ultimaISO, prossima };
+}
+
+// Date del tagliando: ultima = ultimo completamento di qualunque auto;
+// prossima = la scadenza piu' vicina tra le auto gia' fatte.
+function datiTagliando(r, esecuzioni) {
+  const fatte = (esecuzioni || []).filter(e => e.completata && e.mezzo);
+  if (fatte.length === 0) return {};
+  const perAuto = {};
+  fatte.forEach(e => {
+    const d = (e.completataIl || '').slice(0, 10);
+    if (!perAuto[e.mezzo] || d > perAuto[e.mezzo]) perAuto[e.mezzo] = d;
+  });
+  const ultima = Object.values(perAuto).sort().pop();
+  const scadenze = Object.values(perAuto).map(d => calcProssima(d, r.frequenza)).filter(Boolean).sort();
+  return { ultimaEsecuzione: ultima, prossimaScadenza: scadenze[0] || r.prossimaScadenza || '' };
+}
+
+// Il tagliando: un'unica procedura con l'elenco delle auto, ognuna con la propria checklist.
+function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, theme }) {
+  const [aperto, setAperto] = useState(null);
+  const surface = theme.surface || '#FFFFFF';
+  const line = theme.line || '#E2E0D2';
+  const ink = theme.ink || '#212823';
+  const muted = theme.muted || '#6E7972';
+  const ordine = { 'In ritardo': 0, 'Oggi': 0, 'In corso': 1, 'In scadenza': 2, 'Da fare': 3, 'Fatto': 4 };
+  if (!tagliandi || tagliandi.length === 0) return null;
+  return (
+    <>
+      {tagliandi.map(t => {
+        const righe = (veicoli || []).map(v => ({ v, s: statoTagliandoAuto(t, t.esecuzioni || [], v.id) }))
+          .sort((a, b) => (ordine[a.s.label] ?? 9) - (ordine[b.s.label] ?? 9));
+        const daFare = righe.filter(x => x.s.label === 'In ritardo' || x.s.label === 'Oggi').length;
+        return (
+          <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink }}>{t.titolo || 'Tagliando'}</div>
+            <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
+            {righe.map(({ v, s }) => {
+              const k = t.id + ':' + v.id;
+              const open = aperto === k;
+              return (
+                <div key={v.id} style={{ borderTop: `1px solid ${line}`, padding: '8px 0' }}>
+                  <button type="button" onClick={() => setAperto(open ? null : k)} style={{ width:'100%', background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, textAlign:'left' }}>
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:'block', fontWeight:700, fontSize:13.5, color: ink }}>{v.targa}</span>
+                      <span style={{ display:'block', fontSize:11.5, color: muted }}>{v.marca} {v.modello}{s.ultimaISO ? ` · ultimo ${fmtDate(s.ultimaISO)}` : ''}</span>
+                    </span>
+                    <span style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                      <span style={{ fontSize:10.5, fontWeight:700, background:s.bg, color:s.fg, padding:'2px 8px', borderRadius:999 }}>{s.label}</span>
+                      <span style={{ color: muted }}>{open ? '▲' : '▼'}</span>
+                    </span>
+                  </button>
+                  {open && (
+                    <div style={{ marginTop:8 }}>
+                      <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /* ---- Procedure ricorrenti per modulo (scheda Scadenze / Controlli) ---- */
-function ControlliRicorrenti({ modulo, theme, veicoli }) {
-  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
-  const rows = (ricT.rows || [])
-    .filter(r => (r.modulo || 'Struttura') === modulo)
+function filtraRicorrenti(rows, modulo) {
+  return (rows || [])
+    .filter(r => (r.modulo || 'Struttura') === modulo && r.tipo !== 'Tagliando')
     .filter(r => { const g = daysUntil(r.prossimaScadenza); return g == null || g <= 45; })
     .sort((a, b) => (a.prossimaScadenza || '9999').localeCompare(b.prossimaScadenza || '9999'));
+}
+function ControlliRicorrenti({ modulo, theme, veicoli }) {
+  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  return <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, modulo)} ready={ricT.ready} modulo={modulo} theme={theme} veicoli={veicoli} />;
+}
+function ListaRicorrenti({ rows, ready, modulo, theme, veicoli }) {
   const surface = theme.surface || '#FFFFFF';
   const line = theme.line || '#E2E0D2';
   const ink = theme.ink || '#212823';
@@ -3032,7 +3120,7 @@ function ControlliRicorrenti({ modulo, theme, veicoli }) {
       <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '0.06em', color: ink, marginBottom: 8 }}>
         Procedure ricorrenti ({rows.length})
       </div>
-      {ricT.ready && rows.length === 0 && <div style={{ fontSize: 12.5, color: muted }}>Nessuna procedura ricorrente per questo modulo.</div>}
+      {ready && rows.length === 0 && <div style={{ fontSize: 12.5, color: muted }}>Nessuna procedura ricorrente per questo modulo.</div>}
       {rows.map(r => {
         const s = stato(r);
         const ambito = modulo === 'Ausili'
@@ -3062,6 +3150,14 @@ function ControlliRicorrenti({ modulo, theme, veicoli }) {
 function MezziModule({ onHome, initialNotification }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
+  const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  // Salva le spunte di un'auto nel tagliando e ricalcola le date della procedura.
+  async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
+    const tutte = [...(t.esecuzioni || []).filter(e => e.mezzo !== mezzoId), ...nuovaLista];
+    const { _source, _date, _kind, ...base } = t;
+    const { error } = await ricT.save({ ...base, esecuzioni: tutte, ...datiTagliando(t, tutte) });
+    if (error) setToast('Errore: ' + error.message);
+  }
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
   const ready = vehiclesT.ready && maintsT.ready;
   const dataError = vehiclesT.error || maintsT.error;
@@ -3258,7 +3354,10 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     content = (<>
       <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />
-      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} /></div>
+      <div style={{ padding: '0 14px 14px' }}>
+        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Tagliando' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} theme={MEZZI_COLORS} />
+        <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
+      </div>
     </>);
   } else {
     content = <DashboardScreen vehicles={vehicles} maints={maints} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -6639,14 +6738,14 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
 
 /* ---- Checklist dei passi: spunte salvate sulla procedura (chi, quando) ---- */
 // Applica la spunta di un passo all'esecuzione in corso (o ne apre una nuova). Funzione pura.
-function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale) {
+function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale, extra = {}) {
   const lista = esecuzioni || [];
   const aperta = lista.find(e => !e.completata);
   const adesso = new Date();
   const ora = String(adesso.getHours()).padStart(2, '0') + ':' + String(adesso.getMinutes()).padStart(2, '0');
   if (!aperta) {
     const completata = totale === 1;
-    return [...lista, { id: uid(), data: todayISO(), ora, esecutore: nome, passi: [i], completata, completataIl: completata ? adesso.toISOString() : null }];
+    return [...lista, { id: uid(), ...extra, data: todayISO(), ora, esecutore: nome, passi: [i], completata, completataIl: completata ? adesso.toISOString() : null }];
   }
   const passi = aperta.passi.includes(i) ? aperta.passi.filter(x => x !== i) : [...aperta.passi, i];
   const completata = passi.length === totale;
@@ -6654,7 +6753,7 @@ function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale) {
   return lista.map(e => (e.id === aperta.id ? nuova : e));
 }
 
-function ChecklistPassi({ steps, esecuzioni, onSalva }) {
+function ChecklistPassi({ steps, esecuzioni, onSalva, extra }) {
   const { nomeVisualizzato } = usePermessi();
   const items = (steps || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
   if (items.length === 0) return null;
@@ -6666,7 +6765,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva }) {
   const ultime = lista.filter(e => e.completata)
     .sort((x, y) => (y.completataIl || '').localeCompare(x.completataIl || ''))
     .slice(0, 5);
-  const spunta = (i) => onSalva && onSalva(applicaSpuntaEsecuzione(lista, i, nomeVisualizzato, items.length));
+  const spunta = (i) => onSalva && onSalva(applicaSpuntaEsecuzione(lista, i, nomeVisualizzato, items.length, extra || {}));
   const azzera = () => onSalva && onSalva(lista.filter(e => !aperta || e.id !== aperta.id));
   return (
     <>
@@ -7179,7 +7278,8 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   }
 
   function handleSave() {
-    const record = { ...f, giorni: [...giorni], modulo, tipo, passi, ambito: (modulo === 'Ausili' || modulo === 'Struttura' || modulo === 'Mezzi') ? ambito : 'Tutti' };
+    const modEff = tipo === 'Tagliando' ? 'Mezzi' : modulo;
+    const record = { ...f, giorni: [...giorni], modulo: modEff, tipo, passi, ambito: (tipo !== 'Tagliando' && (modEff === 'Ausili' || modEff === 'Struttura' || modEff === 'Mezzi')) ? ambito : 'Tutti' };
     onSave(record);
   }
 
@@ -7189,7 +7289,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
         <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Tagliando' ? ['Mensile','Trimestrale','Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
@@ -7216,7 +7316,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
           </div>
         )}
 
-        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); }}>{['Ordinaria','Stagionale'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando' && !['Mensile','Trimestrale','Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
@@ -7874,7 +7974,7 @@ function ProcedureModule({ onHome, initialNotification }) {
     else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
   } else {
     const stagionali = tab === 'stagionali';
-    const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : r.tipo !== 'Stagionale');
+    const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : !['Stagionale','Tagliando'].includes(r.tipo));
     if (view.name === 'detail') {
       const rr = ricT.rows.find(x => x.id === view.id);
       content = rr ? <RicorrenteDetail r={rr} onBack={() => goBack()} onEdit={() => setView({ name:'edit', r: rr })} onSalvaEsecuzioni={(nuove) => salvaEsecuzioniRic(rr, nuove)} /> : null;
