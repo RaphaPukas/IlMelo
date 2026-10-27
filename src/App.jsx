@@ -7290,6 +7290,17 @@ function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
   );
 }
 
+// Selettore dei mezzi per l'ambito: carica i veicoli solo quando serve (evita un secondo collegamento alla stessa tabella).
+function AmbitoMezzi({ ambito, setAmbito }) {
+  const veicoliT = useSupaTable('vehicles', 'id', [], []);
+  return (
+    <PROC_Field label="Ambito (mezzi)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
+      <option value="Tutti">Tutti i mezzi</option>
+      {(veicoliT.rows || []).map(v => <option key={'mezzo:' + v.id} value={'mezzo:' + v.id}>{v.targa}{v.marca ? ` · ${v.marca} ${v.modello || ''}` : ''}</option>)}
+    </select></PROC_Field>
+  );
+}
+
 function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, categorieDisponibili }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
@@ -7312,7 +7323,6 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
   const camereT = useSupaTable('camere', 'codice', [], []);
   const pianiCamere = [...new Set((camereT.rows || []).map(c => c.piano).filter(Boolean))].sort();
   const nucleiCamere = [...new Set((camereT.rows || []).map(c => c.nucleo).filter(Boolean))].sort();
-  const veicoliT = useSupaTable('vehicles', 'id', [], []);
 
   const mostraGiorni = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane'].includes(f.frequenza);
   const GIORNI_LABEL = ['D','L','M','M','G','V','S'];
@@ -7396,12 +7406,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
         )}
-        {modulo === 'Mezzi' && (
-          <PROC_Field label="Ambito (mezzi)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
-            <option value="Tutti">Tutti i mezzi</option>
-            {(veicoliT.rows || []).map(v => <option key={'mezzo:' + v.id} value={'mezzo:' + v.id}>{v.targa}{v.marca ? ` · ${v.marca} ${v.modello || ''}` : ''}</option>)}
-          </select></PROC_Field>
-        )}
+        {modulo === 'Mezzi' && !isTagliando({ tipo }) && <AmbitoMezzi ambito={ambito} setAmbito={setAmbito} />}
         {modulo === 'Struttura' && (
           <PROC_Field label="Ambito (struttura)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
             <option value="Tutti">Tutta la struttura</option>
