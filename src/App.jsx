@@ -2455,7 +2455,55 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
   );
 }
 
-function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
+// Pneumatici: tipo, marca, modello, usura (%) e se sono montati su cerchio.
+const TIPI_PNEUMATICI = ['Invernali', 'Estive', 'Quattro stagioni', 'All season'];
+function colorUsura(p) {
+  const n = Number(p);
+  if (p === '' || p == null || !Number.isFinite(n)) return '#79715F';
+  return n <= 30 ? '#B71C1C' : n <= 50 ? '#B15C00' : '#1F6B45';
+}
+function GommeForm({ vehicle, onSave, onCancel }) {
+  const g = vehicle.gomme || {};
+  const [montati, setMontati] = useState({ tipo: vehicle.tipologiaGomme || 'Estive', marca: '', modello: '', usura: '', cerchio: 'si', ...(g.montati || {}) });
+  const [scorta, setScorta] = useState(g.scorta || []);
+  const campi = (obj, setObj) => (
+    <>
+      <PROC_Field label="Tipo"><select style={procInputStyle} value={obj.tipo || ''} onChange={e => setObj({ ...obj, tipo: e.target.value })}>{TIPI_PNEUMATICI.map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+        <PROC_Field label="Marca"><input style={procInputStyle} value={obj.marca || ''} onChange={e => setObj({ ...obj, marca: e.target.value })} /></PROC_Field>
+        <PROC_Field label="Modello"><input style={procInputStyle} value={obj.modello || ''} onChange={e => setObj({ ...obj, modello: e.target.value })} /></PROC_Field>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+        <PROC_Field label="Usura (%)"><input type="number" min="0" max="100" style={{ ...procInputStyle, color: colorUsura(obj.usura), fontWeight:700 }} value={obj.usura ?? ''} onChange={e => setObj({ ...obj, usura: e.target.value })} /></PROC_Field>
+        <PROC_Field label="Su cerchio"><select style={procInputStyle} value={obj.cerchio || 'si'} onChange={e => setObj({ ...obj, cerchio: e.target.value })}><option value="si">Sì</option><option value="no">No</option></select></PROC_Field>
+      </div>
+    </>
+  );
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:60, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+      <div style={{ background: MEZZI_COLORS.surface, width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto', borderRadius:'18px 18px 0 0', padding:16 }}>
+        <div style={{ fontFamily:"'Archivo', sans-serif", fontWeight:800, fontSize:17, marginBottom:12 }}>Pneumatici · {vehicle.targa}</div>
+        <SectionLabel theme={MEZZI_COLORS}>Montati</SectionLabel>
+        <Card theme={MEZZI_COLORS} style={{ marginBottom:12 }}>{campi(montati, setMontati)}</Card>
+        <SectionLabel theme={MEZZI_COLORS}>Scorta</SectionLabel>
+        {scorta.map((x, i) => (
+          <Card key={i} theme={MEZZI_COLORS} style={{ marginBottom:10 }}>
+            {campi(x, (nuovo) => setScorta(p => p.map((y, idx) => idx === i ? nuovo : y)))}
+            <button type="button" onClick={() => setScorta(p => p.filter((_, idx) => idx !== i))} style={{ background:'none', border:'none', color:MEZZI_COLORS.danger, fontWeight:700, fontSize:13 }}>Rimuovi dalla scorta</button>
+          </Card>
+        ))}
+        <button type="button" onClick={() => setScorta(p => [...p, { tipo: 'Estive', marca: '', modello: '', usura: '', cerchio: 'no' }])} style={{ width:'100%', background:MEZZI_COLORS.bg, border:`1.5px dashed ${MEZZI_COLORS.line}`, borderRadius:10, padding:11, fontWeight:700, fontSize:13, color:MEZZI_COLORS.primary, marginBottom:14 }}>+ Aggiungi pneumatico di scorta</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button type="button" onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
+          <button type="button" onClick={() => onSave({ gomme: { montati, scorta }, tipologiaGomme: montati.tipo })} style={{ flex:1, padding:12, borderRadius:10, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700 }}>Salva pneumatici</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme }) {
+  const [editGomme, setEditGomme] = useState(false);
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   const puoEliminare = isAdmin;
@@ -2514,6 +2562,22 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete }) {
           )}
         </Card>
 
+        <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
+        <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+          {(() => { const m = vehicle.gomme?.montati || {}; return (<>
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Montati" value={[m.tipo || vehicle.tipologiaGomme, m.marca, m.modello].filter(Boolean).join(' · ') || '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Usura" value={m.usura !== undefined && m.usura !== '' && m.usura !== null ? `${m.usura}%` : '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Su cerchio" value={m.cerchio === 'si' ? 'Sì' : m.cerchio === 'no' ? 'No' : '—'} />
+          </>); })()}
+          <div style={{ fontSize:12.5, fontWeight:700, marginTop:10 }}>Scorta ({(vehicle.gomme?.scorta || []).length})</div>
+          {(vehicle.gomme?.scorta || []).map((x, i) => (
+            <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>
+              {[x.tipo, x.marca, x.modello].filter(Boolean).join(' · ')} — usura <b style={{ color: colorUsura(x.usura) }}>{x.usura !== '' && x.usura != null ? `${x.usura}%` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''}
+            </div>
+          ))}
+          <button type="button" onClick={() => setEditGomme(true)} style={{ width:'100%', marginTop:12, background:MEZZI_COLORS.primary, color:'#fff', border:'none', borderRadius:10, padding:11, fontWeight:700, fontSize:13 }}>Modifica pneumatici</button>
+        </Card>
+        {editGomme && <GommeForm vehicle={vehicle} onCancel={() => setEditGomme(false)} onSave={(patch) => { setEditGomme(false); onSaveGomme && onSaveGomme(vehicle, patch); }} />}
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           <InfoRow theme={MEZZI_COLORS} icon={Car} label="Modello pneumatici" value={vehicle.modelloGomme || '—'} />
@@ -2684,7 +2748,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{m.costo ? fmtEuro(m.costo * 1.22) : '—'}</div>
-                  <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}</div>
+                  <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}` : ''}</div>
                 </div>
               </div>
               {onComplete && tabM === 'programmati' && (
@@ -2741,6 +2805,7 @@ function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDele
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="Data"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
+          <Field label="Appuntamento (se già fissato)"><input type="date" style={inputStyle} value={f.appuntamento || ''} onChange={set('appuntamento')} /></Field>
           <Field label="Km al momento"><input type="number" style={inputStyle} value={f.km} onChange={set('km')} /></Field>
         </div>
 
@@ -3385,7 +3450,7 @@ function MezziModule({ onHome, initialNotification }) {
       </div>
     );
   } else if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch) => saveVehicle({ ...v, ...patch })} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
