@@ -2504,6 +2504,20 @@ function GommeForm({ vehicle, onSave, onCancel }) {
 
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme }) {
   const [editGomme, setEditGomme] = useState(false);
+  const [cambioIdx, setCambioIdx] = useState(null);
+  const puoScrivereGomme = usePermessi().isAdmin;
+  // Cambio gomme: il set di scorta diventa quello montato (con cerchio), il montato va in scorta (senza cerchio).
+  const eseguiCambio = (i) => {
+    const g = vehicle.gomme || {};
+    const montatiAttuali = g.montati || { tipo: vehicle.tipologiaGomme, cerchio: 'si' };
+    const scorta = [...(g.scorta || [])];
+    const entrante = scorta[i];
+    if (!entrante) return;
+    const nuovoMontati = { ...entrante, cerchio: 'si' };
+    scorta[i] = { ...montatiAttuali, cerchio: 'no' };
+    setCambioIdx(null);
+    onSaveGomme && onSaveGomme(vehicle, { gomme: { montati: nuovoMontati, scorta }, tipologiaGomme: nuovoMontati.tipo });
+  };
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   const puoEliminare = isAdmin;
@@ -2573,6 +2587,18 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           {(vehicle.gomme?.scorta || []).map((x, i) => (
             <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>
               {[x.tipo, x.marca, x.modello].filter(Boolean).join(' · ')} — usura <b style={{ color: colorUsura(x.usura) }}>{x.usura !== '' && x.usura != null ? `${x.usura}%` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''}
+              {puoScrivereGomme && cambioIdx !== i && (
+                <button type="button" onClick={() => setCambioIdx(i)} style={{ marginLeft:8, background:'none', border:`1.5px solid ${MEZZI_COLORS.line}`, borderRadius:8, padding:'2px 8px', fontWeight:700, fontSize:11.5, color:MEZZI_COLORS.primary }}>Cambio gomme</button>
+              )}
+              {cambioIdx === i && (
+                <div style={{ marginTop:6, padding:8, borderRadius:10, background:MEZZI_COLORS.bg }}>
+                  <div style={{ fontWeight:700, color:MEZZI_COLORS.ink, marginBottom:6 }}>Confermi il cambio? Il montato andrà in scorta senza cerchio.</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button type="button" onClick={() => setCambioIdx(null)} style={{ flex:1, padding:8, borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
+                    <button type="button" onClick={() => eseguiCambio(i)} style={{ flex:1, padding:8, borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700 }}>Sì, cambia</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           <button type="button" onClick={() => setEditGomme(true)} style={{ width:'100%', marginTop:12, background:MEZZI_COLORS.primary, color:'#fff', border:'none', borderRadius:10, padding:11, fontWeight:700, fontSize:13 }}>Modifica pneumatici</button>
