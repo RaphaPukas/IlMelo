@@ -185,9 +185,37 @@ function SectionLabel({ theme, children }) {
   return <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: theme.primary, margin: '18px 2px 8px' }}>{children}</div>;
 }
 
-function StatCard({ theme, label, value, accent }) {
+// Officine e tecnici: stessi dati della scheda Struttura, con telefono ed email toccabili.
+function OfficineMezzi({ tecnici, onBack }) {
+  const lista = [...(tecnici || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
   return (
-    <div style={{ background: theme.surface, border: `1px solid ${theme.line}`, borderRadius: 14, padding: '13px 14px', borderLeft: `4px solid ${accent}` }}>
+    <>
+      <TopBar theme={MEZZI_COLORS} title="Officine e tecnici" subtitle={`${lista.length} in anagrafica`} onBack={onBack} backIcon={ChevronLeft} />
+      <div style={{ padding: 14 }}>
+        {lista.length === 0 && <Empty theme={MEZZI_COLORS} icon={Users} text="Nessun tecnico o officina registrata." />}
+        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+          {lista.map(t => {
+            const tel = t.telefono || t.tel || '';
+            return (
+              <Card theme={MEZZI_COLORS} key={t.id}>
+                <div style={{ fontWeight:700, fontSize:14 }}>{t.nome}</div>
+                <div style={{ fontSize:12, color:MEZZI_COLORS.muted, marginTop:2 }}>{[t.tipo, t.specializzazione].filter(Boolean).join(' · ')}</div>
+                <div style={{ display:'flex', gap:14, marginTop:8, flexWrap:'wrap' }}>
+                  {tel && <a href={`tel:${String(tel).replace(/\s+/g, '')}`} style={{ color:MEZZI_COLORS.primary, fontWeight:700, fontSize:13 }}>📞 {tel}</a>}
+                  {t.email && <a href={`mailto:${t.email}`} style={{ color:MEZZI_COLORS.primary, fontWeight:700, fontSize:13 }}>✉️ {t.email}</a>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StatCard({ theme, label, value, accent, onClick }) {
+  return (
+    <div onClick={onClick} style={{ background: theme.surface, border: `1px solid ${theme.line}`, borderRadius: 14, padding: '13px 14px', borderLeft: `4px solid ${accent}`, cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ fontSize: 10.5, color: theme.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 19, color: theme.ink }}>{value}</div>
     </div>
@@ -2870,7 +2898,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome }) {
 }
 
 /* ---------- Dashboard ---------- */
-function DashboardScreen({ vehicles, maints, params, onMenu, onHome }) {
+function DashboardScreen({ vehicles, maints, params, onMenu, onHome, onVai, onOfficine }) {
   const withCost = maints.filter(m => m.costo);
   const totale = withCost.reduce((s, m) => s + m.costo * (1 + params.ivaRate / 100), 0);
   const perVeicolo = useMemo(() => {
@@ -2897,12 +2925,19 @@ function DashboardScreen({ vehicles, maints, params, onMenu, onHome }) {
       <TopBar theme={MEZZI_COLORS} title="Dashboard" subtitle="Riepilogo costi e flotta" onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       <div style={{ padding: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 6 }}>
-          <StatCard theme={MEZZI_COLORS} label="Spesa totale" value={fmtEuro(totale)} accent={MEZZI_COLORS.primary} />
-          <StatCard theme={MEZZI_COLORS} label="Interventi" value={maints.length} accent={MEZZI_COLORS.primary} />
-          <StatCard theme={MEZZI_COLORS} label="Veicoli in flotta" value={vehicles.length} accent={MEZZI_COLORS.primary} />
-          <StatCard theme={MEZZI_COLORS} label="Scadenze urgenti" value={urgenti} accent={urgenti ? MEZZI_COLORS.danger : MEZZI_COLORS.ok} />
+          <StatCard theme={MEZZI_COLORS} label="Spesa totale" value={fmtEuro(totale)} accent={MEZZI_COLORS.primary} onClick={() => onVai && onVai('manutenzioni')} />
+          <StatCard theme={MEZZI_COLORS} label="Interventi" value={maints.length} accent={MEZZI_COLORS.primary} onClick={() => onVai && onVai('manutenzioni')} />
+          <StatCard theme={MEZZI_COLORS} label="Veicoli in flotta" value={vehicles.length} accent={MEZZI_COLORS.primary} onClick={() => onVai && onVai('veicoli')} />
+          <StatCard theme={MEZZI_COLORS} label="Scadenze urgenti" value={urgenti} accent={urgenti ? MEZZI_COLORS.danger : MEZZI_COLORS.ok} onClick={() => onVai && onVai('scadenze')} />
         </div>
 
+        <Card theme={MEZZI_COLORS} onClick={() => onOfficine && onOfficine()} style={{ marginBottom: 8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontWeight:700, fontSize:14 }}>Officine e tecnici</span>
+            <ChevronRight size={18} color={MEZZI_COLORS.muted} />
+          </div>
+          <div style={{ fontSize:12, color:MEZZI_COLORS.muted, marginTop:2 }}>Contatti per telefono ed email</div>
+        </Card>
         <SectionLabel theme={MEZZI_COLORS}>Costi per veicolo</SectionLabel>
         {perVeicolo.length === 0 && <Empty theme={MEZZI_COLORS} icon={BarChart3} text="Nessun costo registrato ancora." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 4 }}>
@@ -3050,7 +3085,7 @@ function datiTagliando(r, esecuzioni) {
 }
 
 // Il tagliando: un'unica procedura con l'elenco delle auto, ognuna con la propria checklist.
-function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, theme }) {
+function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }) {
   const [aperto, setAperto] = useState(null);
   const surface = theme.surface || '#FFFFFF';
   const line = theme.line || '#E2E0D2';
@@ -3066,7 +3101,10 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, theme }) {
         const daFare = righe.filter(x => x.s.label === 'In ritardo' || x.s.label === 'Oggi').length;
         return (
           <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
-            <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink }}>{t.titolo || 'Tagliando'}</div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+              <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink }}>{t.titolo || 'Tagliando'}</div>
+              {onModifica && <button type="button" onClick={() => onModifica(t)} style={{ background:'none', border:`1.5px solid ${line}`, borderRadius:8, padding:'4px 10px', fontWeight:700, fontSize:12, color: theme.primary || ink }}>Modifica</button>}
+            </div>
             <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.tipo || 'Tagliando'} · {t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
             {righe.map(({ v, s }) => {
               const k = t.id + ':' + v.id;
@@ -3156,6 +3194,17 @@ function MezziModule({ onHome, initialNotification }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
+  const tecniciT = useSupaTable('tecnici', 'id', [], []);
+  // Modifica ed eliminazione di un tagliando (stesse regole del form delle procedure).
+  async function salvaModificaTagliando(r) {
+    const corrente = ricT.rows.find(x => x.id === r.id);
+    const { error } = await ricT.save({ ...r, esecuzioni: corrente?.esecuzioni ?? r.esecuzioni ?? [] });
+    if (error) setToast('Errore: ' + error.message); else { setToast('Tagliando aggiornato'); goBack(); }
+  }
+  async function eliminaTagliando(r) {
+    const { error } = await ricT.remove(r);
+    if (error) setToast('Errore: ' + error.message); else { setToast('Tagliando eliminato'); goBack(); }
+  }
   // Salva le spunte di un'auto nel tagliando e ricalcola le date della procedura.
   async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
     const tutte = [...(t.esecuzioni || []).filter(e => e.mezzo !== mezzoId), ...nuovaLista];
@@ -3357,15 +3406,17 @@ function MezziModule({ onHome, initialNotification }) {
       );
     }
   } else if (tab === 'scadenze') {
-    content = (<>
+    if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
+    else content = (<>
       <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />
       <div style={{ padding: '0 14px 14px' }}>
-        <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} theme={MEZZI_COLORS} />
+        <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
       </div>
     </>);
   } else {
-    content = <DashboardScreen vehicles={vehicles} maints={maints} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    if (view.name === 'officine') content = <OfficineMezzi tecnici={tecniciT.rows} onBack={() => goBack()} />;
+    else content = <DashboardScreen vehicles={vehicles} maints={maints} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onVai={(t) => setTab(t)} onOfficine={() => setView({ name: 'officine' })} />;
   }
 
   return (
