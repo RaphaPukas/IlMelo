@@ -7209,6 +7209,8 @@ function RicorrentiScreen({ items, onOpen, onAdd, onHome, titolo }) {
   );
 }
 
+const CATEGORIE_RIC_BASE = ['Impianti', 'Antincendio', 'Sicurezza', 'Gas medicale', 'Ascensori', 'Mezzi', 'Generale'];
+
 /* ---- Dettaglio di una ricorrenza: passi a checklist, esecuzioni, modifica ---- */
 function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
   const { isAdmin, hasPermission } = usePermessi();
@@ -7237,7 +7239,7 @@ function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
   );
 }
 
-function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
+function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, categorieDisponibili }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
@@ -7250,6 +7252,10 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
   // Tipo: Ordinaria (ricorrenze classiche) oppure Stagionale (cambio di stagione: semestrale o annuale).
   const [tipo, setTipo] = useState(initial?.tipo || tipoIniziale || 'Ordinaria');
   const [passi, setPassi] = useState(initial?.passi || '');
+  // Categorie: di base + quelle gia' usate nelle ricorrenze + quelle aggiunte ora.
+  const [nuovaCategoria, setNuovaCategoria] = useState(false);
+  const [categorieLocali, setCategorieLocali] = useState([]);
+  const tutteCategorie = [...new Set([...CATEGORIE_RIC_BASE, ...(categorieDisponibili || []), ...categorieLocali, ...(f.categoria ? [f.categoria] : [])])].filter(Boolean).sort();
   const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
   // Piani e nuclei della struttura: letti dalle camere (stessa sorgente della scheda Camere).
   const camereT = useSupaTable('camere', 'codice', [], []);
@@ -7293,8 +7299,21 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
       <TopBar theme={PROC_COLORS} title={initial ? 'Modifica ricorrente' : 'Nuova ricorrente'} onBack={onCancel} />
       <div style={{ padding:16, pointerEvents:puoScrivere?'auto':'none', opacity:puoScrivere?1:0.65 }}>
         <PROC_Field label="Titolo *"><input style={procInputStyle} value={f.titolo} onChange={set('titolo')} placeholder="Es. Cambio bombole Sapio" /></PROC_Field>
-        <PROC_Field label="Categoria"><input style={procInputStyle} value={f.categoria||''} onChange={set('categoria')} placeholder="Es. Gas medicale, Sicurezza…" /></PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Tagliando ordinario' ? ['Semestrale','Annuale'] : tipo === 'Tagliandino interno' ? ['Mensile','Trimestrale','Semestrale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Categoria">
+          {!nuovaCategoria ? (
+            <select style={procInputStyle} value={f.categoria || ''} onChange={e => { if (e.target.value === '__nuova__') { setNuovaCategoria(true); setF(p => ({ ...p, categoria: '' })); } else setF(p => ({ ...p, categoria: e.target.value })); }}>
+              <option value="">— nessuna —</option>
+              {tutteCategorie.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__nuova__">➕ Aggiungi nuova categoria…</option>
+            </select>
+          ) : (
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <input autoFocus style={{ ...procInputStyle, flex:1 }} value={f.categoria || ''} onChange={set('categoria')} placeholder="Nome nuova categoria…" />
+              <button type="button" onClick={() => { const c = (f.categoria || '').trim(); if (c) setCategorieLocali(p => [...p, c]); else setF(p => ({ ...p, categoria: '' })); setNuovaCategoria(false); }} style={{ background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:8, padding:'10px 14px', fontWeight:700, fontSize:13 }}>OK</button>
+            </div>
+          )}
+        </PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
@@ -7321,7 +7340,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale }) {
           </div>
         )}
 
-        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno' && !['Mensile','Trimestrale','Semestrale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando ordinario','Tagliandino interno'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario') setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno') setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando ordinario','Tagliandino interno'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
@@ -7978,14 +7997,15 @@ function ProcedureModule({ onHome, initialNotification }) {
     else if (view.name === 'edit') content = <ProceduraForm initial={view.p} tipologieDisponibili={tipologieDisponibili} gruppi={gruppiT.rows} gruppiSelezionati={view.p.gruppi_ids} onSave={salvaProcedura} onCancel={() => goBack()} onDelete={r => eliminaProcedura(r)} />;
     else content = <ProcedureScreen procedure={procedureVisibili} tipologieDisponibili={tipologieDisponibili} onOpen={p => setView({ name:'detail', id:p.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} isAdmin={isAdmin} onExport={() => setShowExport(true)} />;
   } else {
+    const categorieRic = [...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort();
     const stagionali = tab === 'stagionali';
     const listaRic = ricT.rows.filter(r => stagionali ? r.tipo === 'Stagionale' : (r.tipo !== 'Stagionale' && !isTagliando(r)));
     if (view.name === 'detail') {
       const rr = ricT.rows.find(x => x.id === view.id);
       content = rr ? <RicorrenteDetail r={rr} onBack={() => goBack()} onEdit={() => setView({ name:'edit', r: rr })} onSalvaEsecuzioni={(nuove) => salvaEsecuzioniRic(rr, nuove)} /> : null;
     }
-    else if (view.name === 'add') content = <RicorrenteForm tipoIniziale={stagionali ? 'Stagionale' : 'Ordinaria'} onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <RicorrenteForm initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
+    else if (view.name === 'add') content = <RicorrenteForm categorieDisponibili={categorieRic} tipoIniziale={stagionali ? 'Stagionale' : 'Ordinaria'} onSave={r => salva('manutenzioni_ricorrenti', r, 'Salvata')} onCancel={() => goBack()} />;
+    else if (view.name === 'edit') content = <RicorrenteForm categorieDisponibili={categorieRic} initial={view.r} onSave={r => salva('manutenzioni_ricorrenti', r, 'Aggiornata')} onCancel={() => goBack()} onDelete={r => elimina('manutenzioni_ricorrenti', r, 'Eliminata')} />;
     else content = <RicorrentiScreen titolo={stagionali ? 'Procedure stagionali' : 'Manutenzioni ricorrenti'} items={listaRic} onOpen={r => setView({ name:'detail', id:r.id })} onAdd={() => setView({ name:'add' })} onHome={onHome} />;
   }
 
