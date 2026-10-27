@@ -3086,6 +3086,7 @@ function datiTagliando(r, esecuzioni) {
 
 // Il tagliando: un'unica procedura con l'elenco delle auto, ognuna con la propria checklist.
 function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }) {
+  const { nomeVisualizzato } = usePermessi();
   const [aperto, setAperto] = useState(null);
   const surface = theme.surface || '#FFFFFF';
   const line = theme.line || '#E2E0D2';
@@ -3093,12 +3094,35 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }
   const muted = theme.muted || '#6E7972';
   const ordine = { 'In ritardo': 0, 'Oggi': 0, 'In corso': 1, 'In scadenza': 2, 'Da fare': 3, 'Fatto': 4 };
   if (!tagliandi || tagliandi.length === 0) return null;
+
+  // Spunta (o togli) in un colpo solo tutti i controlli di un'auto.
+  const flaggaAuto = (t, mezzoId, spuntata) => {
+    const lista = (t.esecuzioni || []).filter(e => e.mezzo === mezzoId);
+    const passi = (t.passi || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean).map((_, i) => i);
+    if (passi.length === 0) return;
+    const adesso = new Date();
+    if (spuntata) {
+      const aperta = lista.find(e => !e.completata);
+      const nuova = aperta
+        ? { ...aperta, passi, completata: true, completataIl: adesso.toISOString() }
+        : { id: uid(), mezzo: mezzoId, data: todayISO(), ora: String(adesso.getHours()).padStart(2, '0') + ':' + String(adesso.getMinutes()).padStart(2, '0'), esecutore: nomeVisualizzato, passi, completata: true, completataIl: adesso.toISOString() };
+      const altri = lista.filter(e => (aperta ? e.id !== aperta.id : true));
+      onSalvaAuto(t, mezzoId, [...altri, nuova]);
+    } else {
+      // Togliere la spunta annulla l'ultimo completamento di quell'auto (per correggere un errore).
+      const ultima = lista.filter(e => e.completata).sort((x, y) => (y.completataIl || '').localeCompare(x.completataIl || ''))[0];
+      if (!ultima) return;
+      onSalvaAuto(t, mezzoId, lista.filter(e => e.id !== ultima.id));
+    }
+  };
+
   return (
     <>
       {tagliandi.map(t => {
         const righe = (veicoli || []).map(v => ({ v, s: statoTagliandoAuto(t, t.esecuzioni || [], v.id) }))
           .sort((a, b) => (ordine[a.s.label] ?? 9) - (ordine[b.s.label] ?? 9));
         const daFare = righe.filter(x => x.s.label === 'In ritardo' || x.s.label === 'Oggi').length;
+        const passiN = (t.passi || '').split('\n').filter(l => l.trim()).length;
         return (
           <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
@@ -3111,16 +3135,19 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }
               const open = aperto === k;
               return (
                 <div key={v.id} style={{ borderTop: `1px solid ${line}`, padding: '8px 0' }}>
-                  <button type="button" onClick={() => setAperto(open ? null : k)} style={{ width:'100%', background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, textAlign:'left' }}>
-                    <span style={{ minWidth:0 }}>
-                      <span style={{ display:'block', fontWeight:700, fontSize:13.5, color: ink }}>{v.targa}</span>
-                      <span style={{ display:'block', fontSize:11.5, color: muted }}>{v.marca} {v.modello}{s.ultimaISO ? ` · ultimo ${fmtDate(s.ultimaISO)}` : ''}</span>
-                    </span>
-                    <span style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
-                      <span style={{ fontSize:10.5, fontWeight:700, background:s.bg, color:s.fg, padding:'2px 8px', borderRadius:999 }}>{s.label}</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <button type="button" onClick={() => setAperto(open ? null : k)} style={{ flex:1, minWidth:0, background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, textAlign:'left' }}>
+                      <span style={{ minWidth:0 }}>
+                        <span style={{ display:'block', fontWeight:700, fontSize:13.5, color: ink }}>{v.targa}</span>
+                        <span style={{ display:'block', fontSize:11.5, color: muted }}>{v.marca} {v.modello}{s.ultimaISO ? ` · ultimo ${fmtDate(s.ultimaISO)}` : ''}</span>
+                      </span>
                       <span style={{ color: muted }}>{open ? '▲' : '▼'}</span>
-                    </span>
-                  </button>
+                    </button>
+                    <span style={{ fontSize:10.5, fontWeight:700, background:s.bg, color:s.fg, padding:'2px 8px', borderRadius:999, flexShrink:0 }}>{s.label}</span>
+                    <label title={passiN ? "Segna tutti i controlli di quest'auto" : 'Nessun controllo definito'} style={{ display:'flex', alignItems:'center', flexShrink:0, cursor: passiN ? 'pointer' : 'not-allowed' }}>
+                      <input type="checkbox" disabled={!passiN} checked={s.label === 'Fatto'} onChange={(e) => flaggaAuto(t, v.id, e.target.checked)} style={{ width:20, height:20, accentColor: theme.primary || '#33594E' }} />
+                    </label>
+                  </div>
                   {open && (
                     <div style={{ marginTop:8 }}>
                       <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
