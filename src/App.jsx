@@ -2722,9 +2722,10 @@ function VehicleForm({ initial, onSave, onCancel }) {
 }
 
 /* ---------- Maintenance ---------- */
-function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, onComplete }) {
+function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, onComplete, onAppuntamento }) {
   const [tabM, setTabM] = useState('programmati');
   const [confermaId, setConfermaId] = useState(null);
+  const [appDraft, setAppDraft] = useState({});
   const vOf = (targa) => vehicles.find(v => v.targa === targa);
 
   const programmati = [...maints]
@@ -2777,6 +2778,13 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                   <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}` : ''}</div>
                 </div>
               </div>
+              {onAppuntamento && tabM === 'programmati' && (
+                <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                  <span style={{ fontSize:12.5, fontWeight:600, color: MEZZI_COLORS.muted }}>📅 Appuntamento</span>
+                  <input type="date" value={appDraft[m.id] ?? m.appuntamento ?? ''} onChange={(e) => setAppDraft(p => ({ ...p, [m.id]: e.target.value }))} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                  <button type="button" onClick={() => { const d = appDraft[m.id] ?? m.appuntamento ?? ''; setAppDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); onAppuntamento(m, d); }} style={{ padding:'6px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva appuntamento</button>
+                </div>
+              )}
               {onComplete && tabM === 'programmati' && (
                 <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}`, paddingTop: 10 }}>
                   {confermaId !== m.id ? (
@@ -3483,7 +3491,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
-    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} />;
+    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data) => saveMaint({ ...m, appuntamento: data || null })} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
       content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
