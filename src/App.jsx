@@ -2547,6 +2547,21 @@ function BarraVita({ dot }) {
   );
 }
 
+// Unisce i dati gomme salvati nel database con quelli che arrivano dal salvataggio:
+// una copia vecchia della scheda non puo' cancellare un appuntamento o un cambio gia' registrato.
+function unisciGomme(attuale, nuova) {
+  return { ...(attuale || {}), ...(nuova || {}) };
+}
+
+// Promemoria chilometri: ogni quanti giorni chiedere di aggiornare il chilometraggio di ogni mezzo.
+const KM_PROMEMORIA_GIORNI = 30;
+// Gruppo di un intervento nello storico: da realizzare, in sospeso (attesa ricambi), realizzato.
+function gruppoStato(stato) {
+  if (stato === 'Programmato') return 'realizzare';
+  if (stato === 'In Attesa Ricambi') return 'sospeso';
+  return 'realizzati';
+}
+
 // Battistrada in millimetri. Limite di legge 1,6 mm (art. 79 CdS); consigliato 3 mm estive, 4 mm invernali.
 function livelloBattistrada(mm, tipo) {
   const n = Number(mm);
@@ -2574,13 +2589,13 @@ function BarraBattistrada({ mm, tipo }) {
 function eventiStorico(vehicle, maints, ricorrenti) {
   const interventi = (maints || []).filter(m => m.targa === vehicle.targa).map(m => ({
     data: m.data || '', tipo: m.tipo || 'Intervento', descrizione: m.descrizione || '', officina: m.officina || '',
-    km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '',
+    km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '', gruppo: gruppoStato(m.stato),
   }));
   const tagliandi = (ricorrenti || []).filter(r => isTagliando(r) && r.modulo === 'Mezzi').flatMap(r =>
     (r.esecuzioni || []).filter(e => e.completata && e.mezzo === vehicle.id).map(e => ({
       data: (e.completataIl || '').slice(0, 10), tipo: r.tipo || 'Tagliando',
       descrizione: `${r.titolo || 'Tagliando'} · controlli eseguiti da ${e.esecutore || '—'}`,
-      officina: '', km: '', costo: '', stato: 'Completato',
+      officina: '', km: '', costo: '', stato: 'Completato', gruppo: 'realizzati',
     })));
   return [...interventi, ...tagliandi].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 }
@@ -2635,6 +2650,7 @@ function GommeForm({ vehicle, onSave, onCancel }) {
 
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti }) {
   const [editGomme, setEditGomme] = useState(false);
+  const [tabStorico, setTabStorico] = useState('realizzare');
   const [cambioIdx, setCambioIdx] = useState(null);
   const [kmCambio, setKmCambio] = useState('');
   const [erroreCambio, setErroreCambio] = useState('');
@@ -2657,7 +2673,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
-  const storico = eventiStorico(vehicle, maints, ricorrenti);
+  const storicoTutto = eventiStorico(vehicle, maints, ricorrenti);
+  const storico = storicoTutto.filter(e => e.gruppo === tabStorico);
   const esportaStorico = () => {
     const righe = storico.map(e => ({ Data: fmtDate(e.data), Tipo: e.tipo, Descrizione: e.descrizione, Officina: e.officina, Km: e.km, Costo: e.costo, Stato: e.stato }));
     if (!righe.length) return;
@@ -2784,12 +2801,17 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           </>
         )}
 
-        <SectionLabel theme={MEZZI_COLORS}>Storico del mezzo · {fmtEuro(totale)}</SectionLabel>
+        <SectionLabel theme={MEZZI_COLORS}>Interventi del mezzo · {fmtEuro(totale)}</SectionLabel>
+        <div style={{ display:'flex', background:'#F2EEF8', borderRadius:999, padding:3, marginBottom:10 }}>
+          {[['realizzare', 'Da realizzare'], ['sospeso', 'In sospeso'], ['realizzati', 'Realizzati']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setTabStorico(k)} style={{ flex:1, border:'none', borderRadius:999, padding:'6px 4px', fontSize:12, fontWeight:700, cursor:'pointer', background: tabStorico === k ? MEZZI_COLORS.primary : 'transparent', color: tabStorico === k ? '#fff' : MEZZI_COLORS.primary }}>{l} ({storicoTutto.filter(e => e.gruppo === k).length})</button>
+          ))}
+        </div>
         <div style={{ display:'flex', gap:8, marginBottom:8 }}>
           <button type="button" onClick={esportaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E7F4EC', color:'#1F6B45', fontWeight:700, fontSize:12.5 }}>Esporta Excel</button>
           <button type="button" onClick={stampaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E8EEF5', color:'#1E4D73', fontWeight:700, fontSize:12.5 }}>Stampa</button>
         </div>
-        {storico.length === 0 && <Empty theme={MEZZI_COLORS} icon={Wrench} text="Nessun evento registrato." />}
+        {storico.length === 0 && <Empty theme={MEZZI_COLORS} icon={Wrench} text="Nessun intervento in questa scheda." />}
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {storico.map((m, i) => (
             <Card theme={MEZZI_COLORS} key={i}>
@@ -2855,7 +2877,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <div style={{ padding: '0 16px' }}>
           <button
             disabled={!valid}
-            onClick={() => onSave({ ...f, gomme: { ...(f.gomme || {}), misura: misura.trim() }, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null, km_aggiornato: (Number(f.km) !== Number(initial?.km)) ? todayISO() : (initial?.km_aggiornato ?? null) })}
+            onClick={() => onSave({ ...f, gomme: { misura: misura.trim() }, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null, km_aggiornato: (Number(f.km) !== Number(initial?.km)) ? todayISO() : (initial?.km_aggiornato ?? null) })}
             style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 6 }}
           >
             Salva veicolo
@@ -3122,8 +3144,9 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
     });
   });
   // Chilometri da aggiornare: non aggiornati da oltre 30 giorni (o mai).
-  const kmDaAggiornare = vehicles.filter(v => !v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > 30);
+  const kmDaAggiornare = vehicles.filter(v => !v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > KM_PROMEMORIA_GIORNI);
   const [kmDraft, setKmDraft] = useState({});
+  const [kmAperto, setKmAperto] = useState(false);
   const [gommaAperta, setGommaAperta] = useState(null);
   const [dataGomma, setDataGomma] = useState('');
   const [oraGomma, setOraGomma] = useState('');
@@ -3134,16 +3157,25 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
       <div style={{ padding: 14 }}>
         {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza in arrivo." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {kmDaAggiornare.map(v => (
-            <Card key={'km' + v.id} theme={MEZZI_COLORS} style={{ marginBottom: 9, borderLeft: `4px solid ${MEZZI_COLORS.primary}` }}>
-              <div style={{ fontWeight:700, fontSize:13.5 }}>Aggiornare i chilometri · {v.targa}</div>
-              <div style={{ fontSize:12, color: MEZZI_COLORS.muted, marginTop:2 }}>{v.km_aggiornato ? `Ultimo aggiornamento il ${fmtDate(v.km_aggiornato)}` : 'Chilometri non ancora aggiornati dalla scheda'}</div>
-              <div style={{ display:'flex', gap:8, marginTop:8, alignItems:'center' }}>
-                <input type="number" min="0" value={kmDraft[v.id] ?? v.km ?? ''} onChange={e => setKmDraft(p => ({ ...p, [v.id]: e.target.value }))} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                <button type="button" onClick={() => { const n = Number(kmDraft[v.id] ?? v.km); if (!(n >= 0)) return; setKmDraft(p => { const c = { ...p }; delete c[v.id]; return c; }); onPatchVeicolo && onPatchVeicolo(v, { km: n, km_aggiornato: todayISO() }); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva km</button>
-              </div>
+          {kmDaAggiornare.length > 0 && (
+            <Card theme={MEZZI_COLORS} style={{ marginBottom: 9, borderLeft: `4px solid ${MEZZI_COLORS.primary}` }}>
+              <button type="button" onClick={() => setKmAperto(!kmAperto)} style={{ width:'100%', background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', textAlign:'left' }}>
+                <span style={{ fontWeight:700, fontSize:13.5 }}>Aggiornare i chilometri ({kmDaAggiornare.length})</span>
+                <span style={{ color: MEZZI_COLORS.muted }}>{kmAperto ? '▲' : '▼'}</span>
+              </button>
+              <div style={{ fontSize:12, color: MEZZI_COLORS.muted, marginTop:2 }}>Promemoria ogni {KM_PROMEMORIA_GIORNI} giorni</div>
+              {kmAperto && kmDaAggiornare.map(v => (
+                <div key={v.id} style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:8, paddingTop:8 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{v.targa} · {v.marca} {v.modello}</div>
+                  <div style={{ fontSize:12, color: MEZZI_COLORS.muted, marginTop:2 }}>{v.km_aggiornato ? `Ultimo aggiornamento il ${fmtDate(v.km_aggiornato)}` : 'Mai aggiornati dalla scheda'}</div>
+                  <div style={{ display:'flex', gap:8, marginTop:6, alignItems:'center' }}>
+                    <input type="number" min="0" value={kmDraft[v.id] ?? v.km ?? ''} onChange={e => setKmDraft(p => ({ ...p, [v.id]: e.target.value }))} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                    <button type="button" onClick={() => { const n = Number(kmDraft[v.id] ?? v.km); if (!(n >= 0)) return; setKmDraft(p => { const c = { ...p }; delete c[v.id]; return c; }); onPatchVeicolo && onPatchVeicolo(v, { km: n, km_aggiornato: todayISO() }); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva km</button>
+                  </div>
+                </div>
+              ))}
             </Card>
-          ))}
+          )}
           {avvisiGomme.map(({ v, st, motivo, e, b, ignorati, chiave }) => (
             <Card key={chiave + v.id} theme={MEZZI_COLORS} style={{ marginBottom: 9, borderLeft: `4px solid ${COLORI_VITA.rosso}` }}>
               <div style={{ fontWeight:700, fontSize:13.5, color: COLORI_VITA.rosso }}>{motivo === 'vita' ? 'Pneumatico a fine vita' : 'Battistrada sotto la soglia di sicurezza'} · {v.targa}</div>
@@ -3590,7 +3622,18 @@ function MezziModule({ onHome, initialNotification }) {
     flash(msgOk);
     goBack();
   }
-  const saveVehicle = (v) => salvaOTorna(() => vehiclesT.save(v), 'Veicolo salvato');
+  const saveVehicle = (v) => {
+    const corrente = vehiclesT.rows.find(x => x.id === v.id);
+    const record = corrente && v.gomme ? { ...v, gomme: unisciGomme(corrente.gomme, v.gomme) } : v;
+    return salvaOTorna(() => vehiclesT.save(record), 'Veicolo salvato');
+  };
+  // Salvataggi fatti dentro una scheda (appuntamento, km, cambio gomme): restano sulla schermata.
+  async function salvaVeicoloNoUscita(v) {
+    const corrente = vehiclesT.rows.find(x => x.id === v.id);
+    const record = corrente && v.gomme ? { ...v, gomme: unisciGomme(corrente.gomme, v.gomme) } : v;
+    const { error } = await vehiclesT.save(record);
+    flash(error ? 'Errore: ' + error.message : 'Salvato');
+  }
   const deleteVehicle = (v) => salvaOTorna(() => vehiclesT.remove(v), 'Veicolo eliminato');
   const saveMaint = async (m) => {
     const { error } = await maintsT.save(m);
@@ -3687,7 +3730,7 @@ function MezziModule({ onHome, initialNotification }) {
       </div>
     );
   } else if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); saveVehicle({ ...v, ...patch }); }} ricorrenti={ricT.rows} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -3737,7 +3780,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => saveVehicle({ ...v, ...patch })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
       <div style={{ padding: '0 14px 14px' }}>
         <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
