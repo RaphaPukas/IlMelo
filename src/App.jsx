@@ -2963,6 +2963,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
 
   const [gommaAperta, setGommaAperta] = useState(null);
   const [dataGomma, setDataGomma] = useState('');
+  const [oraGomma, setOraGomma] = useState('');
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title="Scadenze" subtitle={`${rows.length} da seguire`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
@@ -2970,7 +2971,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
         {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza in arrivo." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {rows.map(r => (
-            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); } : undefined}>
+            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); } : undefined}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.label}</div>
@@ -2995,12 +2996,13 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
                   <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Appuntamento per il cambio gomme</div>
                   <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                     <input type="date" value={dataGomma} onChange={(e) => setDataGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
+                    <input type="time" value={oraGomma} onChange={(e) => setOraGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
                   </div>
                 </div>
               )}
               {r.isGomme && r.v.gomme?.appuntamentoCambio && gommaAperta !== r.v.id && (
-                <div style={{ fontSize:12, fontWeight:700, color: MEZZI_COLORS.primary, marginTop:8 }}>📅 cambio fissato il {fmtDate(r.v.gomme.appuntamentoCambio)} · tocca per modificare</div>
+                <div style={{ fontSize:12, fontWeight:700, color: MEZZI_COLORS.primary, marginTop:8 }}>📅 cambio fissato il {fmtDate(r.v.gomme.appuntamentoCambio)}{r.v.gomme.orarioCambio ? ` alle ${r.v.gomme.orarioCambio}` : ''} · tocca per modificare</div>
               )}
             </Card>
           ))}
@@ -3548,7 +3550,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data } })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora } })} />
       <div style={{ padding: '0 14px 14px' }}>
         <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
