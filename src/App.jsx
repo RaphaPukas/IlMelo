@@ -2619,7 +2619,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
-  const alertGomma = alertGomme(vehicle.tipologiaGomme || '');
+  const alertGomma = alertGomme(vehicle.gomme?.montati?.tipo || vehicle.tipologiaGomme || '');
 
   return (
     <>
@@ -2671,7 +2671,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           {(() => { const m = vehicle.gomme?.montati || {}; return (<>
-            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Montati" value={[m.tipo || vehicle.tipologiaGomme, m.marca, m.modello].filter(Boolean).join(' · ') || '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Montati" value={[m.tipo || vehicle.tipologiaGomme, m.marca, m.modello || vehicle.modelloGomme].filter(Boolean).join(' · ') || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Usura" value={(m.usura !== undefined && m.usura !== '' && m.usura !== null ? `${m.usura}%` : '—') + ` · ${kmRealiSet(m, vehicle.km).toLocaleString('it-IT')} km`} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Su cerchio" value={m.cerchio === 'si' ? 'Sì' : m.cerchio === 'no' ? 'No' : '—'} />
             <BarraVita dot={m.dot} />
@@ -2703,19 +2703,6 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           <button type="button" onClick={() => setEditGomme(true)} style={{ width:'100%', marginTop:12, background:MEZZI_COLORS.primary, color:'#fff', border:'none', borderRadius:10, padding:11, fontWeight:700, fontSize:13 }}>Modifica pneumatici</button>
         </Card>
         {editGomme && <GommeForm vehicle={vehicle} onCancel={() => setEditGomme(false)} onSave={(patch) => { setEditGomme(false); onSaveGomme && onSaveGomme(vehicle, patch); }} />}
-        <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
-        <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
-          <InfoRow theme={MEZZI_COLORS} icon={Car} label="Modello pneumatici" value={vehicle.modelloGomme || '—'} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, marginTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}` }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: MEZZI_COLORS.muted }}>Tipologia montata</span>
-            <span style={{
-              fontWeight: 700, fontSize: 13,
-              color: vehicle.tipologiaGomme === 'Invernali' ? '#1E4D73' : vehicle.tipologiaGomme === 'Estive' ? '#1F6B45' : vehicle.tipologiaGomme === 'Quattro stagioni' ? '#4C3B75' : MEZZI_COLORS.muted
-            }}>
-              {vehicle.tipologiaGomme || '—'}
-            </span>
-          </div>
-        </Card>
 
         {deadlines.length > 0 && (
           <>
@@ -2792,13 +2779,8 @@ function VehicleForm({ initial, onSave, onCancel }) {
         </div>
         <Field label="Colore"><input style={inputStyle} value={f.colore} onChange={set('colore')} /></Field>
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
-        <Field label="Modello pneumatici"><input style={inputStyle} value={f.modelloGomme || ''} onChange={set('modelloGomme')} placeholder="Es. Pirelli Cinturato P7 205/55 R16" /></Field>
-        <Field label="Tipologia montata">
-          <select style={inputStyle} value={f.tipologiaGomme || ''} onChange={set('tipologiaGomme')}>
-            <option value="">— non specificata</option>
-            {TIPI_GOMME.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </Field>
+        <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Pneumatici: si gestiscono nella scheda del mezzo, nella sezione «Pneumatici montati e di scorta».</div>
+        <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>Tipologia montata: <span style={{ color: MEZZI_COLORS.primary }}>{initial?.gomme?.montati?.tipo || initial?.tipologiaGomme || '—'}</span></div>
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
@@ -3042,7 +3024,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
         out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params), isGomme: false });
       });
       // Allarme gomme stagionali
-      const alert = alertGomme(v.tipologiaGomme || '');
+      const alert = alertGomme(v.gomme?.montati?.tipo || v.tipologiaGomme || '');
       if (alert) {
         out.push({
           key: v.id + '_gomme',
