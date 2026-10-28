@@ -2455,6 +2455,66 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
   );
 }
 
+// Officine gia' in memoria: anagrafica tecnici (fornitori/esterni), interventi passati, appuntamenti gomme.
+function elencoOfficine(tecnici, manutenzioni, veicoli) {
+  const nomi = [
+    ...(tecnici || []).filter(t => t.tipo === 'Fornitore' || t.tipo === 'Esterno').map(t => t.nome),
+    ...(manutenzioni || []).map(m => m.officina),
+    ...(veicoli || []).map(v => v.gomme?.officinaCambio),
+  ].filter(Boolean).map(x => String(x).trim()).filter(Boolean);
+  return [...new Set(nomi)].sort((a, b) => a.localeCompare(b));
+}
+
+// Chilometri percorsi da un set: quelli accumulati + quelli dal montaggio ad oggi (se e' montato).
+function kmRealiSet(set, kmVeicolo) {
+  const base = Number(set?.kmTot || 0);
+  if (set?.cerchio !== 'si' || set?.kmMontaggio == null) return base;
+  return base + Math.max(0, Number(kmVeicolo || 0) - Number(set.kmMontaggio));
+}
+
+// Cambio gomme: il set di scorta diventa il montato, il montato va in scorta con i km accumulati,
+// si crea l'intervento nello storico e si chiude l'appuntamento.
+function calcolaCambioGomme(vehicle, i, km) {
+  const g = vehicle.gomme || {};
+  const attuale = g.montati || { tipo: vehicle.tipologiaGomme, cerchio: 'si' };
+  const scorta = [...(g.scorta || [])];
+  const entrante = scorta[i];
+  if (!entrante || !(km > 0)) return null;
+  const kmUscente = Number(attuale.kmTot || 0) + Math.max(0, km - Number(attuale.kmMontaggio ?? km));
+  const { kmMontaggio: _km, ...attualePulito } = attuale;
+  scorta[i] = { ...attualePulito, cerchio: 'no', kmTot: kmUscente };
+  const nuovoMontati = { ...entrante, cerchio: 'si', kmTot: Number(entrante.kmTot || 0), kmMontaggio: km };
+  const manutenzione = {
+    id: uid(), targa: vehicle.targa, data: todayISO(), tipo: 'Ordinaria', priorita: 'Media', stato: 'Completato',
+    descrizione: `Cambio gomme: montati ${[nuovoMontati.tipo, nuovoMontati.marca, nuovoMontati.modello].filter(Boolean).join(' ')}; usciti ${[attualePulito.tipo, attualePulito.marca, attualePulito.modello].filter(Boolean).join(' ')}`,
+    officina: g.officinaCambio || '', km, costo: '', note: '',
+  };
+  return {
+    patch: { gomme: { montati: nuovoMontati, scorta, appuntamentoCambio: null, orarioCambio: null, officinaCambio: null }, tipologiaGomme: nuovoMontati.tipo, km: Math.max(Number(vehicle.km || 0), km) },
+    manutenzione,
+  };
+}
+
+// Scelta dell'officina: menu con quelle gia' in memoria e voce per aggiungerne una nuova.
+function OfficinaSelect({ value, onChange, opzioni }) {
+  const [nuova, setNuova] = useState(false);
+  const [bozza, setBozza] = useState('');
+  if (nuova) return (
+    <div style={{ display:'flex', gap:6, flex:1 }}>
+      <input autoFocus value={bozza} onChange={e => setBozza(e.target.value)} placeholder="Nome nuova officina" style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+      <button type="button" onClick={() => { if (bozza.trim()) onChange(bozza.trim()); setNuova(false); setBozza(''); }} style={{ padding:'7px 10px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12 }}>OK</button>
+    </div>
+  );
+  return (
+    <select value={value || ''} onChange={e => { if (e.target.value === '__nuova__') setNuova(true); else onChange(e.target.value); }} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }}>
+      <option value="">— officina —</option>
+      {(opzioni || []).map(o => <option key={o} value={o}>{o}</option>)}
+      {value && !(opzioni || []).includes(value) && <option value={value}>{value}</option>}
+      <option value="__nuova__">➕ Nuova officina…</option>
+    </select>
+  );
+}
+
 // Pneumatici: tipo, marca, modello, usura (%) e se sono montati su cerchio.
 const TIPI_PNEUMATICI = ['Invernali', 'Estive', 'Quattro stagioni', 'All season'];
 function colorUsura(p) {
@@ -2505,18 +2565,17 @@ function GommeForm({ vehicle, onSave, onCancel }) {
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme }) {
   const [editGomme, setEditGomme] = useState(false);
   const [cambioIdx, setCambioIdx] = useState(null);
+  const [kmCambio, setKmCambio] = useState('');
+  const [erroreCambio, setErroreCambio] = useState('');
   const puoScrivereGomme = usePermessi().isAdmin;
-  // Cambio gomme: il set di scorta diventa quello montato (con cerchio), il montato va in scorta (senza cerchio).
+  // Cambio gomme con i chilometri del momento: calcolo condiviso, poi storico e veicolo si aggiornano insieme.
   const eseguiCambio = (i) => {
-    const g = vehicle.gomme || {};
-    const montatiAttuali = g.montati || { tipo: vehicle.tipologiaGomme, cerchio: 'si' };
-    const scorta = [...(g.scorta || [])];
-    const entrante = scorta[i];
-    if (!entrante) return;
-    const nuovoMontati = { ...entrante, cerchio: 'si' };
-    scorta[i] = { ...montatiAttuali, cerchio: 'no' };
+    const km = Number(kmCambio);
+    const risultato = calcolaCambioGomme(vehicle, i, km);
+    if (!risultato) { setErroreCambio('Inserisci i chilometri attuali del mezzo.'); return; }
     setCambioIdx(null);
-    onSaveGomme && onSaveGomme(vehicle, { gomme: { montati: nuovoMontati, scorta }, tipologiaGomme: nuovoMontati.tipo });
+    setErroreCambio('');
+    onSaveGomme && onSaveGomme(vehicle, risultato.patch, risultato.manutenzione);
   };
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
@@ -2580,19 +2639,24 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           {(() => { const m = vehicle.gomme?.montati || {}; return (<>
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Montati" value={[m.tipo || vehicle.tipologiaGomme, m.marca, m.modello].filter(Boolean).join(' · ') || '—'} />
-            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Usura" value={m.usura !== undefined && m.usura !== '' && m.usura !== null ? `${m.usura}%` : '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Usura" value={(m.usura !== undefined && m.usura !== '' && m.usura !== null ? `${m.usura}%` : '—') + ` · ${kmRealiSet(m, vehicle.km).toLocaleString('it-IT')} km`} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Su cerchio" value={m.cerchio === 'si' ? 'Sì' : m.cerchio === 'no' ? 'No' : '—'} />
           </>); })()}
           <div style={{ fontSize:12.5, fontWeight:700, marginTop:10 }}>Scorta ({(vehicle.gomme?.scorta || []).length})</div>
           {(vehicle.gomme?.scorta || []).map((x, i) => (
             <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>
-              {[x.tipo, x.marca, x.modello].filter(Boolean).join(' · ')} — usura <b style={{ color: colorUsura(x.usura) }}>{x.usura !== '' && x.usura != null ? `${x.usura}%` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''}
+              {[x.tipo, x.marca, x.modello].filter(Boolean).join(' · ')} — usura <b style={{ color: colorUsura(x.usura) }}>{x.usura !== '' && x.usura != null ? `${x.usura}%` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''} · {kmRealiSet(x, vehicle.km).toLocaleString('it-IT')} km
               {puoScrivereGomme && cambioIdx !== i && (
-                <button type="button" onClick={() => setCambioIdx(i)} style={{ marginLeft:8, background:'none', border:`1.5px solid ${MEZZI_COLORS.line}`, borderRadius:8, padding:'2px 8px', fontWeight:700, fontSize:11.5, color:MEZZI_COLORS.primary }}>Cambio gomme</button>
+                <button type="button" onClick={() => { setCambioIdx(i); setKmCambio(String(vehicle.km ?? '')); setErroreCambio(''); }} style={{ marginLeft:8, background:'none', border:`1.5px solid ${MEZZI_COLORS.line}`, borderRadius:8, padding:'2px 8px', fontWeight:700, fontSize:11.5, color:MEZZI_COLORS.primary }}>Cambio gomme</button>
               )}
               {cambioIdx === i && (
                 <div style={{ marginTop:6, padding:8, borderRadius:10, background:MEZZI_COLORS.bg }}>
                   <div style={{ fontWeight:700, color:MEZZI_COLORS.ink, marginBottom:6 }}>Confermi il cambio? Il montato andrà in scorta senza cerchio.</div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:6 }}>
+                    <span style={{ fontSize:12.5, fontWeight:600, color:MEZZI_COLORS.muted }}>Chilometri attuali</span>
+                    <input type="number" min="0" value={kmCambio} onChange={e => setKmCambio(e.target.value)} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                  </div>
+                  {erroreCambio && <div style={{ fontSize:12, color:MEZZI_COLORS.danger, marginBottom:6 }}>{erroreCambio}</div>}
                   <div style={{ display:'flex', gap:8 }}>
                     <button type="button" onClick={() => setCambioIdx(null)} style={{ flex:1, padding:8, borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
                     <button type="button" onClick={() => eseguiCambio(i)} style={{ flex:1, padding:8, borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700 }}>Sì, cambia</button>
@@ -2932,7 +2996,7 @@ function Row({ label, value, bold }) {
 }
 
 /* ---------- Scadenze ---------- */
-function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
+function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine }) {
   const rows = useMemo(() => {
     const out = [];
     vehicles.forEach(v => {
@@ -2964,6 +3028,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
   const [gommaAperta, setGommaAperta] = useState(null);
   const [dataGomma, setDataGomma] = useState('');
   const [oraGomma, setOraGomma] = useState('');
+  const [officinaGomma, setOfficinaGomma] = useState('');
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title="Scadenze" subtitle={`${rows.length} da seguire`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
@@ -2971,7 +3036,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
         {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza in arrivo." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {rows.map(r => (
-            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); } : undefined}>
+            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); setOfficinaGomma(r.v.gomme?.officinaCambio || ''); } : undefined}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.label}</div>
@@ -2997,12 +3062,15 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme }) {
                   <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                     <input type="date" value={dataGomma} onChange={(e) => setDataGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
                     <input type="time" value={oraGomma} onChange={(e) => setOraGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
+                  </div>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:8 }}>
+                    <OfficinaSelect value={officinaGomma} onChange={setOfficinaGomma} opzioni={officine || []} />
+                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null, officinaGomma || null); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
                   </div>
                 </div>
               )}
               {r.isGomme && r.v.gomme?.appuntamentoCambio && gommaAperta !== r.v.id && (
-                <div style={{ fontSize:12, fontWeight:700, color: MEZZI_COLORS.primary, marginTop:8 }}>📅 cambio fissato il {fmtDate(r.v.gomme.appuntamentoCambio)}{r.v.gomme.orarioCambio ? ` alle ${r.v.gomme.orarioCambio}` : ''} · tocca per modificare</div>
+                <div style={{ fontSize:12, fontWeight:700, color: MEZZI_COLORS.primary, marginTop:8 }}>📅 cambio fissato il {fmtDate(r.v.gomme.appuntamentoCambio)}{r.v.gomme.orarioCambio ? ` alle ${r.v.gomme.orarioCambio}` : ''}{r.v.gomme.officinaCambio ? ` · ${r.v.gomme.officinaCambio}` : ''} · tocca per modificare</div>
               )}
             </Card>
           ))}
@@ -3500,7 +3568,7 @@ function MezziModule({ onHome, initialNotification }) {
       </div>
     );
   } else if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch) => saveVehicle({ ...v, ...patch })} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); saveVehicle({ ...v, ...patch }); }} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -3550,7 +3618,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora } })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off) => saveVehicle({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} />
       <div style={{ padding: '0 14px 14px' }}>
         <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
