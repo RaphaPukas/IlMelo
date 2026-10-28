@@ -8240,7 +8240,7 @@ function ricorrenteAppareIl(r, iso) {
   return false;
 }
 
-function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows) {
+function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows, veicoliRows = []) {
     const interventi = (interventiRows || [])
       .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
       .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
@@ -8263,7 +8263,12 @@ function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRo
       .filter(m => m.stato !== 'Completato' && m.stato !== 'Chiuso' && m.data)
       .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
 
-    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi];
+    // Cambio gomme fissato: un appuntamento del mezzo, nel giorno e all'ora scelti.
+    const gomme = (veicoliRows || []).filter(v => v.gomme && v.gomme.appuntamentoCambio).map(v => ({
+      id: 'gomme-' + v.id, titolo: 'Cambio gomme', targa: v.targa, marca: v.marca, modello: v.modello,
+      orario: v.gomme.orarioCambio || '', _source: 'mezzi', _date: v.gomme.appuntamentoCambio, _kind: 'appuntamento',
+    }));
+    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi, ...gomme];
 }
 
 function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
@@ -8326,7 +8331,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
   const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
 
-  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows]);
+  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows]);
 
   const sette = useMemo(calcolaSettimanaAgenda, []);
   const oggiISO = sette[0].iso;
@@ -8378,7 +8383,7 @@ function AgendaModule({ onHome, onOpenModule }) {
 
   // Righe da esportare: giorno selezionato, oppure i 7 giorni visibili (attivita' visibili a chi esporta).
   const righeEsporto = () => {
-    const tipoDi = (a) => a._kind === 'ricorrente' ? 'Ricorrente' : a._kind === 'manutenzione' ? 'Manutenzione' : a._kind === 'mezzo' ? 'Mezzo' : 'Intervento';
+    const tipoDi = (a) => a._kind === 'appuntamento' ? 'Appuntamento' : a._kind === 'ricorrente' ? 'Ricorrente' : a._kind === 'manutenzione' ? 'Manutenzione' : a._kind === 'mezzo' ? 'Mezzo' : 'Intervento';
     const origineDi = (a) => a._kind === 'ricorrente' ? (a.modulo || 'Struttura') : (a._source === 'mezzi' ? 'Mezzi' : (a._source === 'carrozzine' ? 'Ausili' : 'Struttura'));
     const dettaglioDi = (a) => a._kind === 'ricorrente'
       ? [a.frequenza, a.ambito && a.ambito !== 'Tutti' ? a.ambito : ''].filter(Boolean).join(' · ')
@@ -8458,7 +8463,7 @@ function AgendaModule({ onHome, onOpenModule }) {
       ? (a.ambito && a.ambito.startsWith('mezzo:') ? 1 : (veicoliAgendaT.rows || []).length) : null;
     const mezziLabel = a.ambito && a.ambito.startsWith('mezzo:')
       ? ((veicoliAgendaT.rows || []).find(v => v.id === a.ambito.slice(6))?.targa || 'Mezzo') : 'Tutti i mezzi';
-    const dateText = a._kind === 'ricorrente'
+    const dateText = a._kind === 'appuntamento' ? `Appuntamento cambio gomme${a.orario ? ' · ore ' + a.orario : ''}` : a._kind === 'ricorrente'
       ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili`
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
@@ -8867,19 +8872,20 @@ export default function ManutenzioneApp() {
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
   const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   // Dati dell'Agenda per il conteggio della card: stesse regole della schermata Agenda.
-  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [] });
+  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [], veicoli: [] });
   useEffect(() => {
     if (!session) return undefined;
     let mounted = true;
     const carica = async () => {
-      const [i, m, r, mt] = await Promise.all([
+      const [i, m, r, mt, vv] = await Promise.all([
         supabase.from('interventi').select('*'),
         supabase.from('manutenzioni').select('*'),
         supabase.from('manutenzioni_ricorrenti').select('*'),
         supabase.from('maints').select('*'),
+        supabase.from('vehicles').select('*'),
       ]);
       if (!mounted) return;
-      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [] });
+      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [], veicoli: vv.data || [] });
     };
     carica();
     const ch = supabase.channel('hub-agenda')
@@ -8887,6 +8893,7 @@ export default function ManutenzioneApp() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'manutenzioni' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'manutenzioni_ricorrenti' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maints' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, carica)
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [session]);
@@ -8894,8 +8901,8 @@ export default function ManutenzioneApp() {
   const agendaStats = useMemo(() => {
     const oggi = todayISO();
     const adminRadice = profile?.role === 'admin';
-    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
-    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
+    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
+    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
     // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
     // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
