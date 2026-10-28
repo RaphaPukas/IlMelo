@@ -2660,6 +2660,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             <InfoRow theme={MEZZI_COLORS} icon={Fuel} label="Carburante" value={vehicle.carburante || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Palette} label="Colore" value={vehicle.colore || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Anno" value={vehicle.anno || '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Misura pneumatici" value={vehicle.gomme?.misura || vehicle.modelloGomme || '—'} />
           </div>
           {vehicle.note && (
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}`, display: 'flex', gap: 7, fontSize: 13, color: MEZZI_COLORS.muted }}>
@@ -2756,6 +2757,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
 function VehicleForm({ initial, onSave, onCancel }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
+  const [misura, setMisura] = useState(initial?.gomme?.misura || initial?.modelloGomme || '');
   const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
@@ -2779,8 +2781,8 @@ function VehicleForm({ initial, onSave, onCancel }) {
         </div>
         <Field label="Colore"><input style={inputStyle} value={f.colore} onChange={set('colore')} /></Field>
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
-        <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Pneumatici: si gestiscono nella scheda del mezzo, nella sezione «Pneumatici montati e di scorta».</div>
-        <div style={{ fontSize:13, fontWeight:600, marginBottom:10 }}>Tipologia montata: <span style={{ color: MEZZI_COLORS.primary }}>{initial?.gomme?.montati?.tipo || initial?.tipologiaGomme || '—'}</span></div>
+        <Field label="Misura pneumatici (dal libretto)"><input style={inputStyle} value={misura} onChange={e => setMisura(e.target.value)} placeholder="Es. 185/60 R15 84T" /></Field>
+        <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Marca, modello e tipo (invernali, estive, quattro stagioni) si indicano nella sezione «Pneumatici montati e di scorta».</div>
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
@@ -2791,7 +2793,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <div style={{ padding: '0 16px' }}>
           <button
             disabled={!valid}
-            onClick={() => onSave({ ...f, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null })}
+            onClick={() => onSave({ ...f, gomme: { ...(f.gomme || {}), misura: misura.trim() }, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null })}
             style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 6 }}
           >
             Salva veicolo
