@@ -2588,16 +2588,24 @@ function BarraBattistrada({ mm, tipo }) {
 // Storico unico del mezzo: interventi, cambi gomme e tagliandi eseguiti, dal piu' recente.
 function eventiStorico(vehicle, maints, ricorrenti) {
   const interventi = (maints || []).filter(m => m.targa === vehicle.targa).map(m => ({
-    data: m.data || '', tipo: m.tipo || 'Intervento', descrizione: m.descrizione || '', officina: m.officina || '',
-    km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '', gruppo: gruppoStato(m.stato),
+    data: m.data || '', tipo: m.tipo || 'Intervento',
+    descrizione: [m.descrizione || '', m.appuntamento ? `appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento < todayISO() && m.stato === 'Programmato' ? ' · in ritardo' : ''}` : ''].filter(Boolean).join(' · '),
+    officina: m.officina || '', km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '', gruppo: gruppoStato(m.stato),
   }));
+  // Appuntamento del cambio gomme fissato: compare tra le cose da realizzare, con data e ora.
+  const gom = vehicle.gomme || {};
+  const appuntamentoGomme = gom.appuntamentoCambio ? [{
+    data: gom.appuntamentoCambio, tipo: 'Cambio gomme',
+    descrizione: ['Appuntamento', gom.orarioCambio ? `ore ${gom.orarioCambio}` : '', gom.officinaCambio ? `presso ${gom.officinaCambio}` : '', gom.appuntamentoCambio < todayISO() ? '· in ritardo' : ''].filter(Boolean).join(' '),
+    officina: gom.officinaCambio || '', km: '', costo: '', stato: 'Programmato', gruppo: 'realizzare',
+  }] : [];
   const tagliandi = (ricorrenti || []).filter(r => isTagliando(r) && r.modulo === 'Mezzi').flatMap(r =>
     (r.esecuzioni || []).filter(e => e.completata && e.mezzo === vehicle.id).map(e => ({
       data: (e.completataIl || '').slice(0, 10), tipo: r.tipo || 'Tagliando',
       descrizione: `${r.titolo || 'Tagliando'} · controlli eseguiti da ${e.esecutore || '—'}`,
       officina: '', km: '', costo: '', stato: 'Completato', gruppo: 'realizzati',
     })));
-  return [...interventi, ...tagliandi].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  return [...interventi, ...tagliandi, ...appuntamentoGomme].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 }
 
 // Pneumatici: tipo, marca, modello, battistrada (mm) e se sono montati su cerchio.
