@@ -6401,11 +6401,32 @@ function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack, titolo }) {
   );
 }
 
+// Menu delle categorie: scelta dalla tabella oppure aggiunta di una nuova categoria.
+function CategoriaSelect({ value, onChange, categorie, onNuova, stile }) {
+  const [modo, setModo] = useState('select');
+  const [bozza, setBozza] = useState('');
+  if (modo === 'nuova') return (
+    <div style={{ display:'flex', gap:6 }}>
+      <input autoFocus value={bozza} onChange={e => setBozza(e.target.value)} placeholder="Nome nuova categoria" style={{ ...stile, flex:1 }} />
+      <button type="button" onClick={() => { const n = bozza.trim(); if (n) { onNuova && onNuova(n); onChange(n); } setModo('select'); setBozza(''); }} style={{ padding:'8px 12px', borderRadius:8, border:'none', background:'#33594E', color:'#fff', fontWeight:700 }}>OK</button>
+    </div>
+  );
+  return (
+    <select value={value || ''} onChange={e => { if (e.target.value === '__nuova__') setModo('nuova'); else onChange(e.target.value); }} style={stile}>
+      <option value="">— nessuna —</option>
+      {(categorie || []).map(c => <option key={c} value={c}>{c}</option>)}
+      {value && !(categorie || []).includes(value) && <option value={value}>{value}</option>}
+      <option value="__nuova__">➕ Nuova categoria…</option>
+    </select>
+  );
+}
+
 function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const [f, setF] = useState(initial || { id: uid(), nome: '', tipo: 'Esterno', specializzazione: '', indirizzo: '', telefono: '', email: '', note: '' });
+  const catTec = useCategorieTecnici();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <>
@@ -6413,7 +6434,7 @@ function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <STR_Field label="Nome / Ragione sociale *"><input style={strInputStyle} value={f.nome} onChange={set('nome')} /></STR_Field>
         <STR_Field label="Tipo"><select style={strInputStyle} value={f.tipo} onChange={set('tipo')}>{STR_TIPI_TECNICO.map(t => <option key={t}>{t}</option>)}</select></STR_Field>
-        <STR_Field label="Specializzazione"><input style={strInputStyle} value={f.specializzazione} onChange={set('specializzazione')} /></STR_Field>
+        <STR_Field label="Specializzazione"><CategoriaSelect value={f.specializzazione} onChange={(v) => setF(p => ({ ...p, specializzazione: v }))} categorie={unioneCategorie(catTec.categorie, [])} onNuova={catTec.aggiungi} stile={strInputStyle} /></STR_Field>
         <STR_Field label="Indirizzo"><input style={strInputStyle} value={f.indirizzo || ''} onChange={set('indirizzo')} placeholder="Via, civico, città" /></STR_Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <STR_Field label="Telefono"><input style={strInputStyle} value={f.telefono} onChange={set('telefono')} /></STR_Field>
