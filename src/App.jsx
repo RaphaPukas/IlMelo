@@ -185,13 +185,87 @@ function SectionLabel({ theme, children }) {
   return <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: 12.5, textTransform: 'uppercase', letterSpacing: '0.05em', color: theme.primary, margin: '18px 2px 8px' }}>{children}</div>;
 }
 
+// Filtri per categoria: nascono dalle specializzazioni dei tecnici, quindi si modificano cambiando la specializzazione.
+function specializzazioniTecnici(tecnici) {
+  return [...new Set((tecnici || []).map(t => (t.specializzazione || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+// Categorie dei tecnici: letture e modifiche dalla tabella categorie_tecnici.
+function useCategorieTecnici() {
+  const [categorie, setCategorie] = useState([]);
+  const carica = async () => {
+    const { data } = await supabase.from('categorie_tecnici').select('nome').order('nome');
+    setCategorie((data || []).map(r => r.nome));
+  };
+  useEffect(() => {
+    carica();
+    const ch = supabase.channel('categorie-tecnici')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categorie_tecnici' }, () => carica())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+  const aggiungi = async (nome) => {
+    const n = (nome || '').trim();
+    if (!n) return;
+    await supabase.from('categorie_tecnici').insert({ nome: n });
+    carica();
+  };
+  const rinomina = async (vecchio, nuovo) => {
+    const n = (nuovo || '').trim();
+    if (!n || n === vecchio) return;
+    await supabase.from('categorie_tecnici').update({ nome: n }).eq('nome', vecchio);
+    await supabase.from('tecnici').update({ specializzazione: n }).eq('specializzazione', vecchio);
+    carica();
+  };
+  const elimina = async (nome) => {
+    await supabase.from('categorie_tecnici').delete().eq('nome', nome);
+    await supabase.from('tecnici').update({ specializzazione: '' }).eq('specializzazione', nome);
+    carica();
+  };
+  return { categorie, aggiungi, rinomina, elimina };
+}
+function unioneCategorie(categorie, tecnici) {
+  return [...new Set([...(categorie || []), ...specializzazioniTecnici(tecnici)])].sort((a, b) => a.localeCompare(b));
+}
+function FiltroCategoria({ opzioni, valore, onChange, colore, gestione }) {
+  const [gestisci, setGestisci] = useState(false);
+  const [nuova, setNuova] = useState('');
+  const stile = (attivo) => ({ border:'none', borderRadius:999, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0, background: attivo ? colore : '#F2EEF8', color: attivo ? '#fff' : colore });
+  return (
+    <>
+      <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:10, alignItems:'center' }}>
+        <button type="button" onClick={() => onChange('')} style={stile(!valore)}>Tutti</button>
+        {opzioni.map(o => <button key={o} type="button" onClick={() => onChange(valore === o ? '' : o)} style={stile(valore === o)}>{o}</button>)}
+        {gestione && <button type="button" onClick={() => setGestisci(!gestisci)} title="Gestisci le categorie" style={{ border:`1.5px solid ${colore}`, borderRadius:999, padding:'4px 10px', fontSize:12, background:'#fff', cursor:'pointer', flexShrink:0 }}>⚙️</button>}
+      </div>
+      {gestione && gestisci && (
+        <div style={{ background:'#fff', border:'1px solid #E2E0D2', borderRadius:12, padding:10, marginBottom:10 }}>
+          <div style={{ fontWeight:700, fontSize:12.5, marginBottom:8 }}>Categorie dei tecnici</div>
+          {opzioni.map(o => (
+            <div key={o} style={{ display:'flex', gap:6, marginBottom:6, alignItems:'center' }}>
+              <input defaultValue={o} onBlur={e => { if (e.target.value.trim() !== o) gestione.rinomina(o, e.target.value); }} style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1.5px solid #E2E0D2', fontSize:13 }} />
+              <button type="button" onClick={() => gestione.elimina(o)} title="Elimina categoria" style={{ background:'none', border:'none', color:'#B71C1C', fontWeight:700, fontSize:16, cursor:'pointer' }}>✕</button>
+            </div>
+          ))}
+          <div style={{ display:'flex', gap:6, marginTop:6 }}>
+            <input value={nuova} onChange={e => setNuova(e.target.value)} placeholder="Nuova categoria" style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1.5px solid #E2E0D2', fontSize:13 }} />
+            <button type="button" onClick={() => { gestione.aggiungi(nuova); setNuova(''); }} style={{ padding:'6px 12px', borderRadius:8, border:'none', background:colore, color:'#fff', fontWeight:700, fontSize:12 }}>Aggiungi</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Officine e tecnici: stessi dati della scheda Struttura, con telefono ed email toccabili.
 function OfficineMezzi({ tecnici, onBack }) {
-  const lista = [...(tecnici || [])].sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+  const cat = useCategorieTecnici();
+  const [filtroCat, setFiltroCat] = useState('');
+  const lista = [...(tecnici || [])].filter(t => !filtroCat || (t.specializzazione || '').trim() === filtroCat).sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title="Officine e tecnici" subtitle={`${lista.length} in anagrafica`} onBack={onBack} backIcon={ChevronLeft} />
       <div style={{ padding: 14 }}>
+        <FiltroCategoria opzioni={unioneCategorie(cat.categorie, tecnici)} valore={filtroCat} onChange={setFiltroCat} colore={MEZZI_COLORS.primary} gestione={cat} />
         {lista.length === 0 && <Empty theme={MEZZI_COLORS} icon={Users} text="Nessun tecnico o officina registrata." />}
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
           {lista.map(t => {
@@ -2460,7 +2534,7 @@ function elencoOfficine(tecnici, manutenzioni, veicoli) {
   const nomi = [
     ...(tecnici || []).filter(t => t.tipo === 'Fornitore' || t.tipo === 'Esterno').map(t => t.nome),
     ...(manutenzioni || []).map(m => m.officina),
-    ...(veicoli || []).map(v => v.gomme?.officinaCambio),
+    ...(veicoli || []).filter(v => !v.gomme?.officinaUnaTantum).map(v => v.gomme?.officinaCambio),
   ].filter(Boolean).map(x => String(x).trim()).filter(Boolean);
   return [...new Set(nomi)].sort((a, b) => a.localeCompare(b));
 }
@@ -2487,30 +2561,34 @@ function calcolaCambioGomme(vehicle, i, km) {
   const manutenzione = {
     id: uid(), targa: vehicle.targa, data: todayISO(), tipo: 'Ordinaria', priorita: 'Media', stato: 'Completato',
     descrizione: `Cambio gomme: montati ${[nuovoMontati.tipo, nuovoMontati.marca, nuovoMontati.modello].filter(Boolean).join(' ')}; usciti ${[attualePulito.tipo, attualePulito.marca, attualePulito.modello].filter(Boolean).join(' ')}`,
-    officina: g.officinaCambio || '', km, costo: '', note: '',
+    officina: g.officinaUnaTantum ? '' : (g.officinaCambio || ''), km, costo: '', note: '',
   };
   return {
-    patch: { gomme: { montati: nuovoMontati, scorta, appuntamentoCambio: null, orarioCambio: null, officinaCambio: null }, km: Math.max(Number(vehicle.km || 0), km) },
+    patch: { gomme: { montati: nuovoMontati, scorta, appuntamentoCambio: null, orarioCambio: null, officinaCambio: null, officinaUnaTantum: false }, km: Math.max(Number(vehicle.km || 0), km) },
     manutenzione,
   };
 }
 
 // Scelta dell'officina: menu con quelle gia' in memoria e voce per aggiungerne una nuova.
 function OfficinaSelect({ value, onChange, opzioni }) {
-  const [nuova, setNuova] = useState(false);
+  const [modo, setModo] = useState('select');
   const [bozza, setBozza] = useState('');
-  if (nuova) return (
-    <div style={{ display:'flex', gap:6, flex:1 }}>
-      <input autoFocus value={bozza} onChange={e => setBozza(e.target.value)} placeholder="Nome nuova officina" style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-      <button type="button" onClick={() => { if (bozza.trim()) onChange(bozza.trim()); setNuova(false); setBozza(''); }} style={{ padding:'7px 10px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12 }}>OK</button>
+  if (modo !== 'select') return (
+    <div style={{ display:'flex', gap:6, flex:1, flexDirection:'column' }}>
+      <input autoFocus value={bozza} onChange={e => setBozza(e.target.value)} placeholder={modo === 'una' ? 'Nome officina (solo per questo appuntamento)' : 'Nome nuova officina'} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+      <div style={{ display:'flex', gap:6 }}>
+        <button type="button" onClick={() => { if (bozza.trim()) onChange(bozza.trim(), modo === 'una'); setModo('select'); setBozza(''); }} style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12 }}>OK</button>
+        <button type="button" onClick={() => { setModo('select'); setBozza(''); }} style={{ padding:'7px 10px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontSize:12 }}>Annulla</button>
+      </div>
     </div>
   );
   return (
-    <select value={value || ''} onChange={e => { if (e.target.value === '__nuova__') setNuova(true); else onChange(e.target.value); }} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }}>
+    <select value={value || ''} onChange={e => { if (e.target.value === '__nuova__') setModo('nuova'); else if (e.target.value === '__una__') setModo('una'); else onChange(e.target.value, false); }} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }}>
       <option value="">— officina —</option>
       {(opzioni || []).map(o => <option key={o} value={o}>{o}</option>)}
       {value && !(opzioni || []).includes(value) && <option value={value}>{value}</option>}
-      <option value="__nuova__">➕ Nuova officina…</option>
+      <option value="__nuova__">➕ Nuova officina (in memoria)…</option>
+      <option value="__una__">✏️ Una volta sola…</option>
     </select>
   );
 }
@@ -3159,6 +3237,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
   const [dataGomma, setDataGomma] = useState('');
   const [oraGomma, setOraGomma] = useState('');
   const [officinaGomma, setOfficinaGomma] = useState('');
+  const [unaTantumGomma, setUnaTantumGomma] = useState(false);
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title="Scadenze" subtitle={`${rows.length} da seguire`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
@@ -3195,7 +3274,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
             </Card>
           ))}
           {rows.map(r => (
-            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); setOfficinaGomma(r.v.gomme?.officinaCambio || ''); } : undefined}>
+            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); setOfficinaGomma(r.v.gomme?.officinaCambio || ''); setUnaTantumGomma(!!r.v.gomme?.officinaUnaTantum); } : undefined}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.label}</div>
@@ -3223,8 +3302,8 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
                     <input type="time" value={oraGomma} onChange={(e) => setOraGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
                   </div>
                   <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:8 }}>
-                    <OfficinaSelect value={officinaGomma} onChange={setOfficinaGomma} opzioni={officine || []} />
-                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null, officinaGomma || null); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
+                    <OfficinaSelect value={officinaGomma} onChange={(val, una) => { setOfficinaGomma(val); setUnaTantumGomma(!!una); }} opzioni={officine || []} />
+                    <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null, officinaGomma || null, unaTantumGomma); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
                   </div>
                 </div>
               )}
@@ -3788,7 +3867,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off, officinaUnaTantum: !!una } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
       <div style={{ padding: '0 14px 14px' }}>
         <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
@@ -6293,14 +6372,18 @@ function RepartoForm({ initial, reparti, onSave, onCancel, onDelete }) {
 
 /* ---------- Tecnici e ditte (anagrafica, raggiungibile dal Riepilogo) ---------- */
 function TecniciStrScreen({ tecnici, onOpen, onAdd, onBack, titolo }) {
+  const cat = useCategorieTecnici();
+  const [filtroCat, setFiltroCat] = useState('');
+  const tecniciFiltrati = (tecnici || []).filter(t => !filtroCat || (t.specializzazione || '').trim() === filtroCat);
   const titoloMostrato = titolo || 'Tecnici e Ditte';
   return (
     <>
       <TopBar theme={STR_COLORS} title={titoloMostrato} subtitle={`${tecnici.length} in anagrafica`} onBack={onBack} />
       <div style={{ padding: 14 }}>
-        {tecnici.length === 0 && <Empty theme={STR_COLORS} icon={Users} text="Nessun tecnico registrato." />}
+        <FiltroCategoria opzioni={unioneCategorie(cat.categorie, tecnici)} valore={filtroCat} onChange={setFiltroCat} colore={STR_COLORS.primary} gestione={cat} />
+        {tecniciFiltrati.length === 0 && <Empty theme={STR_COLORS} icon={Users} text="Nessun tecnico registrato." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {tecnici.map(t => (
+          {tecniciFiltrati.map(t => (
             <Card theme={STR_COLORS} key={t.id} onClick={() => onOpen(t)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
