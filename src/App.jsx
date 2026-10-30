@@ -4057,7 +4057,7 @@ function SelettoreTipologia({ valore, onChange }) {
   );
 }
 
-function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, selettore }) {
+function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, selettore, titolo, onAdd }) {
   const [q, setQ] = useState('');
   const filtered = items.filter(w => {
     if (filtro?.tipo === 'nucleo' && w.nucleo !== filtro.valore) return false;
@@ -4070,8 +4070,9 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, se
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title="Carrozzine" subtitle={`${items.length} in archivio`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <TopBar theme={CARROZZINE_COLORS} title={titolo || "Carrozzine"} subtitle={`${items.length} in archivio`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
       {selettore}
+      {onAdd && <div style={{ margin: '10px 14px 0' }}><button type="button" onClick={onAdd} style={{ width:'100%', padding:'11px', borderRadius:12, border:`1.5px dashed ${CARROZZINE_COLORS.primary}`, background:'#fff', color:CARROZZINE_COLORS.primary, fontWeight:700, fontSize:14, cursor:'pointer' }}>+ Aggiungi {titolo === 'Deambulatori' ? 'deambulatore' : titolo === 'Mobilizzatori' ? 'mobilizzatore' : 'carrozzina'}</button></div>}
       {items.filter(w => categoriaConBatteria(w) && scadenzaBatteria(w)).map(w => ({ w, d: scadenzaBatteria(w), days: daysUntil(scadenzaBatteria(w)) })).filter(x => x.days <= 45).map(({ w, d, days }) => (
         <div key={'bat' + w.id} style={{ margin: '10px 14px 0' }}>
           <Card theme={CARROZZINE_COLORS} style={{ borderLeft: `4px solid ${days < 0 ? '#B71C1C' : '#B15C00'}` }}>
@@ -4967,6 +4968,18 @@ useEffect(() => {
     const { error } = await itemsT.save(w);
     if (error) flash(error.message);
   };
+  const aggiungiAusilio = async (categoria) => {
+    const prossimo = items.reduce((m, w) => Math.max(m, Number(w.id) || 0), 0) + 1;
+    const nuovo = {
+      id: prossimo, data: todayISO(), marca: '', modello: '', seriale: '', tipologia: '', fornitore: '',
+      nucleo: '', stanza: '', ospite: '', stato: '', categoria,
+      c: Object.fromEntries(COMPONENTI.map(([k]) => [k, ''])), dataSostituzioni: {},
+      esecuzioni_controllo: [], durata_batteria_mesi: 24,
+    };
+    const { error } = await itemsT.save(nuovo);
+    if (error) { flash(error.message); return; }
+    setOpenId(prossimo);
+  };
 
   const creaControllo = async ({ carrozzinaId, dataProgrammata, periodicita }) => {
     const duplicato = controlliT.rows.some(c =>
@@ -5094,7 +5107,7 @@ useEffect(() => {
     const itemsTab = tipologiaAusili === 'deambulatori' ? items.filter(w => w.categoria === 'Deambulatore')
       : tipologiaAusili === 'mobilizzatori' ? items.filter(w => w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore')
       : items.filter(w => !w.categoria || w.categoria === 'Carrozzina');
-    content = <CarrozzineScreen items={itemsTab} selettore={<SelettoreTipologia valore={tipologiaAusili} onChange={setTipologiaAusili} />} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
+    content = <CarrozzineScreen items={itemsTab} onAdd={isAdmin ? () => aggiungiAusilio(tipologiaAusili === 'deambulatori' ? 'Deambulatore' : tipologiaAusili === 'mobilizzatori' ? 'Verticalizzatore' : 'Carrozzina') : null} titolo={(TIPOLOGIE_AUSILI.find(([k]) => k === tipologiaAusili) || [])[1]} selettore={<SelettoreTipologia valore={tipologiaAusili} onChange={setTipologiaAusili} />} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
     if (view.name === 'nuovoControllo') {
       content = <NuovoControlloForm items={items} onSave={creaControllo} onCancel={() => goBack()} />;
