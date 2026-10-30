@@ -3947,9 +3947,7 @@ const COMPONENTI = [
   ['manopole', 'Manopole'], ['seduta', 'Seduta'], ['poggiatesta', 'Poggiatesta'], ['pulizia', 'Pulizia'],
 ];
 const CARROZZINE_NAV_ITEMS = [
-  ['carrozzine', Armchair, 'Carrozzine'],
-  ['deambulatori', Footprints, 'Deambulatori'],
-  ['mobilizzatori', Accessibility, 'Mobilizzatori'],
+  ['carrozzine', Armchair, 'Tipologia'],
   ['controlli', ClipboardList, 'Controlli'],
   ['nuclei', Layers, 'Nuclei'],
   ['riepilogo', BarChart3, 'Riepilogo'],
@@ -4047,7 +4045,19 @@ const selectStyle = (s) => ({
 });
 
 /* ---------- Carrozzine ---------- */
-function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) {
+// Selettore delle tipologie di ausili, mostrato in cima alla scheda Tipologia.
+const TIPOLOGIE_AUSILI = [['carrozzine', 'Carrozzine'], ['deambulatori', 'Deambulatori'], ['mobilizzatori', 'Mobilizzatori']];
+function SelettoreTipologia({ valore, onChange }) {
+  return (
+    <div style={{ display:'flex', background:'#F2EEF8', borderRadius:999, padding:3, margin:'10px 14px 0' }}>
+      {TIPOLOGIE_AUSILI.map(([k, l]) => (
+        <button key={k} type="button" onClick={() => onChange(k)} style={{ flex:1, border:'none', borderRadius:999, padding:'7px 4px', fontSize:12.5, fontWeight:700, cursor:'pointer', background: valore === k ? CARROZZINE_COLORS.primary : 'transparent', color: valore === k ? '#fff' : CARROZZINE_COLORS.primary }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, selettore }) {
   const [q, setQ] = useState('');
   const filtered = items.filter(w => {
     if (filtro?.tipo === 'nucleo' && w.nucleo !== filtro.valore) return false;
@@ -4061,6 +4071,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title="Carrozzine" subtitle={`${items.length} in archivio`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      {selettore}
       {items.filter(w => categoriaConBatteria(w) && scadenzaBatteria(w)).map(w => ({ w, d: scadenzaBatteria(w), days: daysUntil(scadenzaBatteria(w)) })).filter(x => x.days <= 45).map(({ w, d, days }) => (
         <div key={'bat' + w.id} style={{ margin: '10px 14px 0' }}>
           <Card theme={CARROZZINE_COLORS} style={{ borderLeft: `4px solid ${days < 0 ? '#B71C1C' : '#B15C00'}` }}>
@@ -4897,6 +4908,7 @@ function CarrozzineModule({ onHome, initialNotification }) {
   const navItemsConsentiti = CARROZZINE_NAV_ITEMS.filter(([key]) => tabConsentito(key));
   const moduloConsentito = isAdmin || hasPermission(CARROZZINE_MODULO_PERMESSO);
   const itemsT = useSupaTable('carrozzine', 'id', SEED, ['data']);
+  const [tipologiaAusili, setTipologiaAusili] = useState('carrozzine');
   const items = itemsT.rows;
   const ready = itemsT.ready;
   const [tab, setTab] = useState(() => (navItemsConsentiti[0] ? navItemsConsentiti[0][0] : 'carrozzine'));
@@ -5078,11 +5090,11 @@ useEffect(() => {
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
     );
-  } else if (tab === 'carrozzine' || tab === 'deambulatori' || tab === 'mobilizzatori') {
-    const itemsTab = tab === 'deambulatori' ? items.filter(w => w.categoria === 'Deambulatore')
-      : tab === 'mobilizzatori' ? items.filter(w => w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore')
+  } else if (tab === 'carrozzine') {
+    const itemsTab = tipologiaAusili === 'deambulatori' ? items.filter(w => w.categoria === 'Deambulatore')
+      : tipologiaAusili === 'mobilizzatori' ? items.filter(w => w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore')
       : items.filter(w => !w.categoria || w.categoria === 'Carrozzina');
-    content = <CarrozzineScreen items={itemsTab} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
+    content = <CarrozzineScreen items={itemsTab} selettore={<SelettoreTipologia valore={tipologiaAusili} onChange={setTipologiaAusili} />} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
     if (view.name === 'nuovoControllo') {
       content = <NuovoControlloForm items={items} onSave={creaControllo} onCancel={() => goBack()} />;
