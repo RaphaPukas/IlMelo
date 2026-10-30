@@ -2631,6 +2631,15 @@ function unisciGomme(attuale, nuova) {
   return { ...(attuale || {}), ...(nuova || {}) };
 }
 
+// Scadenze dei tagliandi di un mezzo: prossima data per ogni tagliando (annuale, semestrale, ...).
+function scadenzeTagliandi(vehicle, ricorrenti) {
+  return (ricorrenti || []).filter(r => isTagliando(r) && r.modulo === 'Mezzi').map(r => {
+    const st = statoTagliandoAuto(r, r.esecuzioni || [], vehicle.id);
+    if (!st.prossima) return null;
+    return { label: `Tagliando · ${r.titolo || r.frequenza || 'ordinario'}`, d: st.prossima, days: daysUntil(st.prossima) };
+  }).filter(Boolean);
+}
+
 // Promemoria chilometri: ogni quanti giorni chiedere di aggiornare il chilometraggio di ogni mezzo.
 const KM_PROMEMORIA_GIORNI = 30;
 // Gruppo di un intervento nello storico: da realizzare, in sospeso (attesa ricambi), realizzato.
@@ -2705,8 +2714,8 @@ function GommeForm({ vehicle, onSave, onCancel }) {
         <PROC_Field label="Modello"><input style={procInputStyle} value={obj.modello || ''} onChange={e => setObj({ ...obj, modello: e.target.value })} /></PROC_Field>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-        <PROC_Field label="Codice DOT (4 cifre)"><input maxLength={4} placeholder="es. 2415" style={procInputStyle} value={obj.dot || ''} onChange={e => setObj({ ...obj, dot: e.target.value.replace(/\D/g, '') })} /></PROC_Field>
-        <PROC_Field label="Battistrada (mm)"><input type="number" step="0.1" min="0" max="10" style={procInputStyle} value={obj.battistrada ?? ''} onChange={e => setObj({ ...obj, battistrada: e.target.value })} /></PROC_Field>
+        <PROC_Field label="Codice DOT (4 cifre) · del pneumatico più vecchio del set"><input maxLength={4} placeholder="es. 2415" style={procInputStyle} value={obj.dot || ''} onChange={e => setObj({ ...obj, dot: e.target.value.replace(/\D/g, '') })} /></PROC_Field>
+        <PROC_Field label="Battistrada (mm) · del pneumatico più consumato"><input type="number" step="0.1" min="0" max="10" style={procInputStyle} value={obj.battistrada ?? ''} onChange={e => setObj({ ...obj, battistrada: e.target.value })} /></PROC_Field>
         <PROC_Field label="Su cerchio"><select style={procInputStyle} value={obj.cerchio || 'si'} onChange={e => setObj({ ...obj, cerchio: e.target.value })}><option value="si">Sì</option><option value="no">No</option></select></PROC_Field>
       </div>
     </>
@@ -2756,6 +2765,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
     ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo],
+    ...scadenzeTagliandi(vehicle, ricorrenti).map(t => [t.label, t.d]),
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
@@ -3026,10 +3036,10 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                   </div>
                   <div style={{ marginBottom: 6 }}><Plate targa={m.targa} size="sm" /></div>
                   <div style={{ fontSize: 12, color: MEZZI_COLORS.muted }}>{vOf(m.targa) ? `${vOf(m.targa).marca} ${vOf(m.targa).modello} · ` : ''}{fmtDate(m.data)}</div>
+                  <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted, marginTop: 4, wordBreak: 'break-word' }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}` : ''}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{m.costo ? fmtEuro(m.costo * 1.22) : '—'}</div>
-                  <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}` : ''}</div>
                 </div>
               </div>
               {onAppuntamento && tabM === 'programmati' && (
@@ -3188,7 +3198,7 @@ function Row({ label, value, bold }) {
 }
 
 /* ---------- Scadenze ---------- */
-function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine, onAggiornaGomme, onPatchVeicolo }) {
+function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine, onAggiornaGomme, onPatchVeicolo, ricorrenti }) {
   const rows = useMemo(() => {
     const out = [];
     vehicles.forEach(v => {
@@ -3198,6 +3208,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
         const days = daysUntil(d);
         out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params), isGomme: false });
       });
+      scadenzeTagliandi(v, ricorrenti).forEach(t => out.push({ key: v.id + t.label, v, label: t.label, d: t.d, days: t.days, u: urgencyOf(t.days, params), isGomme: false }));
       // Allarme gomme stagionali
       const alert = alertGomme(v.gomme?.montati?.tipo || '');
       if (alert) {
@@ -3215,7 +3226,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
     });
     // Mostro solo le scadenze da seguire: rosse (urgenti) e gialle (attenzione). Le verdi, a lungo termine, non servono qui.
     return out.filter(r => r.u === 'urgent' || r.u === 'medium' || r.u === 'soon').sort((a, b) => a.days - b.days);
-  }, [vehicles, params]);
+  }, [vehicles, params, ricorrenti]);
 
   // Avvisi sui pneumatici: fine vita per data (10 anni) e battistrada sotto la soglia di sicurezza (2 mm). Non vanno in Agenda.
   const avvisiGomme = [];
@@ -3870,7 +3881,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off, officinaUnaTantum: !!una } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} ricorrenti={ricT.rows} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off, officinaUnaTantum: !!una } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
       <div style={{ padding: '0 14px 14px' }}>
         <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
@@ -3974,8 +3985,8 @@ const CARROZZINE_TAB_PERMESSI = {
 };
 
 /* ---------- helpers ---------- */
-const needsAttention = (w) => COMPONENTI.some(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante');
-const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').length;
+const needsAttention = (w) => COMPONENTI.some(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante');
+const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').length;
 const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Carrozzina senza marca';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
 
@@ -4063,6 +4074,14 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   return (
     <>
       <TopBar theme={CARROZZINE_COLORS} title="Carrozzine" subtitle={`${items.length} in archivio`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      {items.filter(w => categoriaConBatteria(w) && scadenzaBatteria(w)).map(w => ({ w, d: scadenzaBatteria(w), days: daysUntil(scadenzaBatteria(w)) })).filter(x => x.days <= 45).map(({ w, d, days }) => (
+        <div key={'bat' + w.id} style={{ margin: '10px 14px 0' }}>
+          <Card theme={CARROZZINE_COLORS} style={{ borderLeft: `4px solid ${days < 0 ? '#B71C1C' : '#B15C00'}` }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: days < 0 ? '#B71C1C' : '#8A5A00' }}>Batteria {days < 0 ? 'scaduta' : 'da sostituire'} · {labelOf(w)}</div>
+            <div style={{ fontSize: 12, color: '#6E7972', marginTop: 2 }}>Entro il {fmtDate(d)}{days >= 0 ? ` (tra ${days} giorni)` : ''}</div>
+          </Card>
+        </div>
+      ))}
       <div style={{ padding: 14 }}>
         <div style={{ position: 'relative', marginBottom: 10 }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: CARROZZINE_COLORS.muted }} />
@@ -4110,6 +4129,17 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
   );
 }
 
+// Categorie degli ausili e logica della batteria e del controllo periodico (ISO 10535) per verticalizzatori e sollevatori.
+const CATEGORIE_AUSILI = ['Carrozzina', 'Deambulatore', 'Verticalizzatore', 'Sollevatore'];
+const CHECKLIST_SOLLEVATORI = ['Batteria: carica e spia di stato', 'Imbracature e punti di aggancio: usura e danni', 'Ruote e freni', 'Pulsantiera e pannello di controllo', 'Cavi, bracci e colonna: usura e danni', 'Abbassamento di emergenza funzionante', 'Etichetta del prodotto leggibile'];
+function categoriaConBatteria(w) { return w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore'; }
+function scadenzaBatteria(w) {
+  if (!w.data_batteria) return null;
+  const d = new Date(w.data_batteria + 'T00:00:00');
+  d.setMonth(d.getMonth() + (Number(w.durata_batteria_mesi) || 24));
+  return d.toISOString().slice(0, 10);
+}
+
 function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
@@ -4134,6 +4164,33 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
     <>
       <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtCarrozzinaId(w.id)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
       <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
+        <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 6 }}>Categoria</div>
+          <select value={w.categoria || 'Carrozzina'} onChange={e => set({ categoria: e.target.value })} style={inputInlineStyle}>
+            {CATEGORIE_AUSILI.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {categoriaConBatteria(w) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Installazione batteria</div>
+                <input type="date" value={w.data_batteria || ''} onChange={e => set({ data_batteria: e.target.value || null })} style={inputInlineStyle} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Durata batteria (mesi)</div>
+                <input type="number" min="1" value={w.durata_batteria_mesi ?? 24} onChange={e => set({ durata_batteria_mesi: Number(e.target.value) || 24 })} style={inputInlineStyle} />
+              </div>
+            </div>
+          )}
+          {categoriaConBatteria(w) && w.data_batteria && (
+            <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700 }}>Batteria da sostituire entro il {fmtDate(scadenzaBatteria(w))}</div>
+          )}
+        </Card>
+        {categoriaConBatteria(w) && (
+          <>
+            <SectionLabel theme={CARROZZINE_COLORS}>Controllo periodico</SectionLabel>
+            <ChecklistPassi steps={CHECKLIST_SOLLEVATORI.join('\n')} esecuzioni={w.esecuzioni_controllo || []} onSalva={(nuova) => onUpdate({ ...w, esecuzioni_controllo: nuova })} />
+          </>
+        )}
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <InfoRow theme={CARROZZINE_COLORS} icon={Calendar} label="Data" value={fmtDate(w.data)} />
@@ -4207,7 +4264,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
         <SectionLabel theme={CARROZZINE_COLORS}>Checklist componenti</SectionLabel>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           {COMPONENTI.map(([key, label], i) => {
-            const val = w.c[key];
+            const val = w.c?.[key];
             const isFreeText = val && !CONDIZIONI.includes(val);
             const dataSost = w.dataSostituzioni?.[key] || '';
             return (
@@ -4344,8 +4401,8 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
                     <ChevronRight size={18} color={CARROZZINE_COLORS.muted} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {COMPONENTI.filter(([k]) => w.c[k] === 'Da sistemare' || w.c[k] === 'Mancante').map(([k, label]) => (
-                      <Pill key={k} style={COND_STYLE[w.c[k]]}>{label}: {w.c[k]}</Pill>
+                    {COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').map(([k, label]) => (
+                      <Pill key={k} style={COND_STYLE[w.c?.[k]]}>{label}: {w.c?.[k]}</Pill>
                     ))}
                   </div>
                 </Card>
@@ -4984,9 +5041,9 @@ useEffect(() => {
       'ID': w.id, 'Data': w.data ? new Date(w.data + 'T00:00:00') : '', 'Marca': w.marca, 'Modello': w.modello,
       'Seriale': w.seriale, 'Tipologia': w.tipologia, 'Fornitore': w.fornitore, 'Nucleo': w.nucleo,
       'Stanza': w.stanza, 'Ospite': w.ospite, 'Stato': w.stato,
-      'Gomme': w.c.gomme, 'Mozzi': w.c.mozzi, 'Freni': w.c.freni, 'Pedalini': w.c.pedalini,
-      'Braccioli': w.c.braccioli, 'Portaborraccia': w.c.portaborraccia, 'Tavolino': w.c.tavolino,
-      'Manopole': w.c.manopole, 'Seduta': w.c.seduta, 'Poggiatesta': w.c.poggiatesta, 'Pulizia': w.c.pulizia,
+      'Gomme': w.c?.gomme, 'Mozzi': w.c?.mozzi, 'Freni': w.c?.freni, 'Pedalini': w.c?.pedalini,
+      'Braccioli': w.c?.braccioli, 'Portaborraccia': w.c?.portaborraccia, 'Tavolino': w.c?.tavolino,
+      'Manopole': w.c?.manopole, 'Seduta': w.c?.seduta, 'Poggiatesta': w.c?.poggiatesta, 'Pulizia': w.c?.pulizia,
       'Note': w.note,
     }));
     const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true });
