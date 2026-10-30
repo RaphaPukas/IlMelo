@@ -2,15 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
-import {
-  Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown,
-  Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical,
-  FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle,
-  MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub,
-  BedDouble, Building2, Users, Wallet,
-  LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon,
-  BookOpen, RefreshCw, Package, ExternalLink, FileText,
-} from 'lucide-react';
+import { Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
    e' sostituito con un piccolo wrapper sopra il localStorage del browser,
@@ -2631,15 +2623,6 @@ function unisciGomme(attuale, nuova) {
   return { ...(attuale || {}), ...(nuova || {}) };
 }
 
-// Scadenze dei tagliandi di un mezzo: prossima data per ogni tagliando (annuale, semestrale, ...).
-function scadenzeTagliandi(vehicle, ricorrenti) {
-  return (ricorrenti || []).filter(r => isTagliando(r) && r.modulo === 'Mezzi').map(r => {
-    const st = statoTagliandoAuto(r, r.esecuzioni || [], vehicle.id);
-    if (!st.prossima) return null;
-    return { label: `Tagliando · ${r.titolo || r.frequenza || 'ordinario'}`, d: st.prossima, days: daysUntil(st.prossima) };
-  }).filter(Boolean);
-}
-
 // Promemoria chilometri: ogni quanti giorni chiedere di aggiornare il chilometraggio di ogni mezzo.
 const KM_PROMEMORIA_GIORNI = 30;
 // Gruppo di un intervento nello storico: da realizzare, in sospeso (attesa ricambi), realizzato.
@@ -2764,8 +2747,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   const puoEliminare = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
-    ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo],
-    ...scadenzeTagliandi(vehicle, ricorrenti).map(t => [t.label, t.d]),
+    ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo], ['Tagliando', vehicle.tagliando],
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
@@ -2967,6 +2949,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
         <Field label="Bollo"><input type="date" style={inputStyle} value={f.bollo} onChange={set('bollo')} /></Field>
+        <Field label="Tagliando (scadenza)"><input type="date" style={inputStyle} value={f.tagliando || ''} onChange={set('tagliando')} /></Field>
         <Field label="Note"><textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} value={f.note} onChange={set('note')} /></Field>
       </div>
       {puoScrivere && (
@@ -3203,12 +3186,11 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
     const out = [];
     vehicles.forEach(v => {
       // Scadenze classiche
-      [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo]].forEach(([label, d]) => {
+      [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([label, d]) => {
         if (!d) return;
         const days = daysUntil(d);
         out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params), isGomme: false });
       });
-      scadenzeTagliandi(v, ricorrenti).forEach(t => out.push({ key: v.id + t.label, v, label: t.label, d: t.d, days: t.days, u: urgencyOf(t.days, params), isGomme: false }));
       // Allarme gomme stagionali
       const alert = alertGomme(v.gomme?.montati?.tipo || '');
       if (alert) {
@@ -3226,7 +3208,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
     });
     // Mostro solo le scadenze da seguire: rosse (urgenti) e gialle (attenzione). Le verdi, a lungo termine, non servono qui.
     return out.filter(r => r.u === 'urgent' || r.u === 'medium' || r.u === 'soon').sort((a, b) => a.days - b.days);
-  }, [vehicles, params, ricorrenti]);
+  }, [vehicles, params]);
 
   // Avvisi sui pneumatici: fine vita per data (10 anni) e battistrada sotto la soglia di sicurezza (2 mm). Non vanno in Agenda.
   const avvisiGomme = [];
@@ -3653,7 +3635,7 @@ function ListaRicorrenti({ rows, ready, modulo, theme, veicoli }) {
 }
 
 function MezziModule({ onHome, initialNotification }) {
-  const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo']);
+  const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo', 'tagliando']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const tecniciT = useSupaTable('tecnici', 'id', [], []);
@@ -3881,9 +3863,9 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'scadenze') {
     if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehicles} params={params} ricorrenti={ricT.rows} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off, officinaUnaTantum: !!una } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
+      <ScadenzeScreen vehicles={vehicles} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: data, orarioCambio: ora, officinaCambio: off, officinaUnaTantum: !!una } })} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
       <div style={{ padding: '0 14px 14px' }}>
-        <TagliandoSection tagliandi={ricT.rows.filter(r => isTagliando(r) && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
+        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Tagliandino interno' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} />
       </div>
     </>);
@@ -3966,6 +3948,8 @@ const COMPONENTI = [
 ];
 const CARROZZINE_NAV_ITEMS = [
   ['carrozzine', Armchair, 'Carrozzine'],
+  ['deambulatori', Footprints, 'Deambulatori'],
+  ['mobilizzatori', Accessibility, 'Mobilizzatori'],
   ['controlli', ClipboardList, 'Controlli'],
   ['nuclei', Layers, 'Nuclei'],
   ['riepilogo', BarChart3, 'Riepilogo'],
@@ -3977,6 +3961,8 @@ const CARROZZINE_MODULO_PERMESSO = 'carrozzine.visualizza';
 // gia' presenti in "permessi" su Supabase (confermate manualmente).
 const CARROZZINE_TAB_PERMESSI = {
   carrozzine: 'carrozzine.carrozzine',
+  deambulatori: 'carrozzine.carrozzine',
+  mobilizzatori: 'carrozzine.carrozzine',
   controlli: 'carrozzine.controlli',
   nuclei: 'carrozzine.nuclei',
   riepilogo: 'carrozzine.riepilogo',
@@ -3989,6 +3975,7 @@ const needsAttention = (w) => COMPONENTI.some(([k]) => w.c?.[k] === 'Da sistemar
 const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').length;
 const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Carrozzina senza marca';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
+const fmtAusilioId = (w) => (w.categoria === 'Deambulatore' ? 'D-' + String(w.id).padStart(3, '0') : fmtCarrozzinaId(w.id));
 
 /* ---------- Controlli periodici ---------- */
 const ESITI_CONTROLLO = ['OK', 'OK con osservazioni', 'Problema rilevato', 'Non effettuato'];
@@ -4067,7 +4054,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
     if (filtro?.tipo === 'stato' && (filtro.valore === '__nessuno__' ? !!w.stato : w.stato !== filtro.valore)) return false;
     if (filtro?.tipo === 'attenzione' && !needsAttention(w)) return false;
     if (filtro?.tipo === 'marca' && w.marca !== filtro.valore) return false;
-    const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtCarrozzinaId(w.id)}`.toLowerCase();
+    const hay = `${w.marca} ${w.modello} ${w.seriale} ${w.ospite} ${w.nucleo} ${w.id} ${fmtAusilioId(w)}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
 
@@ -4108,7 +4095,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome }) 
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: CARROZZINE_COLORS.muted }}>#{fmtCarrozzinaId(w.id)}</span>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: CARROZZINE_COLORS.muted }}>#{fmtAusilioId(w)}</span>
                       <span style={{ fontWeight: 700, fontSize: 14.5 }}>{labelOf(w)}</span>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: w.ospite ? 6 : 0 }}>
@@ -4162,7 +4149,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtCarrozzinaId(w.id)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
+      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtAusilioId(w)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
       <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 6 }}>Categoria</div>
@@ -4340,7 +4327,7 @@ function ControlliScreen({ items, controlli, controlliReady, onOpen, onOpenContr
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>
-              {w ? labelOf(w) : 'Carrozzina eliminata'} {w && <span style={{ fontWeight: 500, color: CARROZZINE_COLORS.muted }}>({fmtCarrozzinaId(w.id)})</span>}
+              {w ? labelOf(w) : 'Carrozzina eliminata'} {w && <span style={{ fontWeight: 500, color: CARROZZINE_COLORS.muted }}>({fmtAusilioId(w)})</span>}
             </div>
             {w?.ospite && <div style={{ fontSize: 12, color: CARROZZINE_COLORS.muted, marginTop: 2 }}>Ospite: {w.ospite}</div>}
             <div style={{ fontSize: 12, color: CARROZZINE_COLORS.muted, marginTop: 4 }}>
@@ -4731,7 +4718,7 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
     return items.filter(w => {
       const cerca = [
         w.marca, w.modello,
-        fmtCarrozzinaId(w.id),
+        fmtAusilioId(w),
         w.ospite,
         w.nucleo,
       ].filter(Boolean).join(' ').toLowerCase();
@@ -4760,7 +4747,7 @@ function SegnalazioneCarrozzinaForm({ items, onSave, onCancel }) {
               ? <option value="">— nessun risultato —</option>
               : filtrate.map(w => (
                   <option key={w.id} value={w.id}>
-                    {fmtCarrozzinaId(w.id)} — {labelOf(w)}{w.ospite ? ` · ${w.ospite}` : ''}
+                    {fmtAusilioId(w)} — {labelOf(w)}{w.ospite ? ` · ${w.ospite}` : ''}
                   </option>
                 ))
             }
@@ -4806,7 +4793,7 @@ function NuovoControlloForm({ items, onSave, onCancel, presetCarrozzinaId }) {
       <div style={{ padding: 14 }}>
         <Field label="Carrozzina">
           <select value={f.carrozzinaId} onChange={set('carrozzinaId')} style={{ ...inputStyle, background: '#FCFBF7' }}>
-            {items.map(w => <option key={w.id} value={w.id}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</option>)}
+            {items.map(w => <option key={w.id} value={w.id}>{labelOf(w)} ({fmtAusilioId(w)})</option>)}
           </select>
         </Field>
         <Field label="Data controllo">
@@ -5091,8 +5078,11 @@ useEffect(() => {
         <button onClick={onHome} style={{ padding: '10px 18px', border: 0, borderRadius: 10, background: CARROZZINE_COLORS.primary, color: '#fff', fontWeight: 700 }}>Torna alla Home</button>
       </div>
     );
-  } else if (tab === 'carrozzine') {
-    content = <CarrozzineScreen items={items} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
+  } else if (tab === 'carrozzine' || tab === 'deambulatori' || tab === 'mobilizzatori') {
+    const itemsTab = tab === 'deambulatori' ? items.filter(w => w.categoria === 'Deambulatore')
+      : tab === 'mobilizzatori' ? items.filter(w => w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore')
+      : items.filter(w => !w.categoria || w.categoria === 'Carrozzina');
+    content = <CarrozzineScreen items={itemsTab} onOpen={(w) => setOpenId(w.id)} onMenu={onMenu} filtro={filtro} setFiltro={setFiltro} onHome={onHome} />;
   } else if (tab === 'controlli') {
     if (view.name === 'nuovoControllo') {
       content = <NuovoControlloForm items={items} onSave={creaControllo} onCancel={() => goBack()} />;
@@ -5162,7 +5152,7 @@ useEffect(() => {
               <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 6 }}>
                 {fmtDate(s.dataSegnalazione)} · Stato: <b>{s.stato}</b>
               </div>
-              {w && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 10 }}>Carrozzina: {labelOf(w)} ({fmtCarrozzinaId(w.id)})</div>}
+              {w && <div style={{ fontSize: 12.5, color: CARROZZINE_COLORS.muted, marginBottom: 10 }}>Carrozzina: {labelOf(w)} ({fmtAusilioId(w)})</div>}
               {s.segnalatoDa && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginBottom: 10 }}>Da: {s.segnalatoDa}</div>}
               {s.foto?.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
@@ -5230,7 +5220,7 @@ useEffect(() => {
                           {!isAperta && <Pill style={{ bg: '#E7F3EC', fg: '#3C7A5C' }}>Chiuso</Pill>}
                         </div>
                         <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
-                        {w && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginTop: 3 }}>{labelOf(w)} ({fmtCarrozzinaId(w.id)})</div>}
+                        {w && <div style={{ fontSize: 11.5, color: CARROZZINE_COLORS.muted, marginTop: 3 }}>{labelOf(w)} ({fmtAusilioId(w)})</div>}
                         {i.segnalatoDa && <div style={{ fontSize: 11, color: CARROZZINE_COLORS.muted, marginTop: 3 }}>Da: {i.segnalatoDa}</div>}
                         {i.foto?.length > 0 && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: CARROZZINE_COLORS.muted, marginTop: 4 }}>
@@ -7945,7 +7935,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
           </div>
         )}
 
-        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario') setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno') setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliando ordinario','Tagliandino interno'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
+        <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario') setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno') setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliandino interno'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
         {modulo === 'Ausili' && (
           <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
@@ -8902,7 +8892,7 @@ function AgendaModule({ onHome, onOpenModule }) {
                   return (
                     <label key={id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 4px',fontSize:13,cursor:'pointer'}}>
                       <input type="checkbox" checked={fatto} onChange={() => toggleAusilio(a, id)} style={{width:18,height:18}} />
-                      <span style={{textDecoration: fatto ? 'line-through' : 'none', color: fatto ? STR_COLORS.muted : STR_COLORS.ink}}>{fmtCarrozzinaId(w.id)} · {labelOf(w)}</span>
+                      <span style={{textDecoration: fatto ? 'line-through' : 'none', color: fatto ? STR_COLORS.muted : STR_COLORS.ink}}>{fmtAusilioId(w)} · {labelOf(w)}</span>
                     </label>
                   );
                 })}
