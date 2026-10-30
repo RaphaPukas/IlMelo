@@ -3971,9 +3971,9 @@ const CARROZZINE_TAB_PERMESSI = {
 /* ---------- helpers ---------- */
 const needsAttention = (w) => COMPONENTI.some(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante');
 const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').length;
-const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Carrozzina senza marca';
+const labelOf = (w) => [w.nominativo, w.marca, w.modello].filter(Boolean).join(' ') || 'Ausilio senza nome';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
-const fmtAusilioId = (w) => (w.categoria === 'Deambulatore' ? 'D-' + String(w.id).padStart(3, '0') : fmtCarrozzinaId(w.id));
+const fmtAusilioId = (w) => (w.codice ? w.codice : (w.categoria === 'Deambulatore' ? 'D' + String(w.id).padStart(2, '0') : fmtCarrozzinaId(w.id)));
 
 /* ---------- Controlli periodici ---------- */
 const ESITI_CONTROLLO = ['OK', 'OK con osservazioni', 'Problema rilevato', 'Non effettuato'];
@@ -4130,6 +4130,62 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, se
 
 // Categorie degli ausili e logica della batteria e del controllo periodico (ISO 10535) per verticalizzatori e sollevatori.
 const CATEGORIE_AUSILI = ['Carrozzina', 'Deambulatore', 'Verticalizzatore', 'Sollevatore'];
+// Gruppi degli ausili: ogni gruppo ha la sua checklist, modificabile dalla scheda.
+const CHECKLIST_DEFAULT_AUSILI = {
+  Deambulatore: ['Freni', 'Puntali e ruote', 'Impugnature', 'Struttura e giunti', 'Regolazione in altezza'],
+  Mobilizzatore: ['Batteria: carica e spia di stato', 'Imbracature e punti di aggancio: usura e danni', 'Ruote e freni', 'Pulsantiera e pannello di controllo', 'Cavi, bracci e colonna: usura e danni', 'Abbassamento di emergenza funzionante', 'Etichetta del prodotto leggibile'],
+};
+function gruppoAusilio(w) {
+  if (w.categoria === 'Deambulatore') return 'Deambulatore';
+  if (w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore') return 'Mobilizzatore';
+  return 'Carrozzina';
+}
+function useChecklistAusili() {
+  const [righe, setRighe] = useState({});
+  const carica = async () => {
+    const { data } = await supabase.from('checklist_ausili').select('categoria, voci');
+    const m = {};
+    (data || []).forEach(r => { m[r.categoria] = r.voci || []; });
+    setRighe(m);
+  };
+  useEffect(() => {
+    carica();
+    const ch = supabase.channel('checklist-ausili')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_ausili' }, () => carica())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+  const voci = (gruppo) => righe[gruppo] || CHECKLIST_DEFAULT_AUSILI[gruppo] || [];
+  const salvaVoci = async (gruppo, lista) => {
+    await supabase.from('checklist_ausili').upsert({ categoria: gruppo, voci: lista });
+    carica();
+  };
+  return { voci, salvaVoci };
+}
+
+// Checklist modificabile per gruppo: si spuntano i passi e si modificano le voci.
+function ChecklistAusilioEditabile({ gruppo, voci, salvaVoci, esecuzioni, onSalva, puoModificare }) {
+  const [modifica, setModifica] = useState(false);
+  const [testo, setTesto] = useState('');
+  return (
+    <>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <SectionLabel theme={CARROZZINE_COLORS}>Checklist {gruppo.toLowerCase()}</SectionLabel>
+        {puoModificare && <button type="button" onClick={() => { setTesto(voci.join('\n')); setModifica(!modifica); }} style={{ background:'none', border:'none', color: CARROZZINE_COLORS.primary, fontWeight:700, fontSize:12.5, cursor:'pointer' }}>{modifica ? 'Chiudi' : 'Modifica voci'}</button>}
+      </div>
+      {modifica && (
+        <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 10 }}>
+          <div style={{ fontSize:12, color:'#6E7972', marginBottom:6 }}>Una voce per riga</div>
+          <textarea value={testo} onChange={e => setTesto(e.target.value)} rows={8} style={{ width:'100%', boxSizing:'border-box', padding:8, borderRadius:8, border:`1.5px solid ${CARROZZINE_COLORS.line}`, fontSize:13, fontFamily:'inherit' }} />
+          <button type="button" onClick={async () => { await salvaVoci(gruppo, testo.split('\n').map(x => x.trim()).filter(Boolean)); setModifica(false); }} style={{ marginTop:8, width:'100%', padding:10, borderRadius:10, border:'none', background: CARROZZINE_COLORS.primary, color:'#fff', fontWeight:700 }}>Salva voci</button>
+        </Card>
+      )}
+      <ChecklistPassi steps={voci.join('\n')} esecuzioni={esecuzioni} onSalva={onSalva} />
+    </>
+  );
+}
+
+
 const CHECKLIST_SOLLEVATORI = ['Batteria: carica e spia di stato', 'Imbracature e punti di aggancio: usura e danni', 'Ruote e freni', 'Pulsantiera e pannello di controllo', 'Cavi, bracci e colonna: usura e danni', 'Abbassamento di emergenza funzionante', 'Etichetta del prodotto leggibile'];
 function categoriaConBatteria(w) { return w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore'; }
 function scadenzaBatteria(w) {
@@ -4143,6 +4199,8 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   const set = (patch) => onUpdate({ ...w, ...patch });
+  const checklistAusili = useChecklistAusili();
+  const gruppo = gruppoAusilio(w);
   const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
 
   const controlliCarrozzina = (controlli || []).filter(c => c.carrozzina_id === w.id);
@@ -4168,6 +4226,18 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
           <select value={w.categoria || 'Carrozzina'} onChange={e => set({ categoria: e.target.value })} style={inputInlineStyle}>
             {CATEGORIE_AUSILI.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:10 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Nominativo</div>
+              <input value={w.nominativo || ''} onChange={e => set({ nominativo: e.target.value })} style={inputInlineStyle} placeholder="Es. Mario Rossi" />
+            </div>
+            {gruppo === 'Mobilizzatore' && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Identificativo</div>
+                <input value={w.codice || ''} onChange={e => set({ codice: e.target.value })} style={inputInlineStyle} placeholder="Es. A, B, C" />
+              </div>
+            )}
+          </div>
           {categoriaConBatteria(w) && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
               <div>
@@ -4184,11 +4254,8 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
             <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700 }}>Batteria da sostituire entro il {fmtDate(scadenzaBatteria(w))}</div>
           )}
         </Card>
-        {categoriaConBatteria(w) && (
-          <>
-            <SectionLabel theme={CARROZZINE_COLORS}>Controllo periodico</SectionLabel>
-            <ChecklistPassi steps={CHECKLIST_SOLLEVATORI.join('\n')} esecuzioni={w.esecuzioni_controllo || []} onSalva={(nuova) => onUpdate({ ...w, esecuzioni_controllo: nuova })} />
-          </>
+        {gruppo !== 'Carrozzina' && (
+          <ChecklistAusilioEditabile gruppo={gruppo} voci={checklistAusili.voci(gruppo)} salvaVoci={checklistAusili.salvaVoci} esecuzioni={w.esecuzioni_controllo || []} onSalva={(nuova) => onUpdate({ ...w, esecuzioni_controllo: nuova })} puoModificare={puoScrivere} />
         )}
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -4260,6 +4327,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
           </div>
         </Card>
 
+        {gruppo === 'Carrozzina' && (<>
         <SectionLabel theme={CARROZZINE_COLORS}>Checklist componenti</SectionLabel>
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           {COMPONENTI.map(([key, label], i) => {
@@ -4303,6 +4371,8 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
             );
           })}
         </Card>
+
+        </>)}
 
         <SectionLabel theme={CARROZZINE_COLORS}>Note</SectionLabel>
         <Card theme={CARROZZINE_COLORS}>
@@ -4970,9 +5040,11 @@ useEffect(() => {
   };
   const aggiungiAusilio = async (categoria) => {
     const prossimo = items.reduce((m, w) => Math.max(m, Number(w.id) || 0), 0) + 1;
+    const numeriDeamb = items.filter(w => w.categoria === 'Deambulatore' && w.codice).map(w => parseInt(String(w.codice).replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
+    const codice = categoria === 'Deambulatore' ? 'D' + String((numeriDeamb.length ? Math.max(...numeriDeamb) : 0) + 1).padStart(2, '0') : '';
     const nuovo = {
       id: prossimo, data: todayISO(), marca: '', modello: '', seriale: '', tipologia: '', fornitore: '',
-      nucleo: '', stanza: '', ospite: '', stato: '', categoria,
+      nucleo: '', stanza: '', ospite: '', stato: '', categoria, codice, nominativo: '',
       c: Object.fromEntries(COMPONENTI.map(([k]) => [k, ''])), dataSostituzioni: {},
       esecuzioni_controllo: [], durata_batteria_mesi: 24,
     };
