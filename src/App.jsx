@@ -2667,7 +2667,7 @@ function BarraBattistrada({ mm, tipo }) {
 function eventiStorico(vehicle, maints, ricorrenti) {
   const interventi = (maints || []).filter(m => m.targa === vehicle.targa).map(m => ({
     data: m.data || '', tipo: m.tipo || 'Intervento',
-    descrizione: [m.descrizione || '', m.appuntamento ? `appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento < todayISO() && m.stato === 'Programmato' ? ' · in ritardo' : ''}` : ''].filter(Boolean).join(' · '),
+    descrizione: [m.descrizione || '', m.appuntamento ? `appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}${m.appuntamento < todayISO() && m.stato === 'Programmato' ? ' · in ritardo' : ''}` : ''].filter(Boolean).join(' · '),
     officina: m.officina || '', km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '', gruppo: gruppoStato(m.stato),
   }));
   // Appuntamento del cambio gomme fissato: compare tra le cose da realizzare, con data e ora.
@@ -2979,6 +2979,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
   const [tabM, setTabM] = useState('programmati');
   const [confermaId, setConfermaId] = useState(null);
   const [appDraft, setAppDraft] = useState({});
+  const [appOraDraft, setAppOraDraft] = useState({});
   const vOf = (targa) => vehicles.find(v => v.targa === targa);
 
   const programmati = [...maints]
@@ -3028,14 +3029,15 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{m.costo ? fmtEuro(m.costo * 1.22) : '—'}</div>
-                  <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}` : ''}</div>
+                  <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 4 }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}` : ''}</div>
                 </div>
               </div>
               {onAppuntamento && tabM === 'programmati' && (
                 <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                   <span style={{ fontSize:12.5, fontWeight:600, color: MEZZI_COLORS.muted }}>📅 Appuntamento</span>
                   <input type="date" value={appDraft[m.id] ?? m.appuntamento ?? ''} onChange={(e) => setAppDraft(p => ({ ...p, [m.id]: e.target.value }))} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                  <button type="button" onClick={() => { const d = appDraft[m.id] ?? m.appuntamento ?? ''; setAppDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); onAppuntamento(m, d); }} style={{ padding:'6px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva appuntamento</button>
+                  <input type="time" value={appOraDraft[m.id] ?? m.appuntamento_ora ?? ''} onChange={(e) => setAppOraDraft(p => ({ ...p, [m.id]: e.target.value }))} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                  <button type="button" onClick={() => { const d = appDraft[m.id] ?? m.appuntamento ?? ''; const o = appOraDraft[m.id] ?? m.appuntamento_ora ?? ''; setAppDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); setAppOraDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); onAppuntamento(m, d, o); }} style={{ padding:'6px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva appuntamento</button>
                 </div>
               )}
               {onComplete && tabM === 'programmati' && (
@@ -3093,6 +3095,7 @@ function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDele
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="Data"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
           <Field label="Appuntamento (se già fissato)"><input type="date" style={inputStyle} value={f.appuntamento || ''} onChange={set('appuntamento')} /></Field>
+          <Field label="Ora appuntamento"><input type="time" style={inputStyle} value={f.appuntamento_ora || ''} onChange={set('appuntamento_ora')} /></Field>
           <Field label="Km al momento"><input type="number" style={inputStyle} value={f.km} onChange={set('km')} /></Field>
         </div>
 
@@ -3824,7 +3827,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
-    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data) => saveMaint({ ...m, appuntamento: data || null })} />;
+    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data, ora) => saveMaint({ ...m, appuntamento: data || null, appuntamento_ora: ora || null })} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
       content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
