@@ -2813,6 +2813,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             <InfoRow theme={MEZZI_COLORS} icon={Palette} label="Colore" value={vehicle.colore || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Anno" value={vehicle.anno || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Misura pneumatici" value={vehicle.gomme?.misura || '—'} />
+            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Olio motore" value={vehicle.olio_motore || '—'} />
           </div>
           {vehicle.note && (
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${MEZZI_COLORS.line}`, display: 'flex', gap: 7, fontSize: 13, color: MEZZI_COLORS.muted }}>
@@ -2944,6 +2945,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <Field label="Colore"><input style={inputStyle} value={f.colore} onChange={set('colore')} /></Field>
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
         <Field label="Misura pneumatici (dal libretto)"><input style={inputStyle} value={misura} onChange={e => setMisura(e.target.value)} placeholder="Es. 185/60 R15 84T" /></Field>
+        <Field label="Olio motore (tipo)"><input style={inputStyle} value={f.olio_motore || ''} onChange={set('olio_motore')} placeholder="Es. 5W-30 C3" /></Field>
         <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Marca, modello e tipo (invernali, estive, quattro stagioni) si indicano nella sezione «Pneumatici montati e di scorta».</div>
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
@@ -5025,6 +5027,11 @@ function CarrozzineModule({ onHome, initialNotification }) {
 
   // Apertura diretta da una notifica.
 const notificationHandledRef = useRef(null);
+  useEffect(() => {
+    if (!initialNotification || initialNotification.tipo !== 'ausilio' || !itemsT.ready) return;
+    const w = items.find(x => String(x.id) === String(initialNotification.link_id));
+    if (w) { setTab('carrozzine'); setOpenId(w.id); }
+  }, [initialNotification, itemsT.ready, items]);
 useEffect(() => {
   if (!initialNotification || !ready || !interventiT.ready) return;
 
@@ -8770,7 +8777,7 @@ function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRo
       .map(([k, label]) => ({
         id: 'ausilio-' + w.id + '-' + k, titolo: `Sistemare ${label.toLowerCase()}`,
         cameraZona: `Ausilio ${fmtAusilioId(w)} · ${labelOf(w)}`,
-        priorita: w.c[k] === 'Mancante' ? 'Alta' : 'Media', _source: 'carrozzine', _kind: 'ausilio', _date: null,
+        priorita: w.c[k] === 'Mancante' ? 'Alta' : 'Media', _source: 'carrozzine', _kind: 'ausilio', _date: null, link_id: w.id,
       })));
     // Cambio gomme fissato: un appuntamento del mezzo, nel giorno e all'ora scelti.
     const gomme = (veicoliRows || []).filter(v => v.gomme && v.gomme.appuntamentoCambio).map(v => ({
@@ -8872,6 +8879,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     if (a._kind === 'ricorrente') onOpenModule('procedure', { tipo: 'ricorrente', link_id: a.id });
     else if (a._kind === 'manutenzione') onOpenModule('struttura', { tipo: 'manutenzione_struttura', link_id: a.id });
     else if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
+    else if (a._kind === 'ausilio') onOpenModule('carrozzine', { tipo: 'ausilio', link_id: a.link_id });
     else if (a._source === 'carrozzine') onOpenModule('carrozzine', { tipo: 'segnalazione_carrozzine', link_id: a.id });
     else if (a._source === 'mezzi') onOpenModule('mezzi', { tipo: 'anomalia_mezzi', link_id: a.id });
   };
@@ -9361,7 +9369,26 @@ function playNotificationSound() {
   }
 }
 
-export default function ManutenzioneApp() {
+class ErroreSchermata extends React.Component {
+  constructor(props) { super(props); this.state = { errore: null }; }
+  static getDerivedStateFromError(errore) { return { errore }; }
+  render() {
+    if (this.state.errore) return (
+      <div style={{ minHeight:'100vh', background:'#F3F1EA', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24, textAlign:'center', fontFamily:'Inter, sans-serif' }}>
+        <div style={{ fontWeight:800, fontSize:18, marginBottom:8 }}>Questa schermata non si è aperta</div>
+        <div style={{ fontSize:13, color:'#6E7972', marginBottom:16, maxWidth:360 }}>{String((this.state.errore && this.state.errore.message) || 'Errore imprevisto')}</div>
+        <button type="button" onClick={() => window.location.reload()} style={{ padding:'11px 18px', borderRadius:12, border:'none', background:'#25454F', color:'#fff', fontWeight:700 }}>Ricarica l'app</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+export default function ManutenzioneApp(props) {
+  return <ErroreSchermata><ManutenzioneAppBase {...props} /></ErroreSchermata>;
+}
+
+function ManutenzioneAppBase() {
   if (!supabaseConfigured) {
     return (
       <div style={{ minHeight: '100vh', background: '#1C2321', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'sans-serif', textAlign: 'center' }}>
