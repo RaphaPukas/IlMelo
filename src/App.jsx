@@ -2700,6 +2700,7 @@ function GommeForm({ vehicle, onSave, onCancel }) {
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
         <PROC_Field label="Codice DOT (4 cifre) · del pneumatico più vecchio del set"><input maxLength={4} placeholder="es. 2415" style={procInputStyle} value={obj.dot || ''} onChange={e => setObj({ ...obj, dot: e.target.value.replace(/\D/g, '') })} /></PROC_Field>
+        <PROC_Field label="Misura (adattata, se diversa dal libretto)"><input style={procInputStyle} value={obj.misura || ''} onChange={e => setObj({ ...obj, misura: e.target.value })} placeholder="Es. 185/60 R15" /></PROC_Field>
         <PROC_Field label="Battistrada (mm) · del pneumatico più consumato"><input type="number" step="0.1" min="0" max="10" style={procInputStyle} value={obj.battistrada ?? ''} onChange={e => setObj({ ...obj, battistrada: e.target.value })} /></PROC_Field>
         <PROC_Field label="Su cerchio"><select style={procInputStyle} value={obj.cerchio || 'si'} onChange={e => setObj({ ...obj, cerchio: e.target.value })}><option value="si">Sì</option><option value="no">No</option></select></PROC_Field>
       </div>
@@ -2827,7 +2828,12 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           {(() => { const m = vehicle.gomme?.montati || {}; return (<>
-            <InfoRow theme={MEZZI_COLORS} icon={Car} label="Montati" value={[m.tipo, m.marca, m.modello].filter(Boolean).join(' · ') || '—'} />
+            <div style={{ padding:'2px 0' }}>
+              <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, letterSpacing:'.04em', textTransform:'uppercase' }}>Montati</div>
+              <div style={{ fontWeight:800, fontSize:15, marginTop:2, color:'#212823' }}>{m.tipo || '—'}</div>
+              <div style={{ fontSize:13.5, marginTop:1 }}>{[m.marca, m.modello].filter(Boolean).join(' ') || '—'}</div>
+              <div style={{ fontSize:13, color:MEZZI_COLORS.muted, marginTop:1 }}>Misura {m.misura || vehicle.gomme?.misura || '—'}</div>
+            </div>
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Battistrada" value={(m.battistrada !== undefined && m.battistrada !== '' && m.battistrada !== null ? `${Number(m.battistrada).toFixed(1).replace('.', ',')} mm` : '—') + ` · ${kmRealiSet(m, vehicle.km).toLocaleString('it-IT')} km`} />
             <BarraBattistrada mm={m.battistrada} tipo={m.tipo} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Su cerchio" value={m.cerchio === 'si' ? 'Sì' : m.cerchio === 'no' ? 'No' : '—'} />
@@ -2836,7 +2842,10 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           <div style={{ fontSize:12.5, fontWeight:700, marginTop:10 }}>Scorta ({(vehicle.gomme?.scorta || []).length})</div>
           {(vehicle.gomme?.scorta || []).map((x, i) => (
             <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>
-              {[x.tipo, x.marca, x.modello].filter(Boolean).join(' · ')} — battistrada <b style={{ color: (livelloBattistrada(x.battistrada, x.tipo) || { color: MEZZI_COLORS.muted }).color }}>{x.battistrada !== '' && x.battistrada != null ? `${Number(x.battistrada).toFixed(1).replace('.', ',')} mm` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''} · {kmRealiSet(x, vehicle.km).toLocaleString('it-IT')} km
+              <div style={{ fontWeight:700, fontSize:13.5, color:'#212823' }}>{x.tipo || '—'}</div>
+              <div style={{ fontSize:13 }}>{[x.marca, x.modello].filter(Boolean).join(' ') || '—'}</div>
+              <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Misura {x.misura || vehicle.gomme?.misura || '—'}</div>
+              <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>battistrada <b style={{ color: (livelloBattistrada(x.battistrada, x.tipo) || { color: MEZZI_COLORS.muted }).color }}>{x.battistrada !== '' && x.battistrada != null ? `${Number(x.battistrada).toFixed(1).replace('.', ',')} mm` : '—'}</b>{x.cerchio === 'si' ? ' · su cerchio' : ''} · {kmRealiSet(x, vehicle.km).toLocaleString('it-IT')} km</div>
               <BarraVita dot={x.dot} />
               {puoScrivereGomme && cambioIdx !== i && (
                 <button type="button" onClick={() => { setCambioIdx(i); setKmCambio(String(vehicle.km ?? '')); setErroreCambio(''); }} style={{ marginLeft:8, background:'none', border:`1.5px solid ${MEZZI_COLORS.line}`, borderRadius:8, padding:'2px 8px', fontWeight:700, fontSize:11.5, color:MEZZI_COLORS.primary }}>Cambio gomme</button>
@@ -3973,8 +3982,8 @@ const CARROZZINE_TAB_PERMESSI = {
 };
 
 /* ---------- helpers ---------- */
-const needsAttention = (w) => COMPONENTI.some(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante');
-const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').length;
+const needsAttention = (w) => Object.values(w.c || {}).some(v => v === 'Da sistemare' || v === 'Mancante');
+const attentionCount = (w) => Object.values(w.c || {}).filter(v => v === 'Da sistemare' || v === 'Mancante').length;
 const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Ausilio senza marca';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
 const fmtAusilioId = (w) => (w.codice ? w.codice : (w.categoria === 'Deambulatore' ? 'D' + String(w.id).padStart(2, '0') : fmtCarrozzinaId(w.id)));
@@ -4110,9 +4119,9 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, se
               <Card theme={CARROZZINE_COLORS} key={w.id} onClick={() => onOpen(w)}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: CARROZZINE_COLORS.muted }}>#{fmtAusilioId(w)}</span>
-                      <span style={{ fontWeight: 700, fontSize: 14.5 }}>{labelOf(w)}</span>
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ fontWeight: 800, fontSize: 18, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '.02em' }}>{fmtAusilioId(w)}</div>
+                      <div style={{ fontSize: 13, color: CARROZZINE_COLORS.muted, marginTop: 2 }}>{[w.nominativo, labelOf(w)].filter(Boolean).join(' · ')}</div>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: w.ospite ? 6 : 0 }}>
                       <NucleoTag nucleo={w.nucleo} />
@@ -4136,7 +4145,7 @@ function CarrozzineScreen({ items, onOpen, onMenu, filtro, setFiltro, onHome, se
 const CATEGORIE_AUSILI = ['Carrozzina', 'Deambulatore', 'Verticalizzatore', 'Sollevatore'];
 // Gruppi degli ausili: ogni gruppo ha la sua checklist, modificabile dalla scheda.
 const CHECKLIST_DEFAULT_AUSILI = {
-  Deambulatore: ['Freni', 'Puntali e ruote', 'Impugnature', 'Struttura e giunti', 'Regolazione in altezza'],
+  Deambulatore: ['Freni', 'Ruote', 'Cestino', 'Portaborraccia', 'Manopole', 'Telaio'],
   Mobilizzatore: ['Batteria: carica e spia di stato', 'Imbracature e punti di aggancio: usura e danni', 'Ruote e freni', 'Pulsantiera e pannello di controllo', 'Cavi, bracci e colonna: usura e danni', 'Abbassamento di emergenza funzionante', 'Etichetta del prodotto leggibile'],
 };
 function gruppoAusilio(w) {
@@ -4166,6 +4175,25 @@ function useChecklistAusili() {
     carica();
   };
   return { voci, salvaVoci };
+}
+
+// Editor degli elementi di una categoria: aggiungi, togli o rinomina, una voce per riga.
+function VociEditor({ gruppo, voci, salvaVoci, puoModificare }) {
+  const [modifica, setModifica] = useState(false);
+  const [testo, setTesto] = useState('');
+  if (!puoModificare) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <button type="button" onClick={() => { setTesto(voci.join('\n')); setModifica(!modifica); }} style={{ background:'none', border:'none', color: CARROZZINE_COLORS.primary, fontWeight:700, fontSize:12.5, cursor:'pointer', padding:0 }}>{modifica ? 'Chiudi' : 'Modifica elementi'}</button>
+      {modifica && (
+        <Card theme={CARROZZINE_COLORS} style={{ marginTop: 8 }}>
+          <div style={{ fontSize:12, color:'#6E7972', marginBottom:6 }}>Un elemento per riga</div>
+          <textarea value={testo} onChange={e => setTesto(e.target.value)} rows={7} style={{ width:'100%', boxSizing:'border-box', padding:8, borderRadius:8, border:`1.5px solid ${CARROZZINE_COLORS.line}`, fontSize:13, fontFamily:'inherit' }} />
+          <button type="button" onClick={async () => { await salvaVoci(gruppo, testo.split('\n').map(x => x.trim()).filter(Boolean)); setModifica(false); }} style={{ marginTop:8, width:'100%', padding:10, borderRadius:10, border:'none', background: CARROZZINE_COLORS.primary, color:'#fff', fontWeight:700 }}>Salva elementi</button>
+        </Card>
+      )}
+    </div>
+  );
 }
 
 // Checklist modificabile per gruppo: si spuntano i passi e si modificano le voci.
@@ -4213,6 +4241,7 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
   const set = (patch) => setBozza(b => ({ ...b, ...patch }));
   const checklistAusili = useChecklistAusili();
   const gruppo = gruppoAusilio(w);
+  const elementiDettaglio = gruppo === 'Deambulatore' ? checklistAusili.voci('Deambulatore').map(v => [v, v]) : COMPONENTI;
   const setC = (key, val) => setBozza(b => ({ ...b, c: { ...b.c, [key]: val } }));
 
   const controlliCarrozzina = (controlli || []).filter(c => c.carrozzina_id === w.id);
@@ -4231,7 +4260,7 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtAusilioId(w)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={tentaUscita} />
+      <TopBar theme={CARROZZINE_COLORS} title={fmtAusilioId(w)} subtitle={[w.nominativo, labelOf(w), w.seriale ? 'seriale ' + w.seriale : ''].filter(Boolean).join(' · ')} onBack={tentaUscita} />
       <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         {uscitaAperta && (
           <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12, borderLeft: '4px solid #B15C00' }}>
@@ -4248,6 +4277,10 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
           <select value={w.categoria || 'Carrozzina'} onChange={e => set({ categoria: e.target.value })} style={inputInlineStyle}>
             {CATEGORIE_AUSILI.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <div style={{ marginTop:10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Nominativo</div>
+            <input value={w.nominativo || ''} onChange={e => set({ nominativo: e.target.value })} style={inputInlineStyle} placeholder="Es. Anna Rossi" />
+          </div>
           <div style={{ marginTop:10 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Identificativo</div>
             <input value={w.codice || ''} onChange={e => set({ codice: e.target.value })} style={inputInlineStyle} placeholder={w.categoria === 'Deambulatore' ? 'Es. D01' : (w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore') ? 'Es. A, B, C' : 'Es. 0001'} />
@@ -4341,10 +4374,11 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
           </div>
         </Card>
 
-        {gruppo === 'Carrozzina' && (<>
-        <SectionLabel theme={CARROZZINE_COLORS}>Checklist componenti</SectionLabel>
+        {gruppo !== 'Mobilizzatore' && (<>
+        <SectionLabel theme={CARROZZINE_COLORS}>{gruppo === 'Deambulatore' ? 'Elementi del deambulatore' : 'Checklist componenti'}</SectionLabel>
+        {gruppo === 'Deambulatore' && <VociEditor gruppo="Deambulatore" voci={checklistAusili.voci('Deambulatore')} salvaVoci={checklistAusili.salvaVoci} puoModificare={puoScrivere} />}
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
-          {COMPONENTI.map(([key, label], i) => {
+          {elementiDettaglio.map(([key, label], i) => {
             const val = w.c?.[key];
             const isFreeText = val && !CONDIZIONI.includes(val);
             const dataSost = w.dataSostituzioni?.[key] || '';
@@ -8775,10 +8809,10 @@ function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRo
       .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
 
     // Componenti degli ausili da sistemare o mancanti: restano in agenda finche' non vengono aggiornati.
-    const ausiliDaSistemare = (carrozzineRows || []).flatMap(w => COMPONENTI
-      .filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante')
-      .map(([k, label]) => ({
-        id: 'ausilio-' + w.id + '-' + k, titolo: `Sistemare ${label.toLowerCase()}`,
+    const ausiliDaSistemare = (carrozzineRows || []).flatMap(w => Object.entries(w.c || {})
+      .filter(([, v]) => v === 'Da sistemare' || v === 'Mancante')
+      .map(([k]) => ({ label: (COMPONENTI.find(([ck]) => ck === k) || [k, k])[1],
+        id: 'ausilio-' + w.id + '-' + k, titolo: `Sistemare ${(COMPONENTI.find(([ck]) => ck === k) || [k, k])[1].toLowerCase()}`,
         cameraZona: `Ausilio ${fmtAusilioId(w)} · ${labelOf(w)}`,
         priorita: w.c[k] === 'Mancante' ? 'Alta' : 'Media', _source: 'carrozzine', _kind: 'ausilio', _date: null, link_id: w.id,
       })));
