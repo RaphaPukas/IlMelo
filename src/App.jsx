@@ -4228,7 +4228,8 @@ function scadenzaBatteria(w) {
   return d.toISOString().slice(0, 10);
 }
 
-function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
+function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate, onElimina }) {
+  const [eliminaAperta, setEliminaAperta] = useState(false);
   const [bozza, setBozza] = useState(wProp);
   const [uscitaAperta, setUscitaAperta] = useState(false);
   useEffect(() => { setBozza(wProp); }, [wProp.id]);
@@ -4427,6 +4428,22 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
           <textarea value={w.note || ''} onChange={e => set({ note: e.target.value })} placeholder="Aggiungi una nota…"
             style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', minHeight: 70, fontSize: 13.5, fontFamily: 'Inter, sans-serif', background: 'transparent' }} />
         </Card>
+        {puoScrivere && onElimina && (
+          <div style={{ marginBottom: 12 }}>
+            {!eliminaAperta ? (
+              <button type="button" onClick={() => setEliminaAperta(true)} style={{ width: '100%', padding: 12, borderRadius: 12, border: '1.5px solid #B71C1C', background: '#fff', color: '#B71C1C', fontWeight: 700, fontSize: 14 }}>Elimina ausilio</button>
+            ) : (
+              <Card theme={CARROZZINE_COLORS} style={{ borderLeft: '4px solid #B71C1C' }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Eliminare definitivamente {fmtAusilioId(w)}?</div>
+                <div style={{ fontSize: 12.5, color: '#6E7972', marginBottom: 10 }}>L'ausilio e i suoi dati verranno rimossi e non si possono recuperare.</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => setEliminaAperta(false)} style={{ flex: 1, padding: 10, borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Annulla</button>
+                  <button type="button" onClick={() => onElimina(wProp)} style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#B71C1C', color: '#fff', fontWeight: 700 }}>Sì, elimina</button>
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
         <div style={{ position: 'sticky', bottom: 0, background: '#F3F1EA', padding: '10px 0 4px' }}>
           <button type="button" disabled={!cambiato} onClick={() => onUpdate(bozza)} style={{ width: '100%', padding: 13, borderRadius: 12, border: 'none', background: cambiato ? CARROZZINE_COLORS.primary : '#B9C4C2', color: '#fff', fontWeight: 700, fontSize: 15 }}>{cambiato ? 'Salva modifiche' : 'Nessuna modifica da salvare'}</button>
         </div>
@@ -5094,6 +5111,12 @@ useEffect(() => {
     const { error } = await itemsT.save(w);
     if (error) flash(error.message);
   };
+  const eliminaAusilio = async (w) => {
+    const { error } = await itemsT.remove(w);
+    if (error) { flash(error.message); return; }
+    setOpenId(null);
+    flash('Ausilio eliminato');
+  };
   const aggiungiAusilio = async (categoria) => {
     const prossimo = items.reduce((m, w) => Math.max(m, Number(w.id) || 0), 0) + 1;
     const numeriDeamb = items.filter(w => w.categoria === 'Deambulatore' && w.codice).map(w => parseInt(String(w.codice).replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
@@ -5223,7 +5246,7 @@ useEffect(() => {
 
   let content;
   if (openItemConsentito) {
-    content = <CarrozzinaDetail w={openItem} controlli={controlli} onBack={() => goBack()} onUpdate={updateItem} />;
+    content = <CarrozzinaDetail w={openItem} controlli={controlli} onBack={() => goBack()} onUpdate={updateItem} onElimina={eliminaAusilio} />;
   } else if (!tabConsentito(tab)) {
     content = (
       <div style={{ minHeight: '100vh', background: CARROZZINE_COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, padding: 24, textAlign: 'center' }}>
