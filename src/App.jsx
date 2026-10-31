@@ -183,6 +183,7 @@ function specializzazioniTecnici(tecnici) {
 }
 // Categorie dei tecnici: letture e modifiche dalla tabella categorie_tecnici.
 function useCategorieTecnici() {
+  const istanzaId = useRef(Math.random().toString(36).slice(2)).current;
   const [categorie, setCategorie] = useState([]);
   const carica = async () => {
     const { data } = await supabase.from('categorie_tecnici').select('nome').order('nome');
@@ -190,7 +191,7 @@ function useCategorieTecnici() {
   };
   useEffect(() => {
     carica();
-    const ch = supabase.channel('categorie-tecnici')
+    const ch = supabase.channel('categorie-tecnici-' + istanzaId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'categorie_tecnici' }, () => carica())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -2136,6 +2137,7 @@ function ProfiloScreen({ onHome, profile, onSaved }) {
    collegato, ed espone save/remove che scrivono sul database.
    ========================================================================= */
 function useSupaTable(table, idKey, seed, dateFields = []) {
+  const istanzaId = useRef(Math.random().toString(36).slice(2)).current;
   const [rows, setRows] = useState(seed || []);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -2151,7 +2153,7 @@ function useSupaTable(table, idKey, seed, dateFields = []) {
     });
     // Se un'altra persona collegata modifica questa tabella, mi aggiorno da solo
     const channel = supabase
-      .channel(`sync-${table}`)
+      .channel(`sync-${table}-${istanzaId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
         supabase.from(table).select('*').then(({ data }) => { if (mounted && data) setRows(data); });
       })
@@ -4143,6 +4145,7 @@ function gruppoAusilio(w) {
   return 'Carrozzina';
 }
 function useChecklistAusili() {
+  const istanzaId = useRef(Math.random().toString(36).slice(2)).current;
   const [righe, setRighe] = useState({});
   const carica = async () => {
     const { data } = await supabase.from('checklist_ausili').select('categoria, voci');
@@ -4152,7 +4155,7 @@ function useChecklistAusili() {
   };
   useEffect(() => {
     carica();
-    const ch = supabase.channel('checklist-ausili')
+    const ch = supabase.channel('checklist-ausili-' + istanzaId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_ausili' }, () => carica())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
