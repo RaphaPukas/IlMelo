@@ -3971,7 +3971,7 @@ const CARROZZINE_TAB_PERMESSI = {
 /* ---------- helpers ---------- */
 const needsAttention = (w) => COMPONENTI.some(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante');
 const attentionCount = (w) => COMPONENTI.filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante').length;
-const labelOf = (w) => [w.nominativo, w.marca, w.modello].filter(Boolean).join(' ') || 'Ausilio senza nome';
+const labelOf = (w) => [w.marca, w.modello].filter(Boolean).join(' ') || 'Ausilio senza marca';
 const fmtCarrozzinaId = (id) => String(id).padStart(4, '0');
 const fmtAusilioId = (w) => (w.codice ? w.codice : (w.categoria === 'Deambulatore' ? 'D' + String(w.id).padStart(2, '0') : fmtCarrozzinaId(w.id)));
 
@@ -4195,13 +4195,20 @@ function scadenzaBatteria(w) {
   return d.toISOString().slice(0, 10);
 }
 
-function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
+function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate }) {
+  const [bozza, setBozza] = useState(wProp);
+  const [uscitaAperta, setUscitaAperta] = useState(false);
+  useEffect(() => { setBozza(wProp); }, [wProp.id]);
+  const w = bozza;
+  const sansEsecuzioni = (x) => { const { esecuzioni_controllo, ...resto } = x || {}; return resto; };
+  const cambiato = JSON.stringify(sansEsecuzioni(bozza)) !== JSON.stringify(sansEsecuzioni(wProp));
+  const tentaUscita = () => { if (cambiato) setUscitaAperta(true); else onBack(); };
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
-  const set = (patch) => onUpdate({ ...w, ...patch });
+  const set = (patch) => setBozza(b => ({ ...b, ...patch }));
   const checklistAusili = useChecklistAusili();
   const gruppo = gruppoAusilio(w);
-  const setC = (key, val) => onUpdate({ ...w, c: { ...w.c, [key]: val } });
+  const setC = (key, val) => setBozza(b => ({ ...b, c: { ...b.c, [key]: val } }));
 
   const controlliCarrozzina = (controlli || []).filter(c => c.carrozzina_id === w.id);
   const ultimoControllo = controlliCarrozzina
@@ -4219,24 +4226,26 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
 
   return (
     <>
-      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtAusilioId(w)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={onBack} />
+      <TopBar theme={CARROZZINE_COLORS} title={labelOf(w)} subtitle={`ID ${fmtAusilioId(w)}${w.seriale ? ' · ' + w.seriale : ''}`} onBack={tentaUscita} />
       <div style={{ padding: 14, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
+        {uscitaAperta && (
+          <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12, borderLeft: '4px solid #B15C00' }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Uscire senza salvare?</div>
+            <div style={{ fontSize: 12.5, color: '#6E7972', marginBottom: 10 }}>Ci sono modifiche non salvate.</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => setUscitaAperta(false)} style={{ flex: 1, padding: 10, borderRadius: 10, border: `1.5px solid ${CARROZZINE_COLORS.line}`, background: '#fff', fontWeight: 600 }}>Resta</button>
+              <button type="button" onClick={() => { setUscitaAperta(false); onBack(); }} style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#B71C1C', color: '#fff', fontWeight: 700 }}>Esci senza salvare</button>
+            </div>
+          </Card>
+        )}
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 6 }}>Categoria</div>
           <select value={w.categoria || 'Carrozzina'} onChange={e => set({ categoria: e.target.value })} style={inputInlineStyle}>
             {CATEGORIE_AUSILI.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:10 }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Nominativo</div>
-              <input value={w.nominativo || ''} onChange={e => set({ nominativo: e.target.value })} style={inputInlineStyle} placeholder="Es. Mario Rossi" />
-            </div>
-            {gruppo === 'Mobilizzatore' && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Identificativo</div>
-                <input value={w.codice || ''} onChange={e => set({ codice: e.target.value })} style={inputInlineStyle} placeholder="Es. A, B, C" />
-              </div>
-            )}
+          <div style={{ marginTop:10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#6E7972', marginBottom: 4 }}>Identificativo</div>
+            <input value={w.codice || ''} onChange={e => set({ codice: e.target.value })} style={inputInlineStyle} placeholder={w.categoria === 'Deambulatore' ? 'Es. D01' : (w.categoria === 'Verticalizzatore' || w.categoria === 'Sollevatore') ? 'Es. A, B, C' : 'Es. 0001'} />
           </div>
           {categoriaConBatteria(w) && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
@@ -4255,7 +4264,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
           )}
         </Card>
         {gruppo !== 'Carrozzina' && (
-          <ChecklistAusilioEditabile gruppo={gruppo} voci={checklistAusili.voci(gruppo)} salvaVoci={checklistAusili.salvaVoci} esecuzioni={w.esecuzioni_controllo || []} onSalva={(nuova) => onUpdate({ ...w, esecuzioni_controllo: nuova })} puoModificare={puoScrivere} />
+          <ChecklistAusilioEditabile gruppo={gruppo} voci={checklistAusili.voci(gruppo)} salvaVoci={checklistAusili.salvaVoci} esecuzioni={w.esecuzioni_controllo || []} onSalva={(nuova) => { setBozza(b => ({ ...b, esecuzioni_controllo: nuova })); onUpdate({ ...wProp, esecuzioni_controllo: nuova }); }} puoModificare={puoScrivere} />
         )}
         <Card theme={CARROZZINE_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -4346,7 +4355,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
                         const nuovoValore = e.target.value;
                         const nuovoDsSost = { ...(w.dataSostituzioni || {}) };
                         if (nuovoValore !== 'Sostituito') delete nuovoDsSost[key];
-                        onUpdate({ ...w, c: { ...w.c, [key]: nuovoValore }, dataSostituzioni: nuovoDsSost });
+                        setBozza({ ...w, c: { ...w.c, [key]: nuovoValore }, dataSostituzioni: nuovoDsSost });
                       }}
                       style={{ ...selectStyle(COND_STYLE[val] || { bg: '#F1EFE6', fg: CARROZZINE_COLORS.muted }), width: 118 }}
                     >
@@ -4362,7 +4371,7 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
                     <input
                       type="date"
                       value={dataSost}
-                      onChange={e => onUpdate({ ...w, dataSostituzioni: { ...(w.dataSostituzioni || {}), [key]: e.target.value } })}
+                      onChange={e => setBozza({ ...w, dataSostituzioni: { ...(w.dataSostituzioni || {}), [key]: e.target.value } })}
                       style={{ fontSize: 12, border: `1px solid ${CARROZZINE_COLORS.line}`, borderRadius: 7, padding: '3px 7px', background: '#FCFBF7', color: CARROZZINE_COLORS.ink, outline: 'none' }}
                     />
                   </div>
@@ -4379,6 +4388,9 @@ function CarrozzinaDetail({ w, controlli, onBack, onUpdate }) {
           <textarea value={w.note || ''} onChange={e => set({ note: e.target.value })} placeholder="Aggiungi una nota…"
             style={{ width: '100%', boxSizing: 'border-box', border: 'none', outline: 'none', resize: 'vertical', minHeight: 70, fontSize: 13.5, fontFamily: 'Inter, sans-serif', background: 'transparent' }} />
         </Card>
+        <div style={{ position: 'sticky', bottom: 0, background: '#F3F1EA', padding: '10px 0 4px' }}>
+          <button type="button" disabled={!cambiato} onClick={() => onUpdate(bozza)} style={{ width: '100%', padding: 13, borderRadius: 12, border: 'none', background: cambiato ? CARROZZINE_COLORS.primary : '#B9C4C2', color: '#fff', fontWeight: 700, fontSize: 15 }}>{cambiato ? 'Salva modifiche' : 'Nessuna modifica da salvare'}</button>
+        </div>
       </div>
     </>
   );
@@ -5044,7 +5056,7 @@ useEffect(() => {
     const codice = categoria === 'Deambulatore' ? 'D' + String((numeriDeamb.length ? Math.max(...numeriDeamb) : 0) + 1).padStart(2, '0') : '';
     const nuovo = {
       id: prossimo, data: todayISO(), marca: '', modello: '', seriale: '', tipologia: '', fornitore: '',
-      nucleo: '', stanza: '', ospite: '', stato: '', categoria, codice, nominativo: '',
+      nucleo: '', stanza: '', ospite: '', stato: '', categoria, codice,
       c: Object.fromEntries(COMPONENTI.map(([k]) => [k, ''])), dataSostituzioni: {},
       esecuzioni_controllo: [], durata_batteria_mesi: 24,
     };
@@ -8729,7 +8741,7 @@ function ricorrenteAppareIl(r, iso) {
   return false;
 }
 
-function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows, veicoliRows = []) {
+function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows, veicoliRows = [], carrozzineRows = []) {
     const interventi = (interventiRows || [])
       .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
       .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
@@ -8752,12 +8764,20 @@ function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRo
       .filter(m => m.stato !== 'Completato' && m.stato !== 'Chiuso' && m.data)
       .map(m => ({ ...m, _source: 'mezzi', _date: m.data, _kind: 'mezzo' }));
 
+    // Componenti degli ausili da sistemare o mancanti: restano in agenda finche' non vengono aggiornati.
+    const ausiliDaSistemare = (carrozzineRows || []).flatMap(w => COMPONENTI
+      .filter(([k]) => w.c?.[k] === 'Da sistemare' || w.c?.[k] === 'Mancante')
+      .map(([k, label]) => ({
+        id: 'ausilio-' + w.id + '-' + k, titolo: `Sistemare ${label.toLowerCase()}`,
+        cameraZona: `Ausilio ${fmtAusilioId(w)} · ${labelOf(w)}`,
+        priorita: w.c[k] === 'Mancante' ? 'Alta' : 'Media', _source: 'carrozzine', _kind: 'ausilio', _date: null,
+      })));
     // Cambio gomme fissato: un appuntamento del mezzo, nel giorno e all'ora scelti.
     const gomme = (veicoliRows || []).filter(v => v.gomme && v.gomme.appuntamentoCambio).map(v => ({
       id: 'gomme-' + v.id, titolo: 'Cambio gomme', targa: v.targa, marca: v.marca, modello: v.modello,
       orario: v.gomme.orarioCambio || '', _source: 'mezzi', _date: v.gomme.appuntamentoCambio, _kind: 'appuntamento',
     }));
-    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi, ...gomme];
+    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi, ...gomme, ...ausiliDaSistemare];
 }
 
 function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
@@ -8768,7 +8788,7 @@ function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
       // Le attività aperte di Struttura/Ausili restano visibili oggi come attività pendenti.
       // Intervento aperto con data passata: resta in agenda oggi finche' non viene chiuso.
       if (oggi && (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === oggiISO) return true;
-      return oggi && (a._kind === 'intervento' || a._kind === 'mezzo') && !a._date;
+      return oggi && (a._kind === 'intervento' || a._kind === 'mezzo' || a._kind === 'ausilio') && !a._date;
     }).sort((x, y) => (x._date ? 0 : 1) - (y._date ? 0 : 1));
 }
 
@@ -8816,11 +8836,12 @@ function AgendaModule({ onHome, onOpenModule }) {
   };
   const camereT = useSupaTable('camere', 'codice', [], []);
   const veicoliAgendaT = useSupaTable('vehicles', 'id', [], []);
+  const carrozzineAgendaT = useSupaTable('carrozzine', 'id', [], []);
 
   const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
   const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
 
-  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows]);
+  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows]);
 
   const sette = useMemo(calcolaSettimanaAgenda, []);
   const oggiISO = sette[0].iso;
@@ -9361,20 +9382,21 @@ export default function ManutenzioneApp() {
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
   const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   // Dati dell'Agenda per il conteggio della card: stesse regole della schermata Agenda.
-  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [], veicoli: [] });
+  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [], veicoli: [], carrozzine: [] });
   useEffect(() => {
     if (!session) return undefined;
     let mounted = true;
     const carica = async () => {
-      const [i, m, r, mt, vv] = await Promise.all([
+      const [i, m, r, mt, vv, cc] = await Promise.all([
         supabase.from('interventi').select('*'),
         supabase.from('manutenzioni').select('*'),
         supabase.from('manutenzioni_ricorrenti').select('*'),
         supabase.from('maints').select('*'),
         supabase.from('vehicles').select('*'),
+        supabase.from('carrozzine').select('*'),
       ]);
       if (!mounted) return;
-      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [], veicoli: vv.data || [] });
+      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [], veicoli: vv.data || [], carrozzine: cc.data || [] });
     };
     carica();
     const ch = supabase.channel('hub-agenda')
@@ -9383,6 +9405,7 @@ export default function ManutenzioneApp() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'manutenzioni_ricorrenti' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maints' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'carrozzine' }, carica)
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [session]);
@@ -9390,8 +9413,8 @@ export default function ManutenzioneApp() {
   const agendaStats = useMemo(() => {
     const oggi = todayISO();
     const adminRadice = profile?.role === 'admin';
-    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
-    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
+    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
+    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
     // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
     // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
