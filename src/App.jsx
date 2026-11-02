@@ -2891,6 +2891,75 @@ function SostituzioneForm({ vehicle, onSave, onCancel }) {
   );
 }
 
+// Scheda del mezzo in PDF: documento impaginato, da salvare o stampare dalla finestra di stampa.
+function generaSchedaHtml(vehicle, eventi) {
+  const e = (x) => escapeHtml(x == null ? '' : String(x));
+  const dataIt = (x) => (x ? fmtDate(x) : '—');
+  const riga = (k, v) => `<tr><th>${e(k)}</th><td>${e(v || '—')}</td></tr>`;
+  const g = vehicle.gomme || {};
+  const m = g.montati || {};
+  const battM = livelloBattistrada(m.battistrada, m.tipo);
+  const etaM = etaPneumatico(m.dot);
+  const tergi = g.tergicristalli || {};
+  const scadTergi = (lato) => (tergi[lato]?.data ? `${[tergi[lato].tipo, tergi[lato].marca, tergi[lato].modello].filter(Boolean).join(' · ')} · da sostituire dal ${dataIt(aggiungiMesi(tergi[lato].data, 12))}` : '—');
+  const scorta = (g.scorta || []).map(x => {
+    const bat = livelloBattistrada(x.battistrada, x.tipo);
+    const eta = etaPneumatico(x.dot);
+    return `<tr><td>${e(x.tipo)}</td><td>${e([x.marca, x.modello].filter(Boolean).join(' '))}</td><td>${e(x.misura || g.misura || '—')}</td><td>${bat ? e(bat.mm.toFixed(1)) + ' mm' : '—'}</td><td>${e(x.dot || '—')}${eta ? ' · ' + e(eta.anni.toFixed(1)) + ' anni' : ''}</td><td>${x.cerchio === 'si' ? 'sì' : 'no'}</td><td>${e(Math.round(kmRealiSet(x, vehicle.km)).toLocaleString('it-IT'))} km</td></tr>`;
+  }).join('') || '<tr><td colspan="7">Nessun pneumatico di scorta</td></tr>';
+  const smaltite = (g.smaltite || []).map(x => `<tr><td>${e(dataIt(x.data))}</td><td>${e(x.quantita)}</td><td>${e([x.marca, x.modello].filter(Boolean).join(' '))}</td><td>${e(x.dot || '—')}</td></tr>`).join('') || '<tr><td colspan="4">Nessuna gomma smaltita</td></tr>';
+  return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Scheda ${e(vehicle.targa)}</title><style>
+    @page { size: A4; margin: 14mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color:#1B2A2E; font-size: 11pt; }
+    h1 { font-size: 20pt; margin: 0; } h2 { font-size: 13pt; margin: 18px 0 6px; color:#25454F; border-bottom: 1.5px solid #25454F; padding-bottom: 3px; }
+    .sub { color:#6E7972; margin-bottom: 8px; }
+    table { width:100%; border-collapse: collapse; font-size: 10pt; }
+    th, td { text-align:left; padding: 5px 6px; border-bottom: 1px solid #d8dfe2; vertical-align: top; }
+    th.h { background:#25454F; color:#fff; }
+    .nb { margin-top:8px; padding:6px 9px; background:#FDECEA; color:#B71C1C; font-weight:bold; border-radius:4px; }
+    .piede { margin-top: 18px; font-size: 9pt; color:#6E7972; }
+  </style></head><body>
+    <h1>${e(vehicle.targa)} · ${e([vehicle.marca, vehicle.modello].filter(Boolean).join(' '))}</h1>
+    <div class="sub">Scheda del mezzo · aggiornata al ${e(fmtDate(todayISO()))}</div>
+    <h2>Dati generali</h2>
+    <table>${riga('Anno', vehicle.anno)}${riga('Chilometri attuali', vehicle.km != null ? Number(vehicle.km).toLocaleString('it-IT') + ' km' : '')}${riga('Carburante', vehicle.carburante)}${riga('Colore', vehicle.colore)}${riga('Misura pneumatici (libretto)', g.misura)}${riga('Olio motore', vehicle.olio_motore)}</table>
+    <h2>Scadenze</h2>
+    <table>${riga('Assicurazione', dataIt(vehicle.assicurazione))}${riga('Revisione', dataIt(vehicle.revisione))}${riga('Bollo', dataIt(vehicle.bollo))}${riga('Tagliando', dataIt(vehicle.tagliando))}${riga('Tergicristalli anteriore', scadTergi('anteriore'))}${riga('Tergicristalli posteriore', scadTergi('posteriore'))}</table>
+    <h2>Pneumatici montati</h2>
+    <table>${riga('Tipo', m.tipo)}${riga('Marca e modello', [m.marca, m.modello].filter(Boolean).join(' '))}${riga('Misura', m.misura || g.misura)}${riga('Battistrada', battM ? battM.mm.toFixed(1) + ' mm · ' + battM.livello : '—')}${riga('DOT e età', m.dot ? m.dot + (etaM ? ' · ' + etaM.anni.toFixed(1) + ' anni' : '') : '—')}${riga('Su cerchio', m.cerchio === 'si' ? 'sì' : 'no')}${riga('Chilometri percorsi', Math.round(kmRealiSet(m, vehicle.km)).toLocaleString('it-IT') + ' km')}</table>
+    ${m.misto ? `<div class="nb">NB: treno non uniforme${m.notaMisto ? ' · ' + e(m.notaMisto) : ''}</div>` : ''}
+    <h2>Pneumatici di scorta</h2>
+    <table><tr class="h"><th class="h">Tipo</th><th class="h">Marca e modello</th><th class="h">Misura</th><th class="h">Battistrada</th><th class="h">DOT</th><th class="h">Su cerchio</th><th class="h">Km</th></tr>${scorta}</table>
+    <h2>Gomme smaltite</h2>
+    <table><tr><th>Data</th><th>Quantità</th><th>Marca e modello</th><th>DOT</th></tr>${smaltite}</table>
+    <div class="piede">Il Melo · scheda generata dall'app per la manutenzione.</div>
+  </body></html>`;
+}
+
+// Storico del mezzo in PDF separato: interventi divisi in da realizzare, in sospeso e realizzati.
+function generaStoricoHtml(vehicle, eventi) {
+  const e = (x) => escapeHtml(x == null ? '' : String(x));
+  const gruppi = [['realizzare', 'Da realizzare'], ['sospeso', 'In sospeso'], ['realizzati', 'Realizzati']];
+  const sezioni = gruppi.map(([k, l]) => {
+    const lista = eventi.filter(x => x.gruppo === k);
+    const righe = lista.map(x => `<tr><td>${e(x.data ? fmtDate(x.data) : '—')}</td><td>${e(x.tipo)}</td><td>${e(x.descrizione)}</td><td>${e(x.officina || '—')}</td><td>${x.km !== '' && x.km != null ? e(Number(x.km).toLocaleString('it-IT')) : '—'}</td><td>${e(x.stato)}</td></tr>`).join('') || '<tr><td colspan="6">Nessun intervento</td></tr>';
+    return `<h2>${e(l)} (${lista.length})</h2><table><tr><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Officina</th><th>Km</th><th>Stato</th></tr>${righe}</table>`;
+  }).join('');
+  return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>Storico ${e(vehicle.targa)}</title><style>
+    @page { size: A4 landscape; margin: 12mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color:#1B2A2E; font-size: 10.5pt; }
+    h1 { font-size: 18pt; margin: 0; } h2 { font-size: 12.5pt; margin: 16px 0 6px; color:#25454F; border-bottom: 1.5px solid #25454F; padding-bottom: 3px; }
+    .sub { color:#6E7972; margin-bottom: 6px; }
+    table { width:100%; border-collapse: collapse; font-size: 9.5pt; }
+    th, td { text-align:left; padding: 5px 6px; border-bottom: 1px solid #d8dfe2; vertical-align: top; }
+    th { background:#25454F; color:#fff; }
+  </style></head><body>
+    <h1>Storico · ${e(vehicle.targa)} · ${e([vehicle.marca, vehicle.modello].filter(Boolean).join(' '))}</h1>
+    <div class="sub">Aggiornato al ${e(fmtDate(todayISO()))}</div>
+    ${sezioni}
+  </body></html>`;
+}
+
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio }) {
   const [editGomme, setEditGomme] = useState(false);
   const [sostOpen, setSostOpen] = useState(false);
@@ -2921,6 +2990,15 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
   const storicoTutto = eventiStorico(vehicle, maints, ricorrenti);
   const storico = storicoTutto.filter(e => e.gruppo === tabStorico);
+  const apriPdf = (html) => {
+    const w = window.open('', '_blank', 'width=900,height=800');
+    if (!w) return;
+    w.document.open(); w.document.write(html); w.document.close();
+    w.onload = () => { w.focus(); w.print(); };
+    setTimeout(() => { try { w.focus(); w.print(); } catch (err) {} }, 500);
+  };
+  const stampaScheda = () => apriPdf(generaSchedaHtml(vehicle, storicoTutto));
+  const stampaStoricoPdf = () => apriPdf(generaStoricoHtml(vehicle, storicoTutto));
   const esportaStorico = () => {
     const righe = storico.map(e => ({ Data: fmtDate(e.data), Tipo: e.tipo, Descrizione: e.descrizione, Officina: e.officina, Km: e.km, Costo: e.costo, Stato: e.stato }));
     if (!righe.length) return;
@@ -3075,6 +3153,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           ))}
         </div>
         <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+          <button type="button" onClick={stampaScheda} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#F3E9D9', color:'#8A5A00', fontWeight:700, fontSize:12.5 }}>Scheda mezzo PDF</button>
+          <button type="button" onClick={stampaStoricoPdf} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#F3E9D9', color:'#8A5A00', fontWeight:700, fontSize:12.5 }}>Storico PDF</button>
           <button type="button" onClick={esportaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E7F4EC', color:'#1F6B45', fontWeight:700, fontSize:12.5 }}>Esporta Excel</button>
           <button type="button" onClick={stampaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E8EEF5', color:'#1E4D73', fontWeight:700, fontSize:12.5 }}>Stampa</button>
         </div>
