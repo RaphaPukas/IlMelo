@@ -3939,7 +3939,13 @@ function MezziModule({ onHome, initialNotification }) {
     const { error } = await maintsT.save(record);
     flash(error ? 'Errore: ' + error.message : 'Appuntamento salvato');
   }
-  const apriCambioDaScadenza = (v) => setView({ name: 'detail', id: v.id, apriCambio: true });
+  // Apre la scheda del mezzo (sezione Veicoli) con il cambio gia' pronto, anche partendo da un'altra scheda.
+  const apriSchedaMezzo = (v, conCambio) => {
+    if (tab !== 'veicoli') saltaResetRef.current = true;
+    setTab('veicoli');
+    setView({ name: 'detail', id: v.id, apriCambio: !!conCambio });
+  };
+  const apriCambioDaScadenza = (v) => apriSchedaMezzo(v, true);
   // Modifica ed eliminazione di un tagliando (stesse regole del form delle procedure).
   async function salvaModificaTagliando(r) {
     const corrente = ricT.rows.find(x => x.id === r.id);
@@ -3978,7 +3984,8 @@ function MezziModule({ onHome, initialNotification }) {
   useBackable(tab, setTab);
   useBackable(view, setView);
 
-  useEffect(() => { setView(LIST_VIEW); }, [tab]);
+  const saltaResetRef = useRef(false);
+  useEffect(() => { if (saltaResetRef.current) { saltaResetRef.current = false; return; } setView(LIST_VIEW); }, [tab]);
 
   // Se la scheda corrente non e' (piu') autorizzata, riporta l'utente
   // sulla prima scheda consentita. Controllo di navigazione, non solo di UI.
@@ -4125,7 +4132,7 @@ function MezziModule({ onHome, initialNotification }) {
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
-    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data, ora) => saveMaint({ ...m, appuntamento: data || null, appuntamento_ora: ora || null })} onEseguiCambio={(m) => { const v = vehicles.find(x => x.targa === m.targa); if (v) setView({ name: 'detail', id: v.id, apriCambio: true }); }} />;
+    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data, ora) => saveMaint({ ...m, appuntamento: data || null, appuntamento_ora: ora || null })} onEseguiCambio={(m) => { const v = vehicles.find(x => x.targa === m.targa); if (v) apriSchedaMezzo(v, true); }} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
       content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
