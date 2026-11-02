@@ -3843,7 +3843,7 @@ function MezziModule({ onHome, initialNotification }) {
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const tecniciT = useSupaTable('tecnici', 'id', [], []);
   // Appuntamento del cambio gomme di ogni mezzo: e' un intervento programmato.
-  const vehiclesConAppuntamento = vehicles.map(v => {
+  const vehiclesConAppuntamento = (vehiclesT.rows || []).map(v => {
     const app = maintsT.rows.find(m => m.targa === v.targa && (m.descrizione || '').startsWith('Cambio gomme') && m.stato === 'Programmato');
     const off = app ? (app.officina || ((app.descrizione || '').match(/presso (.+)$/) || [])[1] || '') : '';
     return { ...v, gomme: { ...(v.gomme || {}), appuntamentoCambio: app?.appuntamento || null, orarioCambio: app?.appuntamento_ora || null, officinaCambio: off || null, officinaUnaTantum: app ? !app.officina : false } };
