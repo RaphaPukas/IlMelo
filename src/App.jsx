@@ -2634,6 +2634,30 @@ function gruppoStato(stato) {
   return 'realizzati';
 }
 
+// Giri bagni: un giro per nucleo (o piu' nuclei) con giorno previsto; elementi con quantita' e frequenza in mesi.
+const BAGNI_T = { primary:'#33594E', muted:'#6E7972', line:'#E2E0D2', surface:'#FFFFFF', ink:'#212823' };
+function nuovoUuid() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+// Luoghi di un giro: le camere dei nuclei del giro e i bagni comuni assegnati al giro.
+function luoghiDelGiro(giro, luoghi) {
+  return (luoghi || []).filter(l => l.tipo === 'Camera'
+    ? (l.nuclei || []).some(n => (giro.nuclei || []).includes(n))
+    : l.giro_id === giro.id);
+}
+// Attivita' dell'Agenda: un giro e' dovuto nel suo giorno se ha elementi da controllare.
+function attivitaGiriBagni(bagni) {
+  const { giri = [], luoghi = [], elementi = [] } = bagni || {};
+  return giri.filter(g => g.giorno_previsto).flatMap(g => {
+    const ls = luoghiDelGiro(g, luoghi);
+    const ids = new Set(ls.map(l => l.id));
+    const dovuti = elementi.filter(e => ids.has(e.luogo_id) && (!e.prossima_scadenza || e.prossima_scadenza <= g.giorno_previsto));
+    if (!dovuti.length) return [];
+    return [{ id: 'giro-' + g.id, titolo: `Giro bagni · ${g.nome}`, cameraZona: `${ls.length} luoghi · ${dovuti.length} elementi da controllare`,
+      _source: 'struttura', _kind: 'giro', _date: g.giorno_previsto, priorita: 'Media', link_id: g.id }];
+  });
+}
+
 // Battistrada in millimetri. Limite di legge 1,6 mm (art. 79 CdS); consigliato 3 mm estive, 4 mm invernali.
 function livelloBattistrada(mm, tipo) {
   const n = Number(mm);
@@ -6647,6 +6671,159 @@ function CategoriaSelect({ value, onChange, categorie, onNuova, stile }) {
   );
 }
 
+// Sezione "Giri bagni" nelle Scadenze di Struttura: giri, bagni comuni ed elementi con quantita' e frequenza.
+function GiriBagniSection({ camere }) {
+  const giriT = useSupaTable('giri_manutenzione', 'id', [], []);
+  const luoghiT = useSupaTable('luoghi_bagno', 'id', [], []);
+  const elementiT = useSupaTable('elementi_bagno', 'id', [], []);
+  const [aperto, setAperto] = useState(null);
+  const [nuovoGiro, setNuovoGiro] = useState(null);
+  const [nuovoComune, setNuovoComune] = useState(null);
+  const [nuovoElem, setNuovoElem] = useState({});
+  const oggi = todayISO();
+  const btn = { padding:'6px 10px', borderRadius:8, border:`1.5px solid ${BAGNI_T.primary}`, background:'#fff', color:BAGNI_T.primary, fontWeight:700, fontSize:12 };
+  const inp = { padding:'7px 9px', borderRadius:8, border:`1.5px solid ${BAGNI_T.line}`, fontSize:13 };
+
+  // Bagno di camera: creato in automatico per ogni camera (un solo bagno per camera).
+  useEffect(() => {
+    if (!luoghiT.ready || !camere || camere.length === 0) return;
+    camere.forEach(c => {
+      const nome = 'Bagno camera ' + c.codice;
+      if (!luoghiT.rows.some(l => l.tipo === 'Camera' && l.nome === nome)) {
+        luoghiT.save({ id: nuovoUuid(), tipo: 'Camera', nome, piano: c.piano || '', nuclei: c.nucleo ? [c.nucleo] : [], giro_id: null });
+      }
+    });
+  }, [camere, luoghiT.ready, luoghiT.rows]);
+
+  const completaGiro = async (g) => {
+    const data = g.giorno_previsto || oggi;
+    const idLuoghi = luoghiDelGiro(g, luoghiT.rows).map(l => l.id);
+    const elementi = elementiT.rows.filter(e => idLuoghi.includes(e.luogo_id));
+    for (const e of elementi) {
+      await elementiT.save({ ...e, ultima_esecuzione: data, prossima_scadenza: aggiungiMesi(data, e.frequenza_mesi || 3) });
+    }
+  };
+  const eliminaGiro = async (g) => {
+    for (const l of luoghiT.rows.filter(x => x.giro_id === g.id)) await luoghiT.save({ ...l, giro_id: null });
+    await giriT.remove(g);
+    setAperto(null);
+  };
+  const conflittoNuclei = (nuclei, idGiro) => nuclei.filter(n => giriT.rows.some(g => g.id !== idGiro && (g.nuclei || []).includes(n)));
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+        <SectionLabel theme={BAGNI_T}>Giri bagni</SectionLabel>
+        <div style={{ display:'flex', gap:6 }}>
+          <button type="button" onClick={() => setNuovoGiro({ id: nuovoUuid(), nome:'', giorno:'', nuclei:[] })} style={btn}>+ Giro</button>
+          <button type="button" onClick={() => setNuovoComune({ id: nuovoUuid(), nome:'', piano:'', nuclei:[], giro_id:'' })} style={btn}>+ Bagno comune</button>
+        </div>
+      </div>
+
+      {nuovoGiro && (
+        <Card theme={BAGNI_T} style={{ marginBottom:10 }}>
+          <input placeholder="Nome giro (es. Giro mattina)" value={nuovoGiro.nome} onChange={e => setNuovoGiro(p => ({ ...p, nome: e.target.value }))} style={{ ...inp, width:'100%', boxSizing:'border-box', marginBottom:8 }} />
+          <input type="date" value={nuovoGiro.giorno} onChange={e => setNuovoGiro(p => ({ ...p, giorno: e.target.value }))} style={{ ...inp, marginBottom:8 }} />
+          <div style={{ fontSize:12, color:BAGNI_T.muted, marginBottom:4 }}>Nuclei del giro (ogni nucleo in un solo giro)</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+            {NUCLEI.map(n => (
+              <label key={n} style={{ fontSize:13, display:'flex', gap:4, alignItems:'center' }}>
+                <input type="checkbox" checked={nuovoGiro.nuclei.includes(n)} onChange={() => setNuovoGiro(p => ({ ...p, nuclei: p.nuclei.includes(n) ? p.nuclei.filter(x => x !== n) : [...p.nuclei, n] }))} />{n}
+              </label>
+            ))}
+          </div>
+          {conflittoNuclei(nuovoGiro.nuclei, nuovoGiro.id).length > 0 && <div style={{ fontSize:12, color:'#B71C1C', marginBottom:6 }}>Già in un altro giro: {conflittoNuclei(nuovoGiro.nuclei, nuovoGiro.id).join(', ')}</div>}
+          <div style={{ display:'flex', gap:8 }}>
+            <button type="button" onClick={() => setNuovoGiro(null)} style={{ ...btn, flex:1 }}>Annulla</button>
+            <button type="button" disabled={!nuovoGiro.nome.trim() || nuovoGiro.nuclei.length === 0 || conflittoNuclei(nuovoGiro.nuclei, nuovoGiro.id).length > 0}
+              onClick={async () => { await giriT.save({ id: nuovoGiro.id, nome: nuovoGiro.nome.trim(), nuclei: nuovoGiro.nuclei, giorno_previsto: nuovoGiro.giorno || null }); setNuovoGiro(null); }}
+              style={{ ...btn, flex:1, background: BAGNI_T.primary, color:'#fff' }}>Crea giro</button>
+          </div>
+        </Card>
+      )}
+
+      {nuovoComune && (
+        <Card theme={BAGNI_T} style={{ marginBottom:10 }}>
+          <input placeholder="Nome bagno comune (es. Bagno comune piano 1)" value={nuovoComune.nome} onChange={e => setNuovoComune(p => ({ ...p, nome: e.target.value }))} style={{ ...inp, width:'100%', boxSizing:'border-box', marginBottom:8 }} />
+          <input placeholder="Piano" value={nuovoComune.piano} onChange={e => setNuovoComune(p => ({ ...p, piano: e.target.value }))} style={{ ...inp, marginBottom:8 }} />
+          <div style={{ fontSize:12, color:BAGNI_T.muted, marginBottom:4 }}>Nuclei che lo usano</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+            {NUCLEI.map(n => (
+              <label key={n} style={{ fontSize:13, display:'flex', gap:4, alignItems:'center' }}>
+                <input type="checkbox" checked={nuovoComune.nuclei.includes(n)} onChange={() => setNuovoComune(p => ({ ...p, nuclei: p.nuclei.includes(n) ? p.nuclei.filter(x => x !== n) : [...p.nuclei, n] }))} />{n}
+              </label>
+            ))}
+          </div>
+          <select value={nuovoComune.giro_id} onChange={e => setNuovoComune(p => ({ ...p, giro_id: e.target.value }))} style={{ ...inp, width:'100%', boxSizing:'border-box', marginBottom:8 }}>
+            <option value="">— giro (facoltativo) —</option>
+            {giriT.rows.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}
+          </select>
+          <div style={{ display:'flex', gap:8 }}>
+            <button type="button" onClick={() => setNuovoComune(null)} style={{ ...btn, flex:1 }}>Annulla</button>
+            <button type="button" disabled={!nuovoComune.nome.trim()}
+              onClick={async () => { await luoghiT.save({ id: nuovoComune.id, tipo:'Comune', nome: nuovoComune.nome.trim(), piano: nuovoComune.piano, nuclei: nuovoComune.nuclei, giro_id: nuovoComune.giro_id || null }); setNuovoComune(null); }}
+              style={{ ...btn, flex:1, background: BAGNI_T.primary, color:'#fff' }}>Salva bagno</button>
+          </div>
+        </Card>
+      )}
+
+      {giriT.rows.map(g => {
+        const ls = luoghiDelGiro(g, luoghiT.rows);
+        const idLuoghi = ls.map(l => l.id);
+        const dovuti = elementiT.rows.filter(e => idLuoghi.includes(e.luogo_id) && (!e.prossima_scadenza || e.prossima_scadenza <= (g.giorno_previsto || oggi))).length;
+        return (
+          <Card theme={BAGNI_T} key={g.id} style={{ marginBottom:10 }}>
+            <button type="button" onClick={() => setAperto(aperto === g.id ? null : g.id)} style={{ width:'100%', background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', textAlign:'left' }}>
+              <span>
+                <span style={{ display:'block', fontWeight:800, fontSize:14.5 }}>{g.nome}</span>
+                <span style={{ display:'block', fontSize:12.5, color:BAGNI_T.muted }}>{(g.nuclei || []).join(', ') || 'nessun nucleo'} · {ls.length} luoghi · {dovuti} elementi da controllare</span>
+              </span>
+              <span style={{ color:BAGNI_T.muted }}>{aperto === g.id ? '▲' : '▼'}</span>
+            </button>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8, fontSize:13 }}>
+              <span style={{ color:BAGNI_T.muted }}>Giorno del giro</span>
+              <input type="date" value={g.giorno_previsto || ''} onChange={e => giriT.save({ ...g, giorno_previsto: e.target.value || null })} style={inp} />
+            </div>
+            {aperto === g.id && (
+              <div>
+                {ls.length === 0 && <div style={{ fontSize:12.5, color:BAGNI_T.muted, marginTop:8 }}>Nessun luogo in questo giro.</div>}
+                {ls.map(l => (
+                  <div key={l.id} style={{ borderTop:`1px solid ${BAGNI_T.line}`, paddingTop:8, marginTop:8 }}>
+                    <div style={{ fontWeight:700, fontSize:13.5 }}>{l.nome}{l.piano ? ' · piano ' + l.piano : ''}</div>
+                    {l.tipo === 'Comune' && (
+                      <select value={l.giro_id || ''} onChange={e => luoghiT.save({ ...l, giro_id: e.target.value || null })} style={{ ...inp, marginTop:4 }}>
+                        <option value="">— nessun giro —</option>
+                        {giriT.rows.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                      </select>
+                    )}
+                    {elementiT.rows.filter(e => e.luogo_id === l.id).map(e => (
+                      <div key={e.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13, padding:'4px 0', gap:8 }}>
+                        <span>{e.nome} × {e.quantita} · ogni {e.frequenza_mesi} mesi · prossima {e.prossima_scadenza ? fmtDate(e.prossima_scadenza) : 'da fare'}</span>
+                        <button type="button" onClick={() => elementiT.remove(e)} title="Rimuovi" style={{ background:'none', border:'none', color:'#B71C1C', fontWeight:700, cursor:'pointer' }}>✕</button>
+                      </div>
+                    ))}
+                    <div style={{ display:'flex', gap:6, marginTop:6, flexWrap:'wrap' }}>
+                      <input placeholder="Elemento (es. maniglioni)" value={(nuovoElem[l.id] || {}).nome || ''} onChange={e => setNuovoElem(p => ({ ...p, [l.id]: { ...(p[l.id] || {}), nome: e.target.value } }))} style={{ ...inp, flex:1, minWidth:120 }} />
+                      <input type="number" min="1" title="Quantità" value={(nuovoElem[l.id] || {}).quantita ?? 1} onChange={e => setNuovoElem(p => ({ ...p, [l.id]: { ...(p[l.id] || {}), quantita: e.target.value } }))} style={{ ...inp, width:64 }} />
+                      <input type="number" min="1" title="Frequenza in mesi" value={(nuovoElem[l.id] || {}).frequenza ?? 3} onChange={e => setNuovoElem(p => ({ ...p, [l.id]: { ...(p[l.id] || {}), frequenza: e.target.value } }))} style={{ ...inp, width:64 }} />
+                      <button type="button" onClick={async () => { const d = nuovoElem[l.id] || {}; if (!(d.nome || '').trim()) return; await elementiT.save({ id: nuovoUuid(), luogo_id: l.id, nome: d.nome.trim(), quantita: Number(d.quantita) || 1, frequenza_mesi: Number(d.frequenza) || 3, ultima_esecuzione: null, prossima_scadenza: null }); setNuovoElem(p => ({ ...p, [l.id]: {} })); }} style={btn}>+ Elemento</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                  <button type="button" disabled={ls.length === 0} onClick={() => completaGiro(g)} style={{ ...btn, flex:1, background: ls.length ? '#1F6B45' : '#B9C4C2', borderColor: 'transparent', color:'#fff' }}>Segna giro completato</button>
+                  <button type="button" onClick={() => eliminaGiro(g)} style={{ ...btn, borderColor:'#B71C1C', color:'#B71C1C' }}>Elimina giro</button>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+      {giriT.rows.length === 0 && <div style={{ fontSize:12.5, color:BAGNI_T.muted }}>Nessun giro. Crea un giro per raggruppare i bagni di uno o più nuclei.</div>}
+    </div>
+  );
+}
+
 function TecnicoForm({ initial, onSave, onCancel, onDelete }) {
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
@@ -7095,7 +7272,7 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
     else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
     else content = (<>
       <ScadenzeStrScreen manutenzioni={manutenzioni} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} />
-      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Struttura" theme={STR_COLORS} /></div>
+      <div style={{ padding: '0 14px 14px' }}><ControlliRicorrenti modulo="Struttura" theme={STR_COLORS} /><GiriBagniSection camere={camereT.rows} /></div>
     </>);
   } else if (tab === 'reparti') {
     if (view.name === 'add') content = <RepartoForm reparti={reparti} onSave={saveReparto} onCancel={() => goBack()} />;
@@ -8808,7 +8985,7 @@ function ricorrenteAppareIl(r, iso) {
   return false;
 }
 
-function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows, veicoliRows = [], carrozzineRows = []) {
+function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRows, maintsRows, veicoliRows = [], carrozzineRows = [], bagniRows = {}) {
     const interventi = (interventiRows || [])
       .filter(i => i.tipologia !== 'carrozzina' && i.stato !== 'Chiuso' && i.stato !== 'Annullato')
       .map(i => ({ ...i, _source: 'struttura', _date: i.dataSegnalazione, _kind: 'intervento' }));
@@ -8844,7 +9021,7 @@ function costruisciAttivitaAgenda(interventiRows, manutenzioniRows, ricorrentiRo
       id: 'gomme-' + v.id, titolo: 'Cambio gomme', targa: v.targa, marca: v.marca, modello: v.modello,
       orario: v.gomme.orarioCambio || '', _source: 'mezzi', _date: v.gomme.appuntamentoCambio, _kind: 'appuntamento',
     }));
-    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi, ...gomme, ...ausiliDaSistemare];
+    return [...interventi, ...ausili, ...manutenzioni, ...ricorrenti, ...mezzi, ...gomme, ...ausiliDaSistemare, ...attivitaGiriBagni(bagniRows)];
 }
 
 function filtraAttivitaGiorno(tutte, selectedISO, oggiISO) {
@@ -8904,11 +9081,14 @@ function AgendaModule({ onHome, onOpenModule }) {
   const camereT = useSupaTable('camere', 'codice', [], []);
   const veicoliAgendaT = useSupaTable('vehicles', 'id', [], []);
   const carrozzineAgendaT = useSupaTable('carrozzine', 'id', [], []);
+  const giriAgendaT = useSupaTable('giri_manutenzione', 'id', [], []);
+  const luoghiAgendaT = useSupaTable('luoghi_bagno', 'id', [], []);
+  const elementiAgendaT = useSupaTable('elementi_bagno', 'id', [], []);
 
   const ready = interventiT.ready && manutenzioniT.ready && ricorrentiT.ready && maintsT.ready;
   const dataError = interventiT.error || manutenzioniT.error || ricorrentiT.error || maintsT.error;
 
-  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows]);
+  const tutteAttivita = useMemo(() => costruisciAttivitaAgenda(interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows, { giri: giriAgendaT.rows, luoghi: luoghiAgendaT.rows, elementi: elementiAgendaT.rows }), [interventiT.rows, manutenzioniT.rows, ricorrentiT.rows, maintsT.rows, veicoliAgendaT.rows, carrozzineAgendaT.rows, giriAgendaT.rows, luoghiAgendaT.rows, elementiAgendaT.rows]);
 
   const sette = useMemo(calcolaSettimanaAgenda, []);
   const oggiISO = sette[0].iso;
@@ -8918,7 +9098,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   // Attivita' in ritardo: interventi, manutenzioni e anomalie mezzi con data passata, non ancora chiusi.
   const attivitaRitardo = useMemo(() => tutteAttivita
     .filter(a => attivitaVisibile(a, isAdmin, hasPermission))
-    .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO)
+    .filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente' || a._kind === 'giro') && a._date && a._date < oggiISO)
     .sort((x, y) => (((x.priorita === 'Alta' || x.priorita === 'Urgente') ? 0 : 1) - ((y.priorita === 'Alta' || y.priorita === 'Urgente') ? 0 : 1)) || (x._date || '').localeCompare(y._date || '')),
   [tutteAttivita, isAdmin, hasPermission, oggiISO]);
   const attivitaGiorno = useMemo(() => selectedISO === '__ritardo__'
@@ -8936,6 +9116,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     if (!onOpenModule) return;
     // Le ricorrenti hanno _source 'struttura' ma vivono in Procedure → Ricorrenti:
     // vanno gestite prima, altrimenti finiscono in Struttura.
+    if (a._kind === 'giro') return; // il giro si completa dalla scheda Struttura → Scadenze
     if (a._kind === 'ricorrente') onOpenModule('procedure', { tipo: 'ricorrente', link_id: a.id });
     else if (a._kind === 'manutenzione') onOpenModule('struttura', { tipo: 'manutenzione_struttura', link_id: a.id });
     else if (a._source === 'struttura') onOpenModule('struttura', { tipo: 'intervento_struttura', link_id: a.id });
@@ -9045,7 +9226,7 @@ function AgendaModule({ onHome, onOpenModule }) {
       ? (ausiliN !== null ? `Ricorrente · Ausili ${a.ambito && a.ambito !== 'Tutti' ? a.ambito : 'tutti'} · ${ausiliN} ausili`
           : (struttN !== null ? `Ricorrente · Struttura · ${struttLabel} · ${struttN} camere` : (mezziN !== null ? `Ricorrente · Mezzi · ${mezziLabel} · ${mezziN} ${mezziN === 1 ? 'mezzo' : 'mezzi'}` : 'Ricorrente')))
       : (a._kind === 'manutenzione' ? 'Manutenzione programmata' : 'Intervento');
-    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente') && a._date && a._date < oggiISO;
+    const inRitardo = (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo' || a._kind === 'ricorrente' || a._kind === 'giro') && a._date && a._date < oggiISO;
     // Eseguita solo nel giorno che si sta guardando: un'esecuzione di lunedi' non vale per martedi'.
     const fatta = (a._kind === 'manutenzione' || a._kind === 'ricorrente') && a.ultimaEsecuzione === selectedISO && selectedISO === oggiISO;
     const puoSegnare = a._kind === 'manutenzione' && (isAdmin || hasPermission('struttura.scadenze'));
@@ -9469,21 +9650,24 @@ function ManutenzioneAppBase() {
   const [alertCounts, setAlertCounts] = useState({ mezzi: 0, carrozzine: 0, struttura: 0 });
   const { session, profile, permessi, gruppoIds, refreshProfile, passwordRecovery, clearPasswordRecovery, authLoading, signOut } = useAuth();
   // Dati dell'Agenda per il conteggio della card: stesse regole della schermata Agenda.
-  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [], veicoli: [], carrozzine: [] });
+  const [agendaRows, setAgendaRows] = useState({ interventi: [], manutenzioni: [], ricorrenti: [], maints: [], veicoli: [], carrozzine: [], bagni: { giri: [], luoghi: [], elementi: [] } });
   useEffect(() => {
     if (!session) return undefined;
     let mounted = true;
     const carica = async () => {
-      const [i, m, r, mt, vv, cc] = await Promise.all([
+      const [i, m, r, mt, vv, cc, gg, ll, ee] = await Promise.all([
         supabase.from('interventi').select('*'),
         supabase.from('manutenzioni').select('*'),
         supabase.from('manutenzioni_ricorrenti').select('*'),
         supabase.from('maints').select('*'),
         supabase.from('vehicles').select('*'),
         supabase.from('carrozzine').select('*'),
+        supabase.from('giri_manutenzione').select('*'),
+        supabase.from('luoghi_bagno').select('*'),
+        supabase.from('elementi_bagno').select('*'),
       ]);
       if (!mounted) return;
-      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [], veicoli: vv.data || [], carrozzine: cc.data || [] });
+      setAgendaRows({ interventi: i.data || [], manutenzioni: m.data || [], ricorrenti: r.data || [], maints: mt.data || [], veicoli: vv.data || [], carrozzine: cc.data || [], bagni: { giri: gg.data || [], luoghi: ll.data || [], elementi: ee.data || [] } });
     };
     carica();
     const ch = supabase.channel('hub-agenda')
@@ -9493,6 +9677,9 @@ function ManutenzioneAppBase() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maints' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, carica)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'carrozzine' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'giri_manutenzione' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'luoghi_bagno' }, carica)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'elementi_bagno' }, carica)
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [session]);
@@ -9500,8 +9687,8 @@ function ManutenzioneAppBase() {
   const agendaStats = useMemo(() => {
     const oggi = todayISO();
     const adminRadice = profile?.role === 'admin';
-    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
-    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
+    const giorno = filtraAttivitaGiorno(costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine, agendaRows.bagni).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c)))), oggi, oggi);
+    const visibili = costruisciAttivitaAgenda(agendaRows.interventi, agendaRows.manutenzioni, agendaRows.ricorrenti, agendaRows.maints, agendaRows.veicoli, agendaRows.carrozzine, agendaRows.bagni).filter(a => attivitaVisibile(a, adminRadice, (c) => !!(permessi && permessi.has(c))));
     const ritardo = visibili.filter(a => (a._kind === 'intervento' || a._kind === 'manutenzione' || a._kind === 'mezzo') && a._date && a._date < oggi).length;
     // Urgenti: quelle di oggi + quelle scadute ad alta priorita' (una sola volta ciascuna).
     // In ritardo: solo le scadute NON urgenti, cosi' nessuna attivita' e' contata due volte.
