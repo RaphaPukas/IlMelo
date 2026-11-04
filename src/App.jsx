@@ -2896,7 +2896,8 @@ function calcolaSostituzione(vehicle, d) {
   const nota = diversi
     ? `Gomme nuove: ${[d.marcaNuova, d.modelloNuovo].filter(Boolean).join(' ')} · rimaste: ${[m.marca, m.modello].filter(Boolean).join(' ') || 'non indicato'}`
     : (m.notaMisto || '');
-  const nuovoMontati = { ...m, dot: dotRif, battistrada: battRif, misto, notaMisto: nota };
+  const nuovoMontati = { ...m, dot: dotRif, battistrada: battRif, misto, notaMisto: nota,
+    diverse: diversi ? { marca: d.marcaNuova || '', modello: d.modelloNuovo || '', dot: d.dotNuovi || '', misura: '', dataMontaggio: d.data } : m.diverse };
   const smaltite = [...(g.smaltite || []), { data: d.data, quantita, marca: m.marca || '', modello: m.modello || '', dot: m.dot || '', km: Number(d.km) || null }];
   const manutenzione = {
     id: uid(), targa: vehicle.targa, data: d.data, tipo: 'Ordinaria', priorita: 'Media', stato: 'Completato',
@@ -2992,10 +2993,27 @@ function GommeForm({ vehicle, onSave, onCancel }) {
         <SectionLabel theme={MEZZI_COLORS}>Montati</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom:12 }}>
           {campi(montati, setMontati)}
+          <div style={{ marginTop:8 }}>
+            <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 }}>Data di montaggio del treno</div>
+            <input type="date" value={montati.dataMontaggio || ''} onChange={e => setMontati({ ...montati, dataMontaggio: e.target.value })} style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+          </div>
           <label style={{ display:'flex', gap:8, alignItems:'center', fontSize:13, marginTop:6 }}>
             <input type="checkbox" checked={!!montati.misto} onChange={e => setMontati({ ...montati, misto: e.target.checked })} />Treno non uniforme (NB)
           </label>
-          {montati.misto && <input value={montati.notaMisto || ''} onChange={e => setMontati({ ...montati, notaMisto: e.target.value })} placeholder="Es. anteriori e posteriori diversi" style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, marginTop:6 }} />}
+          {montati.misto && (
+            <div style={{ marginTop:8, padding:8, borderRadius:8, background:'#FDECEA' }}>
+              <div style={{ fontWeight:700, fontSize:12.5, color:'#B71C1C', marginBottom:6 }}>Gomme diverse (treno non uniforme)</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                <input placeholder="Marca" value={(montati.diverse || {}).marca || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), marca: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                <input placeholder="Modello" value={(montati.diverse || {}).modello || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), modello: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                <input placeholder="Misura" value={(montati.diverse || {}).misura || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), misura: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+                <input placeholder="DOT (4 cifre)" maxLength={4} value={(montati.diverse || {}).dot || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), dot: e.target.value.replace(/\D/g, '') } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+              </div>
+              <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginTop:6, marginBottom:3 }}>Data di montaggio delle gomme diverse</div>
+              <input type="date" value={(montati.diverse || {}).dataMontaggio || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), dataMontaggio: e.target.value } })} style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+              <input value={montati.notaMisto || ''} onChange={e => setMontati({ ...montati, notaMisto: e.target.value })} placeholder="Nota (facoltativa)" style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, marginTop:6 }} />
+            </div>
+          )}
         </Card>
         <SectionLabel theme={MEZZI_COLORS}>Scorta</SectionLabel>
         {scorta.map((x, i) => (
@@ -3247,6 +3265,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
               <div style={{ fontSize:13.5, marginTop:1 }}>{[m.marca, m.modello].filter(Boolean).join(' ') || '—'}</div>
               <div style={{ fontSize:13, color:MEZZI_COLORS.muted, marginTop:1 }}>Misura {m.misura || vehicle.gomme?.misura || '—'}</div>
             {m.misto && <div style={{ marginTop:6, padding:'6px 9px', borderRadius:8, background:'#FDECEA', color:'#B71C1C', fontSize:12.5, fontWeight:700 }}>NB: treno non uniforme{m.notaMisto ? ' · ' + m.notaMisto : ''}</div>}
+            {m.dataMontaggio && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:2 }}>Treno montato il {fmtDate(m.dataMontaggio)} · {Math.max(0, Math.round((new Date() - new Date(m.dataMontaggio + 'T00:00:00')) / (30.44 * 864e5)))} mesi di utilizzo</div>}
+            {m.misto && m.diverse && <div style={{ fontSize:12.5, marginTop:4 }}>Gomme diverse: {[m.diverse.marca, m.diverse.modello].filter(Boolean).join(' ') || '—'} · {m.diverse.misura || '—'} · DOT {m.diverse.dot || '—'}{m.diverse.dataMontaggio ? ' · montate il ' + fmtDate(m.diverse.dataMontaggio) : ''}</div>}
             </div>
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Battistrada" value={(m.battistrada !== undefined && m.battistrada !== '' && m.battistrada !== null ? `${Number(m.battistrada).toFixed(1).replace('.', ',')} mm` : '—') + ` · ${kmRealiSet(m, vehicle.km).toLocaleString('it-IT')} km`} />
             <BarraBattistrada mm={m.battistrada} tipo={m.tipo} />
