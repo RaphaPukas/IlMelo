@@ -2476,7 +2476,171 @@ function FAB({ onClick, label, visible }) {
 }
 
 /* ---------- Vehicles ---------- */
-function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome }) {
+// Excel vero (.xlsx) con regole di formattazione condizionale: i colori si ricalcolano da soli quando si apre il file.
+const CRC_TAB = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC_TAB[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function creaZip(files) {
+  const enc = new TextEncoder();
+  const parti = []; const centrali = []; let offset = 0;
+  const dosData = ((2026 - 1980) << 9) | (1 << 5) | 1;
+  files.forEach(f => {
+    const nome = enc.encode(f.name); const dati = f.data; const crc = crc32(dati);
+    const loc = new DataView(new ArrayBuffer(30));
+    loc.setUint32(0, 0x04034b50, true); loc.setUint16(4, 20, true); loc.setUint16(6, 0, true); loc.setUint16(8, 0, true);
+    loc.setUint16(10, 0, true); loc.setUint16(12, dosData, true); loc.setUint32(14, crc, true);
+    loc.setUint32(18, dati.length, true); loc.setUint32(22, dati.length, true); loc.setUint16(26, nome.length, true); loc.setUint16(28, 0, true);
+    parti.push(new Uint8Array(loc.buffer), nome, dati);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0, true); cen.setUint16(10, 0, true);
+    cen.setUint16(12, 0, true); cen.setUint16(14, dosData, true); cen.setUint32(16, crc, true); cen.setUint32(20, dati.length, true); cen.setUint32(24, dati.length, true);
+    cen.setUint16(28, nome.length, true); cen.setUint16(30, 0, true); cen.setUint16(32, 0, true); cen.setUint16(34, 0, true); cen.setUint16(36, 0, true);
+    cen.setUint32(38, 0, true); cen.setUint32(42, offset, true);
+    centrali.push(new Uint8Array(cen.buffer), nome);
+    offset += 30 + nome.length + dati.length;
+  });
+  const cenLen = centrali.reduce((a, b) => a + b.length, 0);
+  const fine = new DataView(new ArrayBuffer(22));
+  fine.setUint32(0, 0x06054b50, true); fine.setUint16(4, 0, true); fine.setUint16(6, 0, true);
+  fine.setUint16(8, files.length, true); fine.setUint16(10, files.length, true); fine.setUint32(12, cenLen, true); fine.setUint32(16, offset, true); fine.setUint16(20, 0, true);
+  const tutti = [...parti, ...centrali, new Uint8Array(fine.buffer)];
+  const out = new Uint8Array(tutti.reduce((a, b) => a + b.length, 0));
+  let pos = 0; tutti.forEach(b => { out.set(b, pos); pos += b.length; });
+  return out;
+}
+function colonnaExcel(n) { let s = ''; n = n + 1; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+function xmlEsc(x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function cellaXlsx(ref, val, stile) {
+  const s = stile || 0;
+  if (val === null || val === undefined || val === '') return `<c r="${ref}" s="${s}"/>`;
+  if (typeof val === 'number' && Number.isFinite(val)) return `<c r="${ref}" s="${s}"><v>${val}</v></c>`;
+  return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(val)}</t></is></c>`;
+}
+function dataSeriale(iso) { const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; }
+function dataDaDot(dot) {
+  const mm = String(dot || '').match(/^(\d{2})(\d{2})$/);
+  if (!mm) return null;
+  const ww = Number(mm[1]); if (ww < 1 || ww > 53) return null;
+  return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
+}
+function generaFlottaXlsx(vehicles, maints) {
+  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore (da sostituire dal)', 'Tergicristalli posteriore (da sostituire dal)', 'Pneumatici montati', 'Marca montati', 'Modello montati', 'Battistrada montati (mm)', 'DOT montati (più vecchio)', 'Produzione (da DOT)', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Ora appuntamento', 'Interventi da realizzare', 'Chilometri aggiornati il'];
+  const data = (x) => (x ? dataSeriale(x) : null);
+  const righe = (vehicles || []).map(v => {
+    const g = v.gomme || {};
+    const m = g.montati || {};
+    const app = (maints || []).find(x => x.targa === v.targa && (x.descrizione || '').startsWith('Cambio gomme') && x.stato === 'Programmato');
+    const daFare = (maints || []).filter(x => x.targa === v.targa && x.stato === 'Programmato').length;
+    const tergi = (lato) => (g.tergicristalli?.[lato]?.data ? data(aggiungiMesi(g.tergicristalli[lato].data, 12)) : null);
+    const scorta = (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna';
+    return [
+      v.targa, v.marca, v.modello, v.anno ? Number(v.anno) : null, v.km != null ? Number(v.km) : null,
+      v.carburante, v.colore, g.misura, v.olio_motore,
+      data(v.assicurazione), data(v.revisione), data(v.bollo), data(v.tagliando),
+      tergi('anteriore'), tergi('posteriore'),
+      m.tipo, m.marca, m.modello, (m.battistrada !== undefined && m.battistrada !== '' && m.battistrada !== null) ? Number(m.battistrada) : null,
+      m.dot || null, data(dataDaDot(m.dot)),
+      m.misto ? 'SÌ' : 'no', scorta,
+      app ? data(app.appuntamento) : null, app ? (app.appuntamento_ora || null) : null,
+      daFare, data(v.km_aggiornato),
+    ];
+  });
+  const dateCol = [9, 10, 11, 12, 13, 14, 20, 23, 26];
+  const stileCol = (i) => (dateCol.includes(i) ? 2 : i === 18 ? 3 : i === 4 ? 4 : 0);
+  const righeXml = [
+    `<row r="1">${intestazioni.map((h, i) => cellaXlsx(colonnaExcel(i) + '1', h, 1)).join('')}</row>`,
+    ...righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => cellaXlsx(colonnaExcel(i) + (k + 2), val, stileCol(i))).join('')}</row>`),
+  ].join('');
+  const fine = Math.max(righe.length + 1, 2);
+  let prio = 1;
+  const regola = (formula, dxf) => `<cfRule type="expression" dxfId="${dxf}" priority="${prio++}" stopIfTrue="1"><formula>${xmlEsc(formula)}</formula></cfRule>`;
+  const blocchi = [
+    [`J2:O${fine}`, [['AND(ISNUMBER(J2),J2<TODAY())', 0], ['AND(ISNUMBER(J2),J2>=TODAY(),J2<=TODAY()+45)', 1]]],
+    [`S2:S${fine}`, [['AND(ISNUMBER(S2),S2<2)', 0], ['AND(ISNUMBER(S2),S2>=2,S2<3)', 2], ['AND(ISNUMBER(S2),S2>=3,S2<4)', 1], ['AND(ISNUMBER(S2),S2>=4)', 3]]],
+    [`U2:U${fine}`, [['AND(ISNUMBER(U2),U2<=EDATE(TODAY(),-120))', 0], ['AND(ISNUMBER(U2),U2<=EDATE(TODAY(),-72))', 2], ['AND(ISNUMBER(U2),U2<=EDATE(TODAY(),-60))', 1]]],
+    [`V2:V${fine}`, [['V2="SÌ"', 0]]],
+    [`X2:X${fine}`, [['AND(ISNUMBER(X2),X2<TODAY())', 0]]],
+    [`AA2:AA${fine}`, [['OR(AA2="",AA2<TODAY()-30)', 1]]],
+    [`Z2:Z${fine}`, [['AND(ISNUMBER(Z2),Z2>0)', 1]]],
+  ];
+  const regoleXml = blocchi.map(([sq, rs]) => `<conditionalFormatting sqref="${sq}">${rs.map(([f, d]) => regola(f, d)).join('')}</conditionalFormatting>`).join('');
+  const foglio = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="27" width="17" customWidth="1"/></cols><sheetData>${righeXml}</sheetData>${regoleXml}</worksheet>`;
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><color rgb="FFB71C1C"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFDECEA"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Flotta" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const relWorkbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const relRoot = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const contenuti = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  const enc = new TextEncoder();
+  return creaZip([
+    { name: '[Content_Types].xml', data: enc.encode(contenuti) },
+    { name: '_rels/.rels', data: enc.encode(relRoot) },
+    { name: 'xl/workbook.xml', data: enc.encode(workbook) },
+    { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(relWorkbook) },
+    { name: 'xl/styles.xml', data: enc.encode(stili) },
+    { name: 'xl/worksheets/sheet1.xml', data: enc.encode(foglio) },
+  ]);
+}
+function scaricaXlsx(bytes, nomeFile) {
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeFile;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Esportazione della flotta in Excel: una riga per mezzo, celle colorate secondo gli avvisi (rosso, giallo, arancione, verde).
+function generaFlottaExcelHtml(vehicles, maints, params) {
+  const e = (x) => escapeHtml(x == null ? '' : String(x));
+  const COL = { verde: ['#E7F3EC', '#1F6B45'], giallo: ['#FBF1DC', '#8A5A00'], arancione: ['#FBE3C7', '#B15C00'], rosso: ['#FDECEA', '#B71C1C'] };
+  const colUrg = (u) => (u === 'urgent' ? COL.rosso : u === 'medium' ? COL.giallo : u === 'ok' ? COL.verde : null);
+  const colBat = (b) => (b ? COL[b.livello] : null);
+  const colEta = (x) => (x ? COL[x.livello] : null);
+  const scad = (d) => {
+    if (!d) return ['—', null];
+    const g = daysUntil(d);
+    return [`${fmtDate(d)}${g < 0 ? ' (scaduta)' : ' (tra ' + g + ' gg)'}`, colUrg(urgencyOf(g, params))];
+  };
+  const cella = ([testo, col]) => `<td style="background:${col ? col[0] : '#FFFFFF'};color:${col ? col[1] : '#1B2A2E'};border:1px solid #bbbbbb">${e(testo)}</td>`;
+  const semplice = (t) => [t, null];
+  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore', 'Tergicristalli posteriore', 'Pneumatici montati', 'Marca e modello montati', 'Battistrada montati', 'DOT montati', 'Età montati', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Interventi da realizzare', 'Chilometri aggiornati il'];
+  const righe = (vehicles || []).map(v => {
+    const g = v.gomme || {};
+    const m = g.montati || {};
+    const bat = livelloBattistrada(m.battistrada, m.tipo);
+    const eta = etaPneumatico(m.dot);
+    const tergi = (lato) => (g.tergicristalli?.[lato]?.data ? scad(aggiungiMesi(g.tergicristalli[lato].data, 12)) : ['—', null]);
+    const app = (maints || []).find(x => x.targa === v.targa && (x.descrizione || '').startsWith('Cambio gomme') && x.stato === 'Programmato');
+    const daFare = (maints || []).filter(x => x.targa === v.targa && x.stato === 'Programmato').length;
+    const kmColore = (!v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > KM_PROMEMORIA_GIORNI) ? COL.giallo : COL.verde;
+    const scorta = (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna';
+    return [
+      semplice(v.targa), semplice(v.marca), semplice(v.modello), semplice(v.anno || '—'), semplice(v.km != null ? Number(v.km).toLocaleString('it-IT') : '—'),
+      semplice(v.carburante || '—'), semplice(v.colore || '—'), semplice(g.misura || '—'), semplice(v.olio_motore || '—'),
+      scad(v.assicurazione), scad(v.revisione), scad(v.bollo), scad(v.tagliando),
+      tergi('anteriore'), tergi('posteriore'),
+      semplice(m.tipo || '—'), semplice([m.marca, m.modello].filter(Boolean).join(' ') || '—'),
+      [bat ? bat.mm.toFixed(1).replace('.', ',') + ' mm · ' + bat.livello : '—', colBat(bat)],
+      semplice(m.dot || '—'),
+      [eta ? eta.anni.toFixed(1).replace('.', ',') + ' anni' : '—', colEta(eta)],
+      [m.misto ? 'SÌ' + (m.notaMisto ? ' · ' + m.notaMisto : '') : 'no', m.misto ? COL.rosso : null],
+      semplice(scorta),
+      app ? [`${fmtDate(app.appuntamento)}${app.appuntamento_ora ? ' ore ' + app.appuntamento_ora : ''}`, COL.giallo] : ['—', null],
+      [String(daFare), daFare ? COL.giallo : null],
+      [v.km_aggiornato ? fmtDate(v.km_aggiornato) : 'mai', kmColore],
+    ];
+  });
+  return `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse;font-family:Arial;font-size:10pt"><tr>${intestazioni.map(h => `<th style="background:#25454F;color:#FFFFFF;border:1px solid #bbbbbb">${e(h)}</th>`).join('')}</tr>${righe.map(r => `<tr>${r.map(cella).join('')}</tr>`).join('')}</table></body></html>`;
+}
+function scaricaExcelHtml(html, nomeFile) {
+  const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeFile;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta }) {
   const [q, setQ] = useState('');
   const filtered = vehicles.filter(v => `${v.marca} ${v.modello} ${v.targa}`.toLowerCase().includes(q.toLowerCase()));
 
@@ -2489,6 +2653,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
   return (
     <>
       <TopBar theme={MEZZI_COLORS} title="Veicoli" subtitle={`${vehicles.length} in flotta`} onBack={onHome} backIcon={Home} right={<MenuButton onClick={onMenu} />} />
+      <div style={{ padding: '10px 14px 0' }}><button type="button" onClick={onEsporta} style={{ width:'100%', padding:10, borderRadius:10, border:'1.5px solid #1F6B45', background:'#fff', color:'#1F6B45', fontWeight:700, fontSize:13 }}>Esporta la flotta in Excel</button></div>
       <div style={{ padding: 14 }}>
         <div style={{ position: 'relative', marginBottom: 12 }}>
           <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: MEZZI_COLORS.muted }} />
@@ -3289,6 +3454,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                   </div>
                   <div style={{ marginBottom: 6 }}><Plate targa={m.targa} size="sm" /></div>
                   <div style={{ fontSize: 12, color: MEZZI_COLORS.muted }}>{vOf(m.targa) ? `${vOf(m.targa).marca} ${vOf(m.targa).modello} · ` : ''}{fmtDate(m.data)}</div>
+                  {m.descrizione ? <div style={{ fontSize: 13, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.descrizione}</div> : null}
                   <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted, marginTop: 4, wordBreak: 'break-word' }}>{m.stato}{m.appuntamento ? ` · 📅 appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}` : ''}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
@@ -3301,6 +3467,7 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
                   <input type="date" value={appDraft[m.id] ?? m.appuntamento ?? ''} onChange={(e) => setAppDraft(p => ({ ...p, [m.id]: e.target.value }))} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
                   <input type="time" value={appOraDraft[m.id] ?? m.appuntamento_ora ?? ''} onChange={(e) => setAppOraDraft(p => ({ ...p, [m.id]: e.target.value }))} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
                   <button type="button" onClick={() => { const d = appDraft[m.id] ?? m.appuntamento ?? ''; const o = appOraDraft[m.id] ?? m.appuntamento_ora ?? ''; setAppDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); setAppOraDraft(p => { const n = { ...p }; delete n[m.id]; return n; }); onAppuntamento(m, d, o); }} style={{ padding:'6px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva appuntamento</button>
+                  {m.appuntamento && <button type="button" onClick={() => onAppuntamento(m, '', '')} style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid #B71C1C', background: '#fff', color: '#B71C1C', fontWeight: 700, fontSize: 12.5 }}>Cancella appuntamento</button>}
                 </div>
               )}
               {onComplete && tabM === 'programmati' && (
@@ -3588,6 +3755,9 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
               )}
               {r.isGomme && r.v.gomme?.appuntamentoCambio && onEseguiCambio && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); onEseguiCambio(r.v); }} style={{ marginTop:8, width:'100%', padding:10, borderRadius:10, border:'none', background:'#1F6B45', color:'#fff', fontWeight:700, fontSize:13 }}>Esegui cambio stagionale</button>
+              )}
+              {r.isGomme && r.v.gomme?.appuntamentoCambio && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); onSaveGomme && onSaveGomme(r.v, null, null, null, false); }} style={{ marginTop:6, width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700, fontSize:12.5 }}>Cancella appuntamento</button>
               )}
             </Card>
           ))}
@@ -4128,11 +4298,11 @@ function MezziModule({ onHome, initialNotification }) {
     if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} apriCambio={!!view.apriCambio} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
-    else content = <VeicoliScreen vehicles={vehicles} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    else content = <VeicoliScreen vehicles={vehicles} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
-    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data, ora) => saveMaint({ ...m, appuntamento: data || null, appuntamento_ora: ora || null })} onEseguiCambio={(m) => { const v = vehicles.find(x => x.targa === m.targa); if (v) apriSchedaMezzo(v, true); }} />;
+    else content = <ManutenzioniScreen maints={maints} vehicles={vehicles} onOpen={(m) => setView({ name: 'edit', m })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} onComplete={(m) => saveMaint({ ...m, stato: 'Completato' })} onAppuntamento={(m, data, ora) => (!data && (m.descrizione || '').startsWith('Cambio gomme') ? maintsT.remove(m) : saveMaint({ ...m, appuntamento: data || null, appuntamento_ora: ora || null }))} onEseguiCambio={(m) => { const v = vehicles.find(x => x.targa === m.targa); if (v) apriSchedaMezzo(v, true); }} />;
   } else if (tab === 'segnalazioni') {
     if (view.name === 'add') {
       content = <SegnalazioneAnomaliaForm vehicles={vehicles} onSave={(seg) => saveMaint(seg)} onCancel={() => goBack()} />;
