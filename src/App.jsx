@@ -364,17 +364,8 @@ function BottomNav({ theme, tab, setTab, items, badges }) {
           <button key={key} onClick={() => setTab(key)} style={{ flex: 1, background: 'none', border: 'none', padding: '9px 0 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, color: active ? theme.primary : theme.muted }}>
             <span style={{ position: 'relative', display: 'inline-flex' }}>
               <Icon size={21} strokeWidth={active ? 2.4 : 2} />
-              {!!badge && (
-                <span style={{
-                  position: 'absolute', top: -6, right: -8, background: '#C0392B', color: '#fff',
-                  fontSize: 10, fontWeight: 700, lineHeight: 1, minWidth: 15, height: 15, borderRadius: 999,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '1.5px solid #fff',
-                }}>
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
             </span>
-            <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500 }}>{label}</span>
+            <span style={{ fontSize: 10.5, fontWeight: active ? 700 : 500 }}>{label}{!!badge && <span style={{ color: '#C0392B', fontWeight: 800, fontSize: 12, marginLeft: 4 }}>{badge > 99 ? '99+' : badge}</span>}</span>
           </button>
         );
       })}
@@ -2803,6 +2794,33 @@ function unisciGomme(attuale, nuova) {
   return { ...(attuale || {}), ...(nuova || {}) };
 }
 
+// Cambio stagionale: nasce dalle Scadenze. Un cambio fatto a mano per gomme usurate ha "usurate" nella descrizione.
+function isCambioStagionale(m) { return (m.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(m.descrizione || ''); }
+// Numeri della barra in basso: interventi da realizzare e scadenze da effettuare.
+function contaInterventi(maints) {
+  return (maints || []).filter(m => STATI_PROGRAMMATI.includes(m.stato) && !(m.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(m)).length;
+}
+function contaScadenze(vehicles, maints, params) {
+  let n = 0;
+  (vehicles || []).forEach(v => {
+    [v.assicurazione, v.revisione, v.bollo, v.tagliando].forEach(d => { if (d && ['urgent', 'medium'].includes(urgencyOf(daysUntil(d), params))) n++; });
+    ['anteriore', 'posteriore'].forEach(l => { const t = (v.gomme?.tergicristalli || {})[l]; if (t?.data && daysUntil(aggiungiMesi(t.data, 12)) <= 0) n++; });
+    if (!v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > KM_PROMEMORIA_GIORNI) n++;
+    const g = v.gomme || {};
+    const ignorati = g.avvisiIgnorati || [];
+    const insiemi = [];
+    if (g.montati) insiemi.push({ key: `montati-${g.montati.dot || 'x'}`, set: g.montati });
+    (g.scorta || []).forEach((x, i) => insiemi.push({ key: `scorta${i}-${x.dot || 'x'}`, set: x }));
+    insiemi.forEach(st => {
+      const e = etaPneumatico(st.set.dot);
+      const b = livelloBattistrada(st.set.battistrada, st.set.tipo);
+      if (e && e.livello === 'rosso' && !ignorati.includes(st.key)) n++;
+      if (b && b.livello === 'rosso' && !ignorati.includes('bat-' + st.key)) n++;
+    });
+  });
+  n += (maints || []).filter(m => m.stato === 'Programmato' && isCambioStagionale(m) && m.appuntamento).length;
+  return n;
+}
 // Promemoria chilometri: ogni quanti giorni chiedere di aggiornare il chilometraggio di ogni mezzo.
 const KM_PROMEMORIA_GIORNI = 30;
 // Gruppo di un intervento nello storico: da realizzare, in sospeso (attesa ricambi), realizzato.
@@ -2916,6 +2934,52 @@ function calcolaSostituzione(vehicle, d) {
   };
 }
 
+// Scadenze personalizzate del mezzo: un nome, una data e, se serve, la ripetizione in mesi.
+function ScadenzePersonalizzateCard({ vehicle, onSave, puoModificare }) {
+  const extra = vehicle.gomme?.scadenzeExtra || [];
+  const [nome, setNome] = useState('');
+  const [data, setData] = useState('');
+  const [ripeti, setRipeti] = useState('');
+  const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
+  const etichetta = { fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 };
+  const aggiungi = () => {
+    if (!nome.trim() || !data) return;
+    onSave([...extra, { id: nuovoUuid(), nome: nome.trim(), data, ripetiMesi: Number(ripeti) || null }]);
+    setNome(''); setData(''); setRipeti('');
+  };
+  const segnaFatta = (x) => onSave(x.ripetiMesi ? extra.map(y => (y.id === x.id ? { ...y, data: aggiungiMesi(y.data, y.ripetiMesi) } : y)) : extra.filter(y => y.id !== x.id));
+  const elimina = (x) => onSave(extra.filter(y => y.id !== x.id));
+  return (
+    <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+      <div style={{ fontWeight:800, fontSize:14, marginBottom:6 }}>Scadenze personalizzate</div>
+      {extra.length === 0 && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Nessuna scadenza personalizzata.</div>}
+      {extra.map(x => {
+        const g = daysUntil(x.data);
+        return (
+          <div key={x.id} style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, padding:'8px 0' }}>
+            <div style={{ fontWeight:700, fontSize:13 }}>{x.nome}</div>
+            <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Scade il {fmtDate(x.data)}{x.ripetiMesi ? ` · ripetuta ogni ${x.ripetiMesi} mesi` : ''}{g < 0 ? ' · scaduta' : g <= 45 ? ` · tra ${g} giorni` : ''}</div>
+            {puoModificare && (
+              <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                <button type="button" onClick={() => segnaFatta(x)} style={{ flex:1, padding:8, borderRadius:8, border:'none', background:'#1F6B45', color:'#fff', fontWeight:700, fontSize:12.5 }}>Segna fatta</button>
+                <button type="button" onClick={() => elimina(x)} style={{ flex:1, padding:8, borderRadius:8, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700, fontSize:12.5 }}>Elimina</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {puoModificare && (
+        <div style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:8, paddingTop:10 }}>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Nome della scadenza</div><input value={nome} onChange={e => setNome(e.target.value)} placeholder="es. Controllo pedana alzamento" style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Data di scadenza</div><input type="date" value={data} onChange={e => setData(e.target.value)} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Ripeti ogni (mesi, facoltativo)</div><input type="number" min="1" value={ripeti} onChange={e => setRipeti(e.target.value)} placeholder="es. 12" style={campo} /></div>
+          <button type="button" disabled={!nome.trim() || !data} onClick={aggiungi} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background: nome.trim() && data ? MEZZI_COLORS.primary : '#B9C4C2', color:'#fff', fontWeight:700 }}>Aggiungi scadenza personalizzata</button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // Tergicristalli: anteriore e posteriore, con tipo, marca, modello e data di montaggio. Sostituzione annuale.
 function TergicristalliCard({ vehicle, onSave, puoModificare }) {
   const t = vehicle.gomme?.tergicristalli || {};
@@ -2963,6 +3027,33 @@ function TergicristalliCard({ vehicle, onSave, puoModificare }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// Prenotazione del tagliando dalla scheda Scadenze: data, ora, officina; poi si segna come eseguito.
+function PannelloTagliando({ vehicle, prenotato, onPrenota, onCancella, onEsegui }) {
+  const [data, setData] = useState(prenotato?.appuntamento || '');
+  const [ora, setOra] = useState(prenotato?.appuntamento_ora || '');
+  const [officina, setOfficina] = useState(prenotato?.officina || '');
+  const [km, setKm] = useState(String(vehicle.km ?? ''));
+  const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
+  const etichetta = { fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 };
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ marginTop:10, borderTop:`1px solid ${MEZZI_COLORS.line}`, paddingTop:10 }}>
+      <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>{prenotato ? 'Tagliando prenotato' : 'Prenota il tagliando'}</div>
+      <div style={{ marginBottom:8 }}><div style={etichetta}>Data appuntamento</div><input type="date" value={data} onChange={e => setData(e.target.value)} style={campo} /></div>
+      <div style={{ marginBottom:8 }}><div style={etichetta}>Ora</div><input type="time" value={ora} onChange={e => setOra(e.target.value)} style={campo} /></div>
+      <div style={{ marginBottom:8 }}><div style={etichetta}>Officina</div><input value={officina} onChange={e => setOfficina(e.target.value)} placeholder="Nome officina" style={campo} /></div>
+      <button type="button" disabled={!data} onClick={() => onPrenota(data, ora, officina)} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background: data ? MEZZI_COLORS.primary : '#B9C4C2', color:'#fff', fontWeight:700, marginBottom:8 }}>{prenotato ? 'Salva prenotazione' : 'Prenota'}</button>
+      {prenotato && (
+        <div style={{ borderTop:`1px dashed ${MEZZI_COLORS.line}`, paddingTop:8 }}>
+          <div style={etichetta}>Chilometri alla data del tagliando</div>
+          <input type="number" min="0" value={km} onChange={e => setKm(e.target.value)} style={{ ...campo, marginBottom:8 }} />
+          <button type="button" onClick={() => onEsegui(km)} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background:'#1F6B45', color:'#fff', fontWeight:700, marginBottom:8 }}>Segna tagliando eseguito</button>
+          <button type="button" onClick={onCancella} style={{ width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700 }}>Cancella prenotazione</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3268,6 +3359,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             </div>
           )}
         </Card>
+      <ScadenzePersonalizzateCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), scadenzeExtra: lista } })} />
       <TergicristalliCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(tergi) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tergicristalli: tergi } })} />
 
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
@@ -3451,6 +3543,8 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
 
   const programmati = [...maints]
     .filter(m => STATI_PROGRAMMATI.includes(m.stato))
+    .filter(m => !(m.descrizione || '').startsWith('Tagliando'))
+    .filter(m => !isCambioStagionale(m))
     .sort((a, b) => {
       const po = { 'Alta': 0, 'Media': 1, 'Bassa': 2 };
       const pa = po[a.priorita] ?? 1, pb = po[b.priorita] ?? 1;
@@ -3659,11 +3753,15 @@ function Row({ label, value, bold }) {
 }
 
 /* ---------- Scadenze ---------- */
-function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine, onAggiornaGomme, onPatchVeicolo, ricorrenti, onEseguiCambio }) {
+function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine, onAggiornaGomme, onPatchVeicolo, ricorrenti, onEseguiCambio, maints, onPrenotaTagliando, onCancellaTagliando, onEseguiTagliando }) {
   const rows = useMemo(() => {
     const out = [];
     vehicles.forEach(v => {
       // Scadenze classiche
+      (v.gomme?.scadenzeExtra || []).filter(x => x.data).forEach(x => {
+        const giorni = daysUntil(x.data);
+        out.push({ key: v.id + 'extra' + x.id, v, label: x.nome, d: x.data, days: giorni, u: urgencyOf(giorni, params), isGomme: false });
+      });
       ['anteriore', 'posteriore'].forEach(lato => {
         const tg = (v.gomme?.tergicristalli || {})[lato];
         if (!tg?.data) return;
@@ -3716,6 +3814,9 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
   const [kmDraft, setKmDraft] = useState({});
   const [kmAperto, setKmAperto] = useState(false);
   const [gommaAperta, setGommaAperta] = useState(null);
+  const [tagliandoAperto, setTagliandoAperto] = useState(null);
+  // Controllo duplicati: interventi programmati che coincidono con una scadenza gia' in elenco.
+  const duplicati = (maints || []).filter(x => x.stato === 'Programmato' && /revisione|bollo|assicurazione/i.test(x.descrizione || ''));
   const [dataGomma, setDataGomma] = useState('');
   const [oraGomma, setOraGomma] = useState('');
   const [officinaGomma, setOfficinaGomma] = useState('');
@@ -3726,6 +3827,14 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
       <div style={{ padding: 14 }}>
         {rows.length === 0 && <Empty theme={MEZZI_COLORS} icon={CalendarClock} text="Nessuna scadenza in arrivo." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {duplicati.length > 0 && (
+            <Card theme={MEZZI_COLORS} style={{ marginBottom: 9, borderLeft: '4px solid #B15C00' }}>
+              <div style={{ fontWeight:700, fontSize:13.5, color:'#8A5A00', marginBottom:6 }}>Possibili duplicati ({duplicati.length})</div>
+              {duplicati.map(x => (
+                <div key={x.id} style={{ fontSize:12.5, marginTop:4 }}>{x.targa} · {x.descrizione}: compare anche tra le scadenze, va tenuto in una sola scheda</div>
+              ))}
+            </Card>
+          )}
           {kmDaAggiornare.length > 0 && (
             <Card theme={MEZZI_COLORS} style={{ marginBottom: 9, borderLeft: `4px solid ${MEZZI_COLORS.primary}` }}>
               <button type="button" onClick={() => setKmAperto(!kmAperto)} style={{ width:'100%', background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', textAlign:'left' }}>
@@ -3756,7 +3865,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
             </Card>
           ))}
           {rows.map(r => (
-            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); setOfficinaGomma(r.v.gomme?.officinaCambio || ''); setUnaTantumGomma(!!r.v.gomme?.officinaUnaTantum); } : undefined}>
+            <Card theme={MEZZI_COLORS} key={r.key} onClick={r.isGomme ? () => { setGommaAperta(gommaAperta === r.v.id ? null : r.v.id); setDataGomma(r.v.gomme?.appuntamentoCambio || ''); setOraGomma(r.v.gomme?.orarioCambio || ''); setOfficinaGomma(r.v.gomme?.officinaCambio || ''); setUnaTantumGomma(!!r.v.gomme?.officinaUnaTantum); } : r.label === 'Tagliando' ? () => setTagliandoAperto(tagliandoAperto === r.key ? null : r.key) : undefined}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 3 }}>{r.label}</div>
@@ -3797,6 +3906,10 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
               )}
               {r.isGomme && r.v.gomme?.appuntamentoCambio && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); onSaveGomme && onSaveGomme(r.v, null, null, null, false); }} style={{ marginTop:6, width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700, fontSize:12.5 }}>Cancella appuntamento</button>
+              )}
+              {r.label === 'Tagliando' && tagliandoAperto === r.key && (
+                <PannelloTagliando vehicle={r.v} prenotato={(maints || []).find(x => x.targa === r.v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato')}
+                  onPrenota={(d, o, off) => onPrenotaTagliando(r.v, d, o, off)} onCancella={() => onCancellaTagliando(r.v)} onEsegui={(km) => onEseguiTagliando(r.v, km)} />
               )}
             </Card>
           ))}
@@ -4155,6 +4268,28 @@ function MezziModule({ onHome, initialNotification }) {
     setView({ name: 'detail', id: v.id, apriCambio: !!conCambio });
   };
   const apriCambioDaScadenza = (v) => apriSchedaMezzo(v, true);
+  // Tagliando: prenotazione dalla scheda Scadenze; eseguito = prossima scadenza tra un anno.
+  const tagliandoPrenotato = (v) => maintsT.rows.find(m => m.targa === v.targa && (m.descrizione || '').startsWith('Tagliando') && m.stato === 'Programmato');
+  async function prenotaTagliando(v, data, ora, off) {
+    const esistente = tagliandoPrenotato(v);
+    const base = esistente || { id: nuovoUuid(), targa: v.targa, tipo: 'Ordinaria', priorita: 'Media', stato: 'Programmato', costo: null, note: '', km: null };
+    const { error } = await maintsT.save({ ...base, data, appuntamento: data, appuntamento_ora: ora || null, officina: off || '', descrizione: 'Tagliando' });
+    flash(error ? 'Errore: ' + error.message : 'Tagliando prenotato');
+  }
+  async function cancellaTagliandoPrenotato(v) {
+    const esistente = tagliandoPrenotato(v);
+    if (!esistente) return;
+    const { error } = await maintsT.remove(esistente);
+    flash(error ? 'Errore: ' + error.message : 'Prenotazione cancellata');
+  }
+  async function eseguiTagliando(v, km) {
+    const oggi = todayISO();
+    const esistente = tagliandoPrenotato(v);
+    if (esistente) await maintsT.save({ ...esistente, stato: 'Completato', data: oggi, km: Number(km) || null, appuntamento: null, appuntamento_ora: null });
+    const raw = vehiclesT.rows.find(x => x.id === v.id) || v;
+    const { error } = await vehiclesT.save({ ...raw, tagliando: aggiungiMesi(oggi, 12), km: Math.max(Number(raw.km || 0), Number(km) || 0), km_aggiornato: oggi });
+    flash(error ? 'Errore: ' + error.message : 'Tagliando eseguito, prossimo tra un anno');
+  }
   // Modifica ed eliminazione di un tagliando (stesse regole del form delle procedure).
   async function salvaModificaTagliando(r) {
     const corrente = ricT.rows.find(x => x.id === r.id);
@@ -4385,7 +4520,7 @@ function MezziModule({ onHome, initialNotification }) {
     if (view.name === 'nuovaProcedura') content = <RicorrenteForm initial={null} tipoIniziale="Lavaggio" categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaNuovaProcedura} onCancel={() => goBack()} />;
     else if (view.name === 'editTagliando') content = <RicorrenteForm initial={view.t} categorieDisponibili={[...new Set((ricT.rows || []).map(r => r.categoria).filter(Boolean))].sort()} onSave={salvaModificaTagliando} onCancel={() => goBack()} onDelete={eliminaTagliando} />;
     else content = (<>
-      <ScadenzeScreen vehicles={vehiclesConAppuntamento} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaAppuntamentoGomme(v, data, ora, off, una)} onEseguiCambio={apriCambioDaScadenza} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
+      <ScadenzeScreen vehicles={vehiclesConAppuntamento} params={params} onMenu={() => setShowMenu(true)} onHome={onHome} onSaveGomme={(v, data, ora, off, una) => salvaAppuntamentoGomme(v, data, ora, off, una)} maints={maintsT.rows} onPrenotaTagliando={prenotaTagliando} onCancellaTagliando={cancellaTagliandoPrenotato} onEseguiTagliando={eseguiTagliando} onEseguiCambio={apriCambioDaScadenza} officine={elencoOfficine(tecniciT.rows, maints, vehicles)} onAggiornaGomme={(v, patch) => salvaVeicoloNoUscita({ ...v, gomme: { ...(v.gomme || {}), ...patch } })} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} />
       <div style={{ padding: '0 14px 14px' }}>
         <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:6 }}>
           <button type="button" onClick={() => setView({ name: 'nuovaProcedura' })} style={{ padding:'7px 12px', borderRadius:10, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>+ Procedura</button>
@@ -4409,7 +4544,7 @@ function MezziModule({ onHome, initialNotification }) {
         input:focus, select:focus, textarea:focus { border-color: ${MEZZI_COLORS.primary} !important; }
       `}</style>
       <div style={{ paddingBottom: 78 }}>{content}</div>
-      {view.name === 'list' && <BottomNav theme={MEZZI_COLORS} tab={tab} setTab={setTab} items={navItemsConsentiti} />}
+      {view.name === 'list' && <BottomNav theme={MEZZI_COLORS} tab={tab} setTab={setTab} items={navItemsConsentiti} badges={{ manutenzioni: contaInterventi(maintsT.rows), scadenze: contaScadenze(vehicles, maintsT.rows, params) }} />}
       {showMenu && <MenuSheet theme={MEZZI_COLORS} onClose={() => goBack()} onExport={exportToExcel} exportSub="Scarica anagrafica e registro in .xlsx" />}
       {toast && (
         <div style={{ position: 'fixed', bottom: view.name === 'list' ? 92 : 20, left: '50%', transform: 'translateX(-50%)', background: MEZZI_COLORS.primaryDeep, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, zIndex: 30, maxWidth: 400 }}>
