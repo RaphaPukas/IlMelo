@@ -2523,7 +2523,7 @@ function dataDaDot(dot) {
   return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
 }
 function generaFlottaXlsx(vehicles, maints) {
-  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore (da sostituire dal)', 'Tergicristalli posteriore (da sostituire dal)', 'Pneumatici montati', 'Marca montati', 'Modello montati', 'Battistrada montati (mm)', 'DOT montati (più vecchio)', 'Produzione (da DOT)', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Ora appuntamento', 'Interventi da realizzare', 'Chilometri aggiornati il'];
+  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore (da sostituire dal)', 'Tergicristalli posteriore (da sostituire dal)', 'Pneumatici montati', 'Marca montati', 'Modello montati', 'Battistrada montati (mm)', 'DOT montati (più vecchio)', 'Produzione (da DOT)', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Ora appuntamento', 'Interventi da realizzare', 'Chilometri aggiornati il', 'Data di montaggio del treno', 'Mesi di utilizzo del treno', 'Gomme diverse (marca e modello)', 'DOT gomme diverse', 'Data di montaggio gomme diverse', 'Chilometri al montaggio del treno'];
   const data = (x) => (x ? dataSeriale(x) : null);
   const righe = (vehicles || []).map(v => {
     const g = v.gomme || {};
@@ -2542,10 +2542,16 @@ function generaFlottaXlsx(vehicles, maints) {
       m.misto ? 'SÌ' : 'no', scorta,
       app ? data(app.appuntamento) : null, app ? (app.appuntamento_ora || null) : null,
       daFare, data(v.km_aggiornato),
+      data(m.dataMontaggio),
+      m.dataMontaggio ? Math.max(0, Math.round((new Date() - new Date(m.dataMontaggio + 'T00:00:00')) / (30.44 * 864e5))) : null,
+      m.misto && m.diverse ? ([m.diverse.marca, m.diverse.modello].filter(Boolean).join(' ') || null) : null,
+      m.misto && m.diverse ? (m.diverse.dot || null) : null,
+      m.misto && m.diverse ? data(m.diverse.dataMontaggio) : null,
+      (m.kmMontaggio != null && m.kmMontaggio !== '') ? Number(m.kmMontaggio) : null,
     ];
   });
-  const dateCol = [9, 10, 11, 12, 13, 14, 20, 23, 26];
-  const stileCol = (i) => (dateCol.includes(i) ? 2 : i === 18 ? 3 : i === 4 ? 4 : 0);
+  const dateCol = [9, 10, 11, 12, 13, 14, 20, 23, 26, 27, 31];
+  const stileCol = (i) => (dateCol.includes(i) ? 2 : i === 18 ? 3 : (i === 4 || i === 32) ? 4 : 0);
   // Larghezza di ogni colonna: dal testo piu' lungo che contiene (date a 10 caratteri), intestazioni lunghe a capo.
   const lunghezzaCella = (val, i) => (val === null || val === undefined || val === '' ? 0 : (dateCol.includes(i) && typeof val === 'number') ? 10 : String(val).length);
   const larghezze = intestazioni.map((h, i) => Math.min(Math.max(Math.min(h.length, 18), ...righe.map(r => lunghezzaCella(r[i], i)), 8) + 3, 40));
@@ -2997,23 +3003,31 @@ function GommeForm({ vehicle, onSave, onCancel }) {
             <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 }}>Data di montaggio del treno</div>
             <input type="date" value={montati.dataMontaggio || ''} onChange={e => setMontati({ ...montati, dataMontaggio: e.target.value })} style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
           </div>
+          <div style={{ marginTop:8 }}>
+            <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 }}>Chilometri al montaggio del treno</div>
+            <input type="number" min="0" value={montati.kmMontaggio ?? ''} onChange={e => setMontati({ ...montati, kmMontaggio: e.target.value === '' ? null : Number(e.target.value) })} placeholder="es. 170000" style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+          </div>
           <label style={{ display:'flex', gap:8, alignItems:'center', fontSize:13, marginTop:6 }}>
             <input type="checkbox" checked={!!montati.misto} onChange={e => setMontati({ ...montati, misto: e.target.checked })} />Treno non uniforme (NB)
           </label>
-          {montati.misto && (
-            <div style={{ marginTop:8, padding:8, borderRadius:8, background:'#FDECEA' }}>
-              <div style={{ fontWeight:700, fontSize:12.5, color:'#B71C1C', marginBottom:6 }}>Gomme diverse (treno non uniforme)</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                <input placeholder="Marca" value={(montati.diverse || {}).marca || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), marca: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                <input placeholder="Modello" value={(montati.diverse || {}).modello || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), modello: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                <input placeholder="Misura" value={(montati.diverse || {}).misura || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), misura: e.target.value } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-                <input placeholder="DOT (4 cifre)" maxLength={4} value={(montati.diverse || {}).dot || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), dot: e.target.value.replace(/\D/g, '') } })} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
+          {montati.misto && (() => {
+            const dv = montati.diverse || {};
+            const setDv = (patch) => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), ...patch } });
+            const etichetta = { fontSize:12, color:'#6E7972', fontWeight:600, marginBottom:3 };
+            const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
+            return (
+              <div style={{ marginTop:8, padding:10, borderRadius:8, background:'#FDECEA', boxSizing:'border-box', maxWidth:'100%', overflow:'hidden' }}>
+                <div style={{ fontWeight:700, fontSize:12.5, color:'#B71C1C', marginBottom:8 }}>Gomme diverse (treno non uniforme)</div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>Marca</div><input value={dv.marca || ''} onChange={e => setDv({ marca: e.target.value })} style={campo} /></div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>Modello</div><input value={dv.modello || ''} onChange={e => setDv({ modello: e.target.value })} style={campo} /></div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>Misura</div><input value={dv.misura || ''} onChange={e => setDv({ misura: e.target.value })} style={campo} /></div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>DOT (4 cifre)</div><input maxLength={4} value={dv.dot || ''} onChange={e => setDv({ dot: e.target.value.replace(/\D/g, '') })} style={campo} /></div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>Chilometri al montaggio</div><input type="number" min="0" value={dv.kmMontaggio ?? ''} onChange={e => setDv({ kmMontaggio: e.target.value === '' ? null : Number(e.target.value) })} style={campo} /></div>
+                <div style={{ marginBottom:8 }}><div style={etichetta}>Data di montaggio</div><input type="date" value={dv.dataMontaggio || ''} onChange={e => setDv({ dataMontaggio: e.target.value })} style={campo} /></div>
+                <div><div style={etichetta}>Nota (facoltativa)</div><input value={montati.notaMisto || ''} onChange={e => setMontati({ ...montati, notaMisto: e.target.value })} style={campo} /></div>
               </div>
-              <div style={{ fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginTop:6, marginBottom:3 }}>Data di montaggio delle gomme diverse</div>
-              <input type="date" value={(montati.diverse || {}).dataMontaggio || ''} onChange={e => setMontati({ ...montati, diverse: { ...(montati.diverse || {}), dataMontaggio: e.target.value } })} style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
-              <input value={montati.notaMisto || ''} onChange={e => setMontati({ ...montati, notaMisto: e.target.value })} placeholder="Nota (facoltativa)" style={{ width:'100%', boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, marginTop:6 }} />
-            </div>
-          )}
+            );
+          })()}
         </Card>
         <SectionLabel theme={MEZZI_COLORS}>Scorta</SectionLabel>
         {scorta.map((x, i) => (
@@ -3266,7 +3280,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
               <div style={{ fontSize:13, color:MEZZI_COLORS.muted, marginTop:1 }}>Misura {m.misura || vehicle.gomme?.misura || '—'}</div>
             {m.misto && <div style={{ marginTop:6, padding:'6px 9px', borderRadius:8, background:'#FDECEA', color:'#B71C1C', fontSize:12.5, fontWeight:700 }}>NB: treno non uniforme{m.notaMisto ? ' · ' + m.notaMisto : ''}</div>}
             {m.dataMontaggio && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:2 }}>Treno montato il {fmtDate(m.dataMontaggio)} · {Math.max(0, Math.round((new Date() - new Date(m.dataMontaggio + 'T00:00:00')) / (30.44 * 864e5)))} mesi di utilizzo</div>}
-            {m.misto && m.diverse && <div style={{ fontSize:12.5, marginTop:4 }}>Gomme diverse: {[m.diverse.marca, m.diverse.modello].filter(Boolean).join(' ') || '—'} · {m.diverse.misura || '—'} · DOT {m.diverse.dot || '—'}{m.diverse.dataMontaggio ? ' · montate il ' + fmtDate(m.diverse.dataMontaggio) : ''}</div>}
+            {m.kmMontaggio != null && m.kmMontaggio !== '' && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:2 }}>Montato a {Number(m.kmMontaggio).toLocaleString('it-IT')} km</div>}
+            {m.misto && m.diverse && <div style={{ fontSize:12.5, marginTop:4 }}>Gomme diverse: {[m.diverse.marca, m.diverse.modello].filter(Boolean).join(' ') || '—'} · {m.diverse.misura || '—'} · DOT {m.diverse.dot || '—'}{m.diverse.dataMontaggio ? ' · montate il ' + fmtDate(m.diverse.dataMontaggio) : ''}{m.diverse.kmMontaggio != null && m.diverse.kmMontaggio !== '' ? ' · a ' + Number(m.diverse.kmMontaggio).toLocaleString('it-IT') + ' km' : ''}</div>}
             </div>
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Battistrada" value={(m.battistrada !== undefined && m.battistrada !== '' && m.battistrada !== null ? `${Number(m.battistrada).toFixed(1).replace('.', ',')} mm` : '—') + ` · ${kmRealiSet(m, vehicle.km).toLocaleString('it-IT')} km`} />
             <BarraBattistrada mm={m.battistrada} tipo={m.tipo} />
