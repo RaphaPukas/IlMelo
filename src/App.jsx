@@ -3277,6 +3277,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
     ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo], ['Tagliando', vehicle.tagliando],
+    ...(vehicle.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => [x.nome, x.data]),
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const totale = own.reduce((s, m) => s + (Number(m.costo) || 0) * 1.22, 0);
@@ -3359,8 +3360,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             </div>
           )}
         </Card>
-      <ScadenzePersonalizzateCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), scadenzeExtra: lista } })} />
-      <TergicristalliCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(tergi) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tergicristalli: tergi } })} />
+            <TergicristalliCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(tergi) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tergicristalli: tergi } })} />
 
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
@@ -3485,6 +3485,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
   const [misura, setMisura] = useState(initial?.gomme?.misura || initial?.modelloGomme || '');
+  const [scad, setScad] = useState(initial?.gomme?.scadenzeExtra || []);
   const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
@@ -3510,6 +3511,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
         <Field label="Misura pneumatici (dal libretto)"><input style={inputStyle} value={misura} onChange={e => setMisura(e.target.value)} placeholder="Es. 185/60 R15 84T" /></Field>
         <Field label="Olio motore (tipo)"><input style={inputStyle} value={f.olio_motore || ''} onChange={set('olio_motore')} placeholder="Es. 5W-30 C3" /></Field>
+        <ScadenzePersonalizzateCard vehicle={{ gomme: { scadenzeExtra: scad } }} puoModificare={true} onSave={setScad} />
         <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Marca, modello e tipo (invernali, estive, quattro stagioni) si indicano nella sezione «Pneumatici montati e di scorta».</div>
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
@@ -3522,7 +3524,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <div style={{ padding: '0 16px' }}>
           <button
             disabled={!valid}
-            onClick={() => onSave({ ...f, gomme: { misura: misura.trim() }, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null, km_aggiornato: (Number(f.km) !== Number(initial?.km)) ? todayISO() : (initial?.km_aggiornato ?? null) })}
+            onClick={() => onSave({ ...f, gomme: { misura: misura.trim(), scadenzeExtra: scad }, id: f.id || uid(), anno: f.anno ? Number(f.anno) : null, km: f.km ? Number(f.km) : null, km_aggiornato: (Number(f.km) !== Number(initial?.km)) ? todayISO() : (initial?.km_aggiornato ?? null) })}
             style={{ width: '100%', background: valid ? MEZZI_COLORS.primary : '#B7C0C2', color: '#fff', border: 'none', borderRadius: 12, padding: '14px', fontWeight: 700, fontSize: 15, marginTop: 6 }}
           >
             Salva veicolo
