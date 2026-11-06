@@ -2513,14 +2513,15 @@ function dataDaDot(dot) {
   const ww = Number(mm[1]); if (ww < 1 || ww > 53) return null;
   return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
 }
-function generaFlottaXlsx(vehicles, maints) {
-  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore (da sostituire dal)', 'Tergicristalli posteriore (da sostituire dal)', 'Pneumatici montati', 'Marca montati', 'Modello montati', 'Battistrada montati (mm)', 'DOT montati (più vecchio)', 'Produzione (da DOT)', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Ora appuntamento', 'Interventi da realizzare', 'Chilometri aggiornati il', 'Data di montaggio del treno', 'Mesi di utilizzo del treno', 'Gomme diverse (marca e modello)', 'DOT gomme diverse', 'Data di montaggio gomme diverse', 'Chilometri al montaggio del treno'];
+function generaFlottaXlsx(vehicles, maints, ricorrenti) {
+  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore (da sostituire dal)', 'Tergicristalli posteriore (da sostituire dal)', 'Pneumatici montati', 'Marca montati', 'Modello montati', 'Battistrada montati (mm)', 'DOT montati (più vecchio)', 'Produzione (da DOT)', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Ora appuntamento', 'Interventi da realizzare', 'Chilometri aggiornati il', 'Data di montaggio del treno', 'Mesi di utilizzo del treno', 'Gomme diverse (marca e modello)', 'DOT gomme diverse', 'Data di montaggio gomme diverse', 'Chilometri al montaggio del treno', 'Scadenze personalizzate', 'Appuntamento tagliando', 'Ora tagliando', 'Officina tagliando', 'Lavaggi e sanificazione (ultima esecuzione)', 'Gomme smaltite', 'Chilometri al montaggio gomme diverse'];
   const data = (x) => (x ? dataSeriale(x) : null);
   const righe = (vehicles || []).map(v => {
     const g = v.gomme || {};
     const m = g.montati || {};
     const app = (maints || []).find(x => x.targa === v.targa && (x.descrizione || '').startsWith('Cambio gomme') && x.stato === 'Programmato');
     const daFare = (maints || []).filter(x => x.targa === v.targa && x.stato === 'Programmato').length;
+    const appTag = (maints || []).find(x => x.targa === v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato');
     const tergi = (lato) => (g.tergicristalli?.[lato]?.data ? data(aggiungiMesi(g.tergicristalli[lato].data, 12)) : null);
     const scorta = (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna';
     return [
@@ -2539,10 +2540,20 @@ function generaFlottaXlsx(vehicles, maints) {
       m.misto && m.diverse ? (m.diverse.dot || null) : null,
       m.misto && m.diverse ? data(m.diverse.dataMontaggio) : null,
       (m.kmMontaggio != null && m.kmMontaggio !== '') ? Number(m.kmMontaggio) : null,
+      (g.scadenzeExtra || []).filter(x => x.data).map(x => `${x.nome}: ${fmtDate(x.data)}${x.ripetiMesi ? ' (ogni ' + x.ripetiMesi + ' mesi)' : ''}`).join('; ') || null,
+      appTag ? dataSeriale(appTag.appuntamento) : null,
+      appTag ? (appTag.appuntamento_ora || null) : null,
+      appTag ? (appTag.officina || null) : null,
+      (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').map(r => {
+        const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
+        return `${r.titolo}: ${fatte[0] ? fmtDate(fatte[0]) : 'mai'}`;
+      }).join('; ') || null,
+      (g.smaltite || []).map(x => `${x.data ? fmtDate(x.data) : '—'}: ${x.quantita} gomme ${[x.marca, x.modello].filter(Boolean).join(' ')} DOT ${x.dot || '—'}`).join('; ') || null,
+      (m.misto && m.diverse && m.diverse.kmMontaggio != null && m.diverse.kmMontaggio !== '') ? Number(m.diverse.kmMontaggio) : null,
     ];
   });
-  const dateCol = [9, 10, 11, 12, 13, 14, 20, 23, 26, 27, 31];
-  const stileCol = (i) => (dateCol.includes(i) ? 2 : i === 18 ? 3 : (i === 4 || i === 32) ? 4 : 0);
+  const dateCol = [9, 10, 11, 12, 13, 14, 20, 23, 26, 27, 31, 34];
+  const stileCol = (i) => (dateCol.includes(i) ? 2 : i === 18 ? 3 : (i === 4 || i === 32 || i === 39) ? 4 : 0);
   // Larghezza di ogni colonna: dal testo piu' lungo che contiene (date a 10 caratteri), intestazioni lunghe a capo.
   const lunghezzaCella = (val, i) => (val === null || val === undefined || val === '' ? 0 : (dateCol.includes(i) && typeof val === 'number') ? 10 : String(val).length);
   const larghezze = intestazioni.map((h, i) => Math.min(Math.max(Math.min(h.length, 18), ...righe.map(r => lunghezzaCella(r[i], i)), 8) + 3, 40));
@@ -4474,7 +4485,7 @@ function MezziModule({ onHome, initialNotification }) {
     if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} apriCambio={!!view.apriCambio} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
-    else content = <VeicoliScreen vehicles={vehicles} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    else content = <VeicoliScreen vehicles={vehicles} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows, ricT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
