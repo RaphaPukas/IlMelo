@@ -2548,20 +2548,18 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     [16, [['AND(ISNUMBER({c}2),ISNUMBER({5}2),{5}2>={c}2-5000)', 0]]],
     [18, [['OR({c}2="",{c}2<TODAY()-30)', 1]]]];
 
-  // Foglio 2: gomme e tergicristalli
+  // Foglio 2: gomme
   const colB = [
     ['Veicolo', 's'], ['Targa', 's'], ['Misura pneumatici', 's'], ['Tipo montati', 's'], ['Marca montati', 's'], ['Modello montati', 's'],
     ['Battistrada montati (mm)', 'n1'], ['DOT montati (più vecchio)', 's'], ['Produzione (da DOT)', 'd'], ['Età montati (anni)', 'n1'],
     ['Treno non uniforme', 's'], ['Gomme diverse (marca e modello)', 's'], ['DOT gomme diverse', 's'], ['Data montaggio gomme diverse', 'd'], ['Km montaggio gomme diverse', 'i'],
     ['Data montaggio treno', 'd'], ['Mesi di utilizzo del treno', 'i'], ['Km montaggio treno', 'i'],
     ['Pneumatici di scorta', 's'], ['Gomme smaltite', 's'],
-    ['Tergicristalli anteriore (da sostituire dal)', 'd'], ['Tergicristalli posteriore (da sostituire dal)', 'd'],
     ['Appuntamento cambio stagionale', 'd'], ['Ora cambio stagionale', 's'],
   ];
   const righeB = lista.map(v => {
-    const g = v.gomme || {}; const m = g.montati || {}; const eta = etaPneumatico(m.dot); const bat = livelloBattistrada(m.battistrada, m.tipo);
+    const g = v.gomme || {}; const m = g.montati || {}; const eta = etaPneumatico(m.dot);
     const dv = m.misto && m.diverse ? m.diverse : null;
-    const tg = (l) => (g.tergicristalli?.[l]?.data ? dX(aggiungiMesi(g.tergicristalli[l].data, 12)) : null);
     const cs = trova(v, 'Cambio gomme');
     return [nomeV(v), v.targa, g.misura || null, m.tipo || null, m.marca || null, m.modello || null,
       (m.battistrada !== undefined && m.battistrada !== null && m.battistrada !== '') ? Number(m.battistrada) : null,
@@ -2572,27 +2570,61 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       (m.kmMontaggio != null && m.kmMontaggio !== '') ? Number(m.kmMontaggio) : null,
       (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna',
       (g.smaltite || []).map(x => `${x.data ? fmtDate(x.data) : '—'}: ${x.quantita} gomme ${[x.marca, x.modello].filter(Boolean).join(' ')} DOT ${x.dot || '—'}`).join('; ') || null,
-      tg('anteriore'), tg('posteriore'),
       cs ? dX(cs.appuntamento) : null, cs ? (cs.appuntamento_ora || null) : null];
   });
   const regoleB = [
-    [6, [['AND(ISNUMBER({c}2),{c}2<2)', 0], ['AND(ISNUMBER({c}2),{c}2>=2,{c}2<3)', 2], ['AND(ISNUMBER({c}2),{c}2>=3,{c}2<4)', 1], ['AND(ISNUMBER({c}2),{c}2>=4)', 3]]],
-    [8, [['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-120))', 0], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-72))', 2], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-60))', 1]]],
-    [10, [['{c}2="SÌ"', 0]]],
-    [20, [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
-    [21, [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
-    [22, [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Battistrada montati (mm)', [['AND(ISNUMBER({c}2),{c}2<2)', 0], ['AND(ISNUMBER({c}2),{c}2>=2,{c}2<3)', 2], ['AND(ISNUMBER({c}2),{c}2>=3,{c}2<4)', 1], ['AND(ISNUMBER({c}2),{c}2>=4)', 3]]],
+    ['Produzione (da DOT)', [['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-120))', 0], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-72))', 2], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-60))', 1]]],
+    ['Treno non uniforme', [['{c}2="SÌ"', 0]]],
+    ['Appuntamento cambio stagionale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
   ];
 
-  // Foglio 3: interventi e lavaggi
-  const colC = [['Veicolo', 's'], ['Targa', 's'], ['Interventi da realizzare', 'i'], ['Lavaggi e sanificazione (ultima esecuzione)', 's'], ['Chilometri attuali', 'i'], ['Chilometri aggiornati il', 'd']];
-  const righeC = lista.map(v => [nomeV(v), v.targa, contaInterventi(mts.filter(x => x.targa === v.targa)), lavaggiDi(v), v.km != null ? Number(v.km) : null, dX(v.km_aggiornato)]);
-  const regoleC = [[2, [['AND(ISNUMBER({c}2),{c}2>0)', 1]]], [5, [['OR({c}2="",{c}2<TODAY()-30)', 1]]]];
+  // Foglio 3: tergicristalli
+  const colT = [
+    ['Veicolo', 's'], ['Targa', 's'], ['Anteriore: tipo', 's'], ['Anteriore: marca e modello', 's'], ['Anteriore: montati il', 'd'], ['Anteriore: da sostituire dal', 'd'],
+    ['Posteriore: tipo', 's'], ['Posteriore: marca e modello', 's'], ['Posteriore: montati il', 'd'], ['Posteriore: da sostituire dal', 'd'],
+  ];
+  const righeT = lista.map(v => {
+    const t = v.gomme?.tergicristalli || {}; const an = t.anteriore || {}; const po = t.posteriore || {};
+    return [nomeV(v), v.targa, an.tipo || null, [an.marca, an.modello].filter(Boolean).join(' ') || null, dX(an.data), an.data ? dX(aggiungiMesi(an.data, 12)) : null,
+      po.tipo || null, [po.marca, po.modello].filter(Boolean).join(' ') || null, dX(po.data), po.data ? dX(aggiungiMesi(po.data, 12)) : null];
+  });
+  const regoleT = [
+    ['Anteriore: da sostituire dal', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
+    ['Posteriore: da sostituire dal', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
+  ];
 
+  // Foglio 4: interventi, lavaggi e tagliandino trimestrale
+  const ultimoTrim = (v) => (v.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1))[0] || null;
+  const colC = [
+    ['Veicolo', 's'], ['Targa', 's'], ['Interventi da realizzare', 'i'], ['Lavaggi e sanificazione (ultima esecuzione)', 's'],
+    ['Ultimo tagliandino trimestrale', 'd'], ['Km al tagliandino', 'i'], ['Pressione anteriore (bar)', 'n1'], ['Pressione posteriore (bar)', 'n1'],
+    ['Olio motore aggiunto (ml)', 'i'], ['Liquido paraflu aggiunto (ml)', 'i'], ['Guasti o problemi rilevati', 's'], ['Voci spuntate al tagliandino', 's'], ['Voci da controllare', 's'], ['Valori della checklist', 's'], ['Prossimo tagliandino trimestrale', 'd'],
+    ['Chilometri attuali', 'i'], ['Chilometri aggiornati il', 'd'],
+  ];
+  const righeC = lista.map(v => {
+    const tt = ultimoTrim(v);
+    const num = (x) => (x == null || x === '' ? null : Number(x));
+    return [nomeV(v), v.targa, contaInterventi(mts.filter(x => x.targa === v.targa)), lavaggiDi(v),
+      tt && tt.data ? dX(tt.data) : null, tt ? num(tt.km) : null, tt ? num(tt.pressAnt) : null, tt ? num(tt.pressPost) : null,
+      tt ? num(tt.olioMl) : null, tt ? num(tt.paraMl) : null, tt ? (tt.guasti || null) : null,
+      tt && tt.voci && tt.voci.length ? `${tt.voci.filter(x => x.ok).length}/${tt.voci.length}` : null,
+      tt && tt.voci ? (tt.voci.filter(x => !x.ok).map(x => x.testo).join('; ') || null) : null,
+      tt && tt.voci ? (tt.voci.filter(x => x.valore).map(x => `${x.testo}: ${x.valore}`).join('; ') || null) : null,
+      tt && tt.data ? dX(aggiungiMesi(tt.data, 3)) : null,
+      v.km != null ? Number(v.km) : null, dX(v.km_aggiornato)];
+  });
+  const regoleC = [
+    ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Chilometri aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
+  ];
+  const converti = (col, regole) => regole.map(([nome, t]) => [col.findIndex(c => c[0] === nome), t]);
   const fogli = [
     { nome: 'Scadenze', col: colA, righe: righeA, regole: regoleA },
-    { nome: 'Gomme e tergicristalli', col: colB, righe: righeB, regole: regoleB },
-    { nome: 'Interventi e lavaggi', col: colC, righe: righeC, regole: regoleC },
+    { nome: 'Gomme', col: colB, righe: righeB, regole: converti(colB, regoleB) },
+    { nome: 'Tergicristalli', col: colT, righe: righeT, regole: converti(colT, regoleT) },
+    { nome: 'Interventi e lavaggi', col: colC, righe: righeC, regole: converti(colC, regoleC) },
   ];
   const enc = new TextEncoder();
   const xmlFoglio = (f) => {
@@ -3054,6 +3086,85 @@ function ScadenzePersonalizzateCard({ vehicle, onSave, puoModificare }) {
   );
 }
 
+// Checklist mezzi: le 20 voci del controllo periodico. Usate se non c'è una procedura con i passi.
+const CHECKLIST_MEZZI_DEFAULT = [
+  'CATENE DA NEVE', 'SPRAY ANTIGHIACCIO', 'RASCHIETTO', 'CONTROLLARE PRESENZA LIBRETTO DI CIRCOLAZIONE', 'SCADENZA REVISIONE', 'SCADENZA ASSICURAZIONE',
+  'ZTL', 'DISCO ORARIO', 'CARTELLINA "GIORNALE DI BORDO" + BIRO', 'GIUBBOTTO CATARIFRANGENTE', 'TRIANGOLO',
+  'PRESENZA EQUIPAGGIAMENTO x SOSTITUZIONE PNEUMATICO DI SCORTA', 'VERIFICA USURA PNEUMATICI', 'PRESENZA PNEUMATICI INVERNALI / 4 STAGIONI',
+  'CONTROLLO LUCI (POSIZIONI, ANABBAGLIANTI, ABBAGLIANTI ECC)', 'LUBRIFICARE CARDINI + CILINDRI SERRATURE', 'LIVELLO OLIO MOTORE',
+  "Livello PARAFLU'", 'LIVELLO LAVAVETRI', 'VERIFICARE FUNZIONAMENTO RISCALDAMENTO',
+];
+
+// Campo del valore sotto ogni voce: si salva quando si esce dal campo.
+function ValoreVoce({ valore, onSalva, theme }) {
+  const [v, setV] = useState(valore || '');
+  return (
+    <input value={v} onChange={e => setV(e.target.value)} onBlur={() => { if (v.trim() !== (valore || '')) onSalva(v.trim()); }}
+      placeholder="Valore (es. 1,5 L, 2,2 bar)"
+      style={{ width:'calc(100% - 30px)', marginLeft:30, marginTop:6, boxSizing:'border-box', padding:'7px 9px', borderRadius:8, border:`1.5px solid ${theme.line}`, fontSize:13, background:'#fff', minWidth:0 }} />
+  );
+}
+
+// Tagliandino trimestrale: la scheda di controllo (km, pressioni, olio e paraflu aggiunti, guasti), con i tre ultimi inserimenti.
+function TagliandinoTrimCard({ vehicle, onSave, puoModificare, voci = [] }) {
+  const storico = (vehicle.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1));
+  const [f, setF] = useState({ data: todayISO(), km: String(vehicle.km ?? ''), pressAnt: '', pressPost: '', olioMl: '', paraMl: '', guasti: '' });
+  const [spunte, setSpunte] = useState({});
+  const [valori, setValori] = useState({});
+  const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
+  const etichetta = { fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 };
+  const num = (x) => (x === '' || x == null ? null : Number(x));
+  const aggiungi = () => {
+    if (!f.data) return;
+    onSave([...(vehicle.gomme?.tagliandiTrim || []), { id: nuovoUuid(), data: f.data, km: num(f.km), pressAnt: num(f.pressAnt), pressPost: num(f.pressPost), olioMl: num(f.olioMl), paraMl: num(f.paraMl), guasti: f.guasti.trim(), voci: voci.map((t, i) => ({ testo: t, ok: !!spunte[i], valore: valori[i] || null })) }]);
+    setF({ ...f, pressAnt: '', pressPost: '', olioMl: '', paraMl: '', guasti: '' });
+    setSpunte({});
+    setValori({});
+  };
+  const elimina = (x) => onSave((vehicle.gomme?.tagliandiTrim || []).filter(y => y.id !== x.id));
+  return (
+    <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+      <div style={{ fontWeight:800, fontSize:14, marginBottom:6 }}>Tagliandino trimestrale</div>
+      {storico.length === 0 && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Nessun tagliandino registrato.</div>}
+      {storico.slice(0, 3).map(x => (
+        <div key={x.id} style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, padding:'8px 0' }}>
+          <div style={{ fontWeight:700, fontSize:13 }}>{fmtDate(x.data)}{x.km != null ? ` · ${Number(x.km).toLocaleString('it-IT')} km` : ''}</div>
+          <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Pressioni {x.pressAnt ?? '—'} / {x.pressPost ?? '—'} bar · olio aggiunto {x.olioMl ?? 0} ml · paraflu aggiunto {x.paraMl ?? 0} ml</div>
+          {x.voci && x.voci.some(v => v.valore) && <div style={{ fontSize:12.5, marginTop:2 }}>Valori: {x.voci.filter(v => v.valore).map(v => `${v.testo}: ${v.valore}`).join('; ')}</div>}
+          {x.voci && x.voci.length > 0 && <div style={{ fontSize:12.5, marginTop:2 }}>Checklist: {x.voci.filter(v => v.ok).length}/{x.voci.length} spuntate{x.voci.some(v => !v.ok) ? ' · da controllare: ' + x.voci.filter(v => !v.ok).map(v => v.testo).join(', ') : ''}</div>}
+          {x.guasti && <div style={{ fontSize:12.5, marginTop:2 }}>Guasti o problemi: {x.guasti}</div>}
+          {puoModificare && <button type="button" onClick={() => elimina(x)} style={{ marginTop:4, padding:'4px 10px', borderRadius:8, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700, fontSize:12 }}>Elimina</button>}
+        </div>
+      ))}
+      {puoModificare && (
+        <div style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:8, paddingTop:10 }}>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Data</div><input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Chilometri</div><input type="number" min="0" value={f.km} onChange={e => setF({ ...f, km: e.target.value })} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Pressione anteriore (bar)</div><input type="number" step="0.1" value={f.pressAnt} onChange={e => setF({ ...f, pressAnt: e.target.value })} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Pressione posteriore (bar)</div><input type="number" step="0.1" value={f.pressPost} onChange={e => setF({ ...f, pressPost: e.target.value })} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Olio motore aggiunto (ml)</div><input type="number" min="0" value={f.olioMl} onChange={e => setF({ ...f, olioMl: e.target.value })} style={campo} /></div>
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Liquido paraflu aggiunto (ml)</div><input type="number" min="0" value={f.paraMl} onChange={e => setF({ ...f, paraMl: e.target.value })} style={campo} /></div>
+          {voci.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={{ ...etichetta, marginBottom:6 }}>Checklist da spuntare</div>
+              {voci.map((t, i) => (
+                <div key={i} style={{ padding:'5px 0' }}>
+                  <label style={{ display:'flex', gap:8, alignItems:'center', fontSize:13 }}>
+                    <input type="checkbox" checked={!!spunte[i]} onChange={e => setSpunte({ ...spunte, [i]: e.target.checked })} />{t}
+                  </label>
+                  <ValoreVoce valore={valori[i] || ''} onSalva={(val) => setValori({ ...valori, [i]: val })} theme={MEZZI_COLORS} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginBottom:8 }}><div style={etichetta}>Guasti o problemi rilevati</div><input value={f.guasti} onChange={e => setF({ ...f, guasti: e.target.value })} style={campo} /></div>
+          <button type="button" disabled={!f.data} onClick={aggiungi} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background: f.data ? MEZZI_COLORS.primary : '#B9C4C2', color:'#fff', fontWeight:700 }}>Aggiungi tagliandino</button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // Tergicristalli: anteriore e posteriore, con tipo, marca, modello e data di montaggio. Sostituzione annuale.
 function TergicristalliCard({ vehicle, onSave, puoModificare }) {
   const t = vehicle.gomme?.tergicristalli || {};
@@ -3326,7 +3437,7 @@ function generaStoricoHtml(vehicle, eventi) {
   </body></html>`;
 }
 
-function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio }) {
+function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio, vociTrim }) {
   const [editGomme, setEditGomme] = useState(false);
   const [sostOpen, setSostOpen] = useState(false);
   const [tabStorico, setTabStorico] = useState('realizzare');
@@ -3434,7 +3545,8 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             </div>
           )}
         </Card>
-            <TergicristalliCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(tergi) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tergicristalli: tergi } })} />
+            <TagliandinoTrimCard vehicle={vehicle} voci={vociTrim || []} puoModificare={puoScrivereGomme} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tagliandiTrim: lista } })} />
+      <TergicristalliCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(tergi) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tergicristalli: tergi } })} />
 
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici montati e di scorta</SectionLabel>
         <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
@@ -3841,6 +3953,12 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
     const out = [];
     vehicles.forEach(v => {
       // Scadenze classiche
+      const ttUlt = (v.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1))[0];
+      if (ttUlt && ttUlt.data) {
+        const prossimoTrim = aggiungiMesi(ttUlt.data, 3);
+        const gTrim = daysUntil(prossimoTrim);
+        if (gTrim <= 45) out.push({ key: v.id + 'trim', v, label: 'Tagliandino trimestrale', d: prossimoTrim, days: gTrim, u: urgencyOf(gTrim, params), isGomme: false });
+      }
       const sd = scadenzaDistribuzione(v);
       if (sd) {
         const kmVicino = sd.kmScad != null && Number(v.km || 0) >= sd.kmScad - 5000;
@@ -4359,6 +4477,12 @@ function MezziModule({ onHome, initialNotification }) {
   };
   const apriCambioDaScadenza = (v) => apriSchedaMezzo(v, true);
   // Tagliando: prenotazione dalla scheda Scadenze; eseguito = prossima scadenza tra un anno.
+  // Voci della checklist del tagliandino: quelle della procedura "Tagliandino interno", altrimenti un elenco base.
+  const vociTrim = (() => {
+    const proc = (ricT.rows || []).find(r => (r.tipo === 'Tagliandino interno' || /checklist/i.test(r.titolo || '')) && r.modulo === 'Mezzi');
+    const voci = (proc?.passi || '').split('\n').map(x => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+    return voci.length ? voci : CHECKLIST_MEZZI_DEFAULT;
+  })();
   const tagliandoPrenotato = (v) => maintsT.rows.find(m => m.targa === v.targa && (m.descrizione || '').startsWith('Tagliando') && m.stato === 'Programmato');
   async function prenotaTagliando(v, data, ora, off) {
     const esistente = tagliandoPrenotato(v);
@@ -4559,7 +4683,7 @@ function MezziModule({ onHome, initialNotification }) {
       </div>
     );
   } else if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} apriCambio={!!view.apriCambio} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} vociTrim={vociTrim} apriCambio={!!view.apriCambio} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows, ricT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
@@ -8403,6 +8527,14 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
 
 /* ---- Checklist dei passi: spunte salvate sulla procedura (chi, quando) ---- */
 // Applica la spunta di un passo all'esecuzione in corso (o ne apre una nuova). Funzione pura.
+function applicaValoreEsecuzione(esecuzioni, i, valore, nome, totale, extra = {}) {
+  const lista = esecuzioni || [];
+  const aperta = lista.find(e => !e.completata);
+  const adesso = new Date();
+  const ora = String(adesso.getHours()).padStart(2, '0') + ':' + String(adesso.getMinutes()).padStart(2, '0');
+  if (!aperta) return [...lista, { id: uid(), ...extra, data: todayISO(), ora, esecutore: nome, passi: [], valori: { [i]: valore }, completata: false, completataIl: null }];
+  return lista.map(e => (e.id === aperta.id ? { ...aperta, valori: { ...(aperta.valori || {}), [i]: valore } } : e));
+}
 function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale, extra = {}) {
   const lista = esecuzioni || [];
   const aperta = lista.find(e => !e.completata);
@@ -8425,6 +8557,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra }) {
   const lista = esecuzioni || [];
   const aperta = lista.find(e => !e.completata);
   const fatti = aperta ? aperta.passi : [];
+  const valori = aperta ? (aperta.valori || {}) : {};
   const fatte = fatti.length;
   const tutte = fatte === items.length;
   const ultime = lista.filter(e => e.completata)
@@ -8442,10 +8575,13 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra }) {
           </div>
         )}
         {items.map((testo, i) => (
-          <label key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 2px', borderTop: i ? `1px solid ${PROC_COLORS.line}` : 'none', cursor:'pointer' }}>
-            <input type="checkbox" checked={fatti.includes(i)} onChange={() => spunta(i)} style={{ width:20, height:20, marginTop:2, accentColor:PROC_COLORS.primary, flexShrink:0 }} />
-            <span style={{ fontSize:14, lineHeight:1.5, textDecoration: fatti.includes(i) ? 'line-through' : 'none', color: fatti.includes(i) ? PROC_COLORS.muted : PROC_COLORS.ink }}>{testo}</span>
-          </label>
+          <div key={i} style={{ borderTop: i ? `1px solid ${PROC_COLORS.line}` : 'none', padding:'8px 2px' }}>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer' }}>
+              <input type="checkbox" checked={fatti.includes(i)} onChange={() => spunta(i)} style={{ width:20, height:20, marginTop:2, accentColor:PROC_COLORS.primary, flexShrink:0 }} />
+              <span style={{ fontSize:14, lineHeight:1.5, textDecoration: fatti.includes(i) ? 'line-through' : 'none', color: fatti.includes(i) ? PROC_COLORS.muted : PROC_COLORS.ink }}>{testo}</span>
+            </label>
+            <ValoreVoce valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />
+          </div>
         ))}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:`1px solid ${PROC_COLORS.line}` }}>
           {tutte
