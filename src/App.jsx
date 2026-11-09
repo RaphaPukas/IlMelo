@@ -2556,7 +2556,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Treno non uniforme', 's'], ['Gomme diverse (marca e modello)', 's'], ['DOT gomme diverse', 's'], ['Data montaggio gomme diverse', 'd'], ['Km montaggio gomme diverse', 'i'],
     ['Data montaggio treno', 'd'], ['Mesi di utilizzo del treno', 'i'], ['Km montaggio treno', 'i'],
     ['Pneumatici di scorta', 's'], ['Gomme smaltite', 's'],
-    ['Appuntamento cambio stagionale', 'd'], ['Ora cambio stagionale', 's'],
+    ['Appuntamento cambio stagionale', 'd'], ['Ora cambio stagionale', 's'], ['Da acquistare', 's'],
   ];
   const righeB = lista.map(v => {
     const g = v.gomme || {}; const m = g.montati || {}; const eta = etaPneumatico(m.dot);
@@ -2571,7 +2571,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       (m.kmMontaggio != null && m.kmMontaggio !== '') ? Number(m.kmMontaggio) : null,
       (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna',
       (g.smaltite || []).map(x => `${x.data ? fmtDate(x.data) : '—'}: ${x.quantita} gomme ${[x.marca, x.modello].filter(Boolean).join(' ')} DOT ${x.dot || '—'}`).join('; ') || null,
-      cs ? dX(cs.appuntamento) : null, cs ? (cs.appuntamento_ora || null) : null];
+      cs ? dX(cs.appuntamento) : null, cs ? (cs.appuntamento_ora || null) : null, g.daAcquistare ? (g.daAcquistare === 'estivi' ? 'Set estivo' : 'Set invernale') : null];
   });
   const regoleB = [
     ['Battistrada montati (mm)', [['AND(ISNUMBER({c}2),{c}2<2)', 0], ['AND(ISNUMBER({c}2),{c}2>=2,{c}2<3)', 2], ['AND(ISNUMBER({c}2),{c}2>=3,{c}2<4)', 1], ['AND(ISNUMBER({c}2),{c}2>=4)', 3]]],
@@ -3132,6 +3132,64 @@ function ValoreVoce({ valore, onSalva, theme, placeholder }) {
   );
 }
 
+// Storico degli pneumatici smaltiti, e il set da acquistare quando manca la scorta per l'altro periodo.
+function periodoGomma(t) { return /estiv/i.test(t || '') ? 'estive' : /invern/i.test(t || '') ? 'invernali' : null; }
+function GommeExtraCard({ vehicle, onSave, puoModificare }) {
+  const g = vehicle.gomme || {};
+  const smaltite = g.smaltite || [];
+  const periodo = periodoGomma(g.montati?.tipo);
+  const opposto = periodo === 'estive' ? 'invernali' : periodo === 'invernali' ? 'estive' : null;
+  const haOpposto = (g.scorta || []).some(x => periodoGomma(x.tipo) === opposto);
+  const [f, setF] = useState({ data: todayISO(), quantita: '2', tipo: g.montati?.tipo || 'Estive', marca: '', modello: '', misura: g.misura || '', dot: '', km: String(vehicle.km ?? ''), motivo: 'Usura' });
+  const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
+  const etichetta = { fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 };
+  const registra = () => {
+    if (!f.data || !(Number(f.quantita) > 0)) return;
+    onSave({ smaltite: [...smaltite, { id: nuovoUuid(), data: f.data, quantita: Number(f.quantita), tipo: f.tipo, marca: f.marca.trim(), modello: f.modello.trim(), misura: f.misura.trim(), dot: f.dot.replace(/\D/g, '').slice(0, 4), km: f.km === '' ? null : Number(f.km), motivo: f.motivo }] });
+    setF({ ...f, marca: '', modello: '', dot: '' });
+  };
+  return (
+    <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+      <div style={{ fontWeight:800, fontSize:14, marginBottom:8 }}>Da acquistare</div>
+      {puoModificare ? (
+        <select value={g.daAcquistare || ''} onChange={e => onSave({ daAcquistare: e.target.value || null })} style={campo}>
+          <option value="">Nessuno</option>
+          <option value="estivi">Set estivo</option>
+          <option value="invernali">Set invernale</option>
+        </select>
+      ) : <div style={{ fontSize:13 }}>{g.daAcquistare ? `Set ${g.daAcquistare === 'estivi' ? 'estivo' : 'invernale'}` : 'Nessuno'}</div>}
+      {opposto && !haOpposto && !g.daAcquistare && (
+        <div style={{ marginTop:8, padding:'6px 9px', borderRadius:8, background:'#FDECEA', color:'#B71C1C', fontSize:12.5, fontWeight:700 }}>
+          Manca il set di gomme {opposto}: indicalo in "Da acquistare".
+        </div>
+      )}
+      <div style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:12, paddingTop:10 }}>
+        <div style={{ fontWeight:800, fontSize:14, marginBottom:6 }}>Storico pneumatici smaltiti</div>
+        {smaltite.length === 0 && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Nessuno smaltimento registrato.</div>}
+        {[...smaltite].reverse().map((x, i) => (
+          <div key={x.id || i} style={{ fontSize:12.5, padding:'5px 0', borderTop: i ? `1px solid ${MEZZI_COLORS.line}` : 'none' }}>
+            {x.data ? fmtDate(x.data) : '—'} · {x.quantita} {x.tipo || ''} {[x.marca, x.modello].filter(Boolean).join(' ')}{x.misura ? ' · ' + x.misura : ''} · DOT {x.dot || '—'}{x.km != null ? ' · ' + Number(x.km).toLocaleString('it-IT') + ' km' : ''}{x.motivo ? ' · ' + x.motivo : ''}
+          </div>
+        ))}
+        {puoModificare && (
+          <div style={{ marginTop:10 }}>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Data</div><input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Quantità</div><input type="number" min="1" value={f.quantita} onChange={e => setF({ ...f, quantita: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Tipo</div><select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })} style={campo}><option>Estive</option><option>Invernali</option><option>Quattro stagioni</option></select></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Marca</div><input value={f.marca} onChange={e => setF({ ...f, marca: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Modello</div><input value={f.modello} onChange={e => setF({ ...f, modello: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Misura</div><input value={f.misura} onChange={e => setF({ ...f, misura: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>DOT (4 cifre)</div><input maxLength={4} value={f.dot} onChange={e => setF({ ...f, dot: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Chilometri</div><input type="number" min="0" value={f.km} onChange={e => setF({ ...f, km: e.target.value })} style={campo} /></div>
+            <div style={{ marginBottom:8 }}><div style={etichetta}>Motivo</div><select value={f.motivo} onChange={e => setF({ ...f, motivo: e.target.value })} style={campo}><option>Usura</option><option>Danno</option><option>Fine vita</option><option>Altro</option></select></div>
+            <button type="button" onClick={registra} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700 }}>Registra smaltimento</button>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // Tagliandino trimestrale: la scheda di controllo (km, pressioni, olio e paraflu aggiunti, guasti), con i tre ultimi inserimenti.
 function TagliandinoTrimCard({ vehicle, onSave, puoModificare, voci = [], onSalvaCampoVeicolo }) {
   const [aperto, setAperto] = useState(false);
@@ -3633,14 +3691,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           <button type="button" onClick={() => setSostOpen(true)} style={{ width:'100%', marginTop:8, background:'#fff', color:MEZZI_COLORS.primary, border:`1.5px solid ${MEZZI_COLORS.primary}`, borderRadius:10, padding:11, fontWeight:700, fontSize:13 }}>Sostituzione usurate</button>
         </Card>
         {sostOpen && <SostituzioneForm vehicle={vehicle} onCancel={() => setSostOpen(false)} onSave={(r) => { setSostOpen(false); onSaveGomme && onSaveGomme(vehicle, r.patch, r.manutenzione); }} />}
-        {(vehicle.gomme?.smaltite || []).length > 0 && (
-          <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight:700, fontSize:13, marginBottom:6 }}>Gomme smaltite</div>
-            {(vehicle.gomme.smaltite || []).slice(-5).reverse().map((x, i) => (
-              <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>{fmtDate(x.data)} · {x.quantita} gomme {[x.marca, x.modello].filter(Boolean).join(' ') || ''} · DOT {x.dot || '—'}</div>
-            ))}
-          </Card>
-        )}
+        <GommeExtraCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(patch) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), ...patch } })} />
         {editGomme && <GommeForm vehicle={vehicle} onCancel={() => setEditGomme(false)} onSave={(patch) => { setEditGomme(false); onSaveGomme && onSaveGomme(vehicle, patch); }} />}
 
         {deadlines.length > 0 && (
