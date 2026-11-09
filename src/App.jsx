@@ -4547,6 +4547,7 @@ function datiTagliando(r, esecuzioni) {
 function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatchVeicolo, theme, soloMezzi, onApriMezzo }) {
   const { nomeVisualizzato } = usePermessi();
   const [aperto, setAperto] = useState(null);
+  const [espansi, setEspansi] = useState({});
   const surface = theme.surface || '#FFFFFF';
   const line = theme.line || '#E2E0D2';
   const ink = theme.ink || '#212823';
@@ -4581,15 +4582,16 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatch
         const righe = (veicoli || []).map(v => ({ v, s: statoTagliandoAuto(t, t.esecuzioni || [], v.id) }))
           .sort((a, b) => (ordine[a.s.label] ?? 9) - (ordine[b.s.label] ?? 9));
         const daFare = righe.filter(x => x.s.label === 'In ritardo' || x.s.label === 'Oggi').length;
+        const fatti = righe.filter(x => x.s.label === 'Fatto').length;
         const passiN = (t.passi || '').split('\n').filter(l => l.trim()).length;
         return (
           <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-              <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink }}>{t.titolo || 'Tagliando'}</div>
+              <button type="button" onClick={() => setEspansi({ ...espansi, [t.id]: !espansi[t.id] })} style={{ background:'none', border:'none', padding:0, textAlign:'left', flex:1, minWidth:0, fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink, cursor:'pointer' }}>{t.titolo || 'Tagliando'} <span style={{ fontWeight:800, fontSize:13, marginLeft:6, color: righe.length > 0 && fatti === righe.length ? '#1F6B45' : '#C62828' }}>{fatti}/{righe.length}</span> <span style={{ fontSize:12, color: muted, fontWeight:600, marginLeft:4 }}>{espansi[t.id] ? '▲' : '▼'}</span></button>
               {onModifica && <button type="button" onClick={() => onModifica(t)} style={{ background:'none', border:`1.5px solid ${line}`, borderRadius:8, padding:'4px 10px', fontWeight:700, fontSize:12, color: theme.primary || ink }}>Modifica</button>}
             </div>
             <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.tipo || 'Tagliando'} · {t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
-            {righe.map(({ v, s }) => {
+            {espansi[t.id] && righe.map(({ v, s }) => {
               const k = t.id + ':' + v.id;
               const open = aperto === k;
               return (
