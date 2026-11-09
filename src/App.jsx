@@ -3110,6 +3110,14 @@ const CHECKLIST_MEZZI_DEFAULT = [
   "Livello PARAFLU'", 'LIVELLO LAVAVETRI', 'VERIFICARE FUNZIONAMENTO RISCALDAMENTO',
 ];
 
+// Nella checklist del mezzo: olio motore e paraflu hanno il valore; revisione e assicurazione hanno la data (che aggiorna il mezzo); le altre solo la spunta.
+function tipoVoceChecklist(testo) {
+  const t = testo || '';
+  if (/olio.*motore|paraflu/i.test(t)) return 'valore';
+  if (/scadenza.*revisione/i.test(t)) return 'revisione';
+  if (/scadenza.*assicurazione/i.test(t)) return 'assicurazione';
+  return 'spunta';
+}
 // Campo del valore sotto ogni voce: si salva quando si esce dal campo.
 // Suggerimento nel campo valore: per olio motore e paraflu si indicano i ml rabboccati.
 function suggerimentoValore(testo) {
@@ -3125,7 +3133,7 @@ function ValoreVoce({ valore, onSalva, theme, placeholder }) {
 }
 
 // Tagliandino trimestrale: la scheda di controllo (km, pressioni, olio e paraflu aggiunti, guasti), con i tre ultimi inserimenti.
-function TagliandinoTrimCard({ vehicle, onSave, puoModificare, voci = [] }) {
+function TagliandinoTrimCard({ vehicle, onSave, puoModificare, voci = [], onSalvaCampoVeicolo }) {
   const [aperto, setAperto] = useState(false);
   const storico = (vehicle.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1));
   const [f, setF] = useState({ data: todayISO(), km: String(vehicle.km ?? ''), olioMl: '', paraMl: '', guasti: '', note: '' });
@@ -3175,7 +3183,11 @@ function TagliandinoTrimCard({ vehicle, onSave, puoModificare, voci = [] }) {
                   <label style={{ display:'flex', gap:8, alignItems:'center', fontSize:13 }}>
                     <input type="checkbox" checked={!!spunte[i]} onChange={e => setSpunte({ ...spunte, [i]: e.target.checked })} />{t}
                   </label>
-                  <ValoreVoce placeholder={suggerimentoValore(t)} valore={valori[i] || ''} onSalva={(val) => setValori({ ...valori, [i]: val })} theme={MEZZI_COLORS} />
+                  {tipoVoceChecklist(t) === 'valore' && <ValoreVoce placeholder={suggerimentoValore(t)} valore={valori[i] || ''} onSalva={(val) => setValori({ ...valori, [i]: val })} theme={MEZZI_COLORS} />}
+                  {(tipoVoceChecklist(t) === 'revisione' || tipoVoceChecklist(t) === 'assicurazione') && (() => {
+                    const campo = tipoVoceChecklist(t) === 'revisione' ? 'revisione' : 'assicurazione';
+                    return <div style={{ marginTop:6 }}><CampoEsecuzione etichetta={campo === 'revisione' ? 'Scadenza revisione' : 'Scadenza assicurazione'} tipo="date" valore={vehicle[campo] || ''} theme={MEZZI_COLORS} onSalva={(val) => onSalvaCampoVeicolo && onSalvaCampoVeicolo({ [campo]: val || null })} /></div>;
+                  })()}
                 </div>
               ))}
             </div>
@@ -3679,7 +3691,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         </div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <TagliandinoTrimCard vehicle={vehicle} voci={vociTrim || []} puoModificare={puoScrivereGomme} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tagliandiTrim: lista } })} />
+        <TagliandinoTrimCard vehicle={vehicle} voci={vociTrim || []} puoModificare={puoScrivereGomme} onSalvaCampoVeicolo={(patch) => onSaveGomme && onSaveGomme(vehicle, patch)} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tagliandiTrim: lista } })} />
       </div>
       {confermaElimina && (
         <ConfirmDelete
@@ -4351,7 +4363,7 @@ function datiTagliando(r, esecuzioni) {
 }
 
 // Il tagliando: un'unica procedura con l'elenco delle auto, ognuna con la propria checklist.
-function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }) {
+function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatchVeicolo, theme }) {
   const { nomeVisualizzato } = usePermessi();
   const [aperto, setAperto] = useState(null);
   const surface = theme.surface || '#FFFFFF';
@@ -4416,7 +4428,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }
                   </div>
                   {open && (
                     <div style={{ marginTop:8 }}>
-                      <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} mostraDataKm onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
+                      <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} mostraDataKm vehicle={v} onSalvaCampoVeicolo={(patch) => onPatchVeicolo && onPatchVeicolo(v, patch)} onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
                     </div>
                   )}
                 </div>
@@ -4810,8 +4822,8 @@ async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
           <button type="button" onClick={() => setView({ name: 'nuovaProcedura' })} style={{ padding:'7px 12px', borderRadius:10, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>+ Procedura</button>
         </div>
         <SectionLabel theme={MEZZI_COLORS}>Lavaggi e sanificazione</SectionLabel>
-        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
-        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Tagliandino interno' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
+        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
+        <TagliandoSection tagliandi={ricT.rows.filter(r => r.tipo === 'Tagliandino interno' && r.modulo === 'Mezzi')} veicoli={vehicles} onSalvaAuto={salvaTagliandoAuto} onPatchVeicolo={(v, patch) => salvaVeicoloNoUscita({ ...v, ...patch })} onModifica={(t) => setView({ name: 'editTagliando', t })} theme={MEZZI_COLORS} />
         <ListaRicorrenti rows={filtraRicorrenti(ricT.rows, 'Mezzi')} ready={ricT.ready} modulo="Mezzi" theme={MEZZI_COLORS} veicoli={vehicles} onModifica={(r) => setView({ name: 'editTagliando', t: r })} />
       </div>
     </>);
@@ -8639,7 +8651,7 @@ function CampoEsecuzione({ etichetta, tipo, valore, onSalva, theme }) {
   );
 }
 
-function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm }) {
+function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehicle, onSalvaCampoVeicolo }) {
   const { nomeVisualizzato } = usePermessi();
   const items = (steps || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
   if (items.length === 0) return null;
@@ -8647,6 +8659,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm }) {
   const aperta = lista.find(e => !e.completata);
   const fatti = aperta ? aperta.passi : [];
   const valori = aperta ? (aperta.valori || {}) : {};
+  const tipoDi = (testo) => (mostraDataKm ? tipoVoceChecklist(testo) : 'valore');
   const fatte = fatti.length;
   const tutte = fatte === items.length;
   const ultime = lista.filter(e => e.completata)
@@ -8677,7 +8690,11 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm }) {
               <input type="checkbox" checked={fatti.includes(i)} onChange={() => spunta(i)} style={{ width:20, height:20, marginTop:2, accentColor:PROC_COLORS.primary, flexShrink:0 }} />
               <span style={{ fontSize:14, lineHeight:1.5, textDecoration: fatti.includes(i) ? 'line-through' : 'none', color: fatti.includes(i) ? PROC_COLORS.muted : PROC_COLORS.ink }}>{testo}</span>
             </label>
-            <ValoreVoce placeholder={suggerimentoValore(testo)} valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />
+            {tipoDi(testo) === 'valore' && <ValoreVoce placeholder={suggerimentoValore(testo)} valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />}
+            {(tipoDi(testo) === 'revisione' || tipoDi(testo) === 'assicurazione') && vehicle && (() => {
+              const campo = tipoDi(testo) === 'revisione' ? 'revisione' : 'assicurazione';
+              return <div style={{ marginLeft:30, marginTop:6 }}><CampoEsecuzione etichetta={campo === 'revisione' ? 'Scadenza revisione' : 'Scadenza assicurazione'} tipo="date" valore={vehicle[campo] || ''} theme={PROC_COLORS} onSalva={(val) => onSalvaCampoVeicolo && onSalvaCampoVeicolo({ [campo]: val || null })} /></div>;
+            })()}
           </div>
         ))}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:`1px solid ${PROC_COLORS.line}` }}>
