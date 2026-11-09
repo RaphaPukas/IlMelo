@@ -3132,6 +3132,18 @@ function ValoreVoce({ valore, onSalva, theme, placeholder }) {
   );
 }
 
+// Bottone Smaltisci: il primo tocco chiede la conferma, il secondo registra lo smaltimento.
+function SmaltisciBottone({ onConferma, label }) {
+  const [chiedi, setChiedi] = useState(false);
+  return chiedi ? (
+    <div style={{ display:'flex', gap:8, marginTop:8 }}>
+      <button type="button" onClick={() => setChiedi(false)} style={{ flex:1, padding:8, borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
+      <button type="button" onClick={onConferma} style={{ flex:1, padding:8, borderRadius:8, border:'none', background:'#B71C1C', color:'#fff', fontWeight:700 }}>Conferma smaltimento</button>
+    </div>
+  ) : (
+    <button type="button" onClick={() => setChiedi(true)} style={{ marginTop:8, width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700 }}>{label || 'Smaltisci'}</button>
+  );
+}
 // Storico degli pneumatici smaltiti, e il set da acquistare quando manca la scorta per l'altro periodo.
 function periodoGomma(t) { return /estiv/i.test(t || '') ? 'estive' : /invern/i.test(t || '') ? 'invernali' : null; }
 function GommeExtraCard({ vehicle, onSave, puoModificare }) {
@@ -3140,14 +3152,7 @@ function GommeExtraCard({ vehicle, onSave, puoModificare }) {
   const periodo = periodoGomma(g.montati?.tipo);
   const opposto = periodo === 'estive' ? 'invernali' : periodo === 'invernali' ? 'estive' : null;
   const haOpposto = (g.scorta || []).some(x => periodoGomma(x.tipo) === opposto);
-  const [f, setF] = useState({ data: todayISO(), quantita: '2', tipo: g.montati?.tipo || 'Estive', marca: '', modello: '', misura: g.misura || '', dot: '', km: String(vehicle.km ?? ''), motivo: 'Usura' });
   const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
-  const etichetta = { fontSize:12, color:MEZZI_COLORS.muted, fontWeight:600, marginBottom:3 };
-  const registra = () => {
-    if (!f.data || !(Number(f.quantita) > 0)) return;
-    onSave({ smaltite: [...smaltite, { id: nuovoUuid(), data: f.data, quantita: Number(f.quantita), tipo: f.tipo, marca: f.marca.trim(), modello: f.modello.trim(), misura: f.misura.trim(), dot: f.dot.replace(/\D/g, '').slice(0, 4), km: f.km === '' ? null : Number(f.km), motivo: f.motivo }] });
-    setF({ ...f, marca: '', modello: '', dot: '' });
-  };
   return (
     <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
       <div style={{ fontWeight:800, fontSize:14, marginBottom:8 }}>Da acquistare</div>
@@ -3171,20 +3176,6 @@ function GommeExtraCard({ vehicle, onSave, puoModificare }) {
             {x.data ? fmtDate(x.data) : '—'} · {x.quantita} {x.tipo || ''} {[x.marca, x.modello].filter(Boolean).join(' ')}{x.misura ? ' · ' + x.misura : ''} · DOT {x.dot || '—'}{x.km != null ? ' · ' + Number(x.km).toLocaleString('it-IT') + ' km' : ''}{x.motivo ? ' · ' + x.motivo : ''}
           </div>
         ))}
-        {puoModificare && (
-          <div style={{ marginTop:10 }}>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Data</div><input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Quantità</div><input type="number" min="1" value={f.quantita} onChange={e => setF({ ...f, quantita: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Tipo</div><select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })} style={campo}><option>Estive</option><option>Invernali</option><option>Quattro stagioni</option></select></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Marca</div><input value={f.marca} onChange={e => setF({ ...f, marca: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Modello</div><input value={f.modello} onChange={e => setF({ ...f, modello: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Misura</div><input value={f.misura} onChange={e => setF({ ...f, misura: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>DOT (4 cifre)</div><input maxLength={4} value={f.dot} onChange={e => setF({ ...f, dot: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Chilometri</div><input type="number" min="0" value={f.km} onChange={e => setF({ ...f, km: e.target.value })} style={campo} /></div>
-            <div style={{ marginBottom:8 }}><div style={etichetta}>Motivo</div><select value={f.motivo} onChange={e => setF({ ...f, motivo: e.target.value })} style={campo}><option>Usura</option><option>Danno</option><option>Fine vita</option><option>Altro</option></select></div>
-            <button type="button" onClick={registra} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700 }}>Registra smaltimento</button>
-          </div>
-        )}
       </div>
     </Card>
   );
@@ -3535,6 +3526,14 @@ function generaStoricoHtml(vehicle, eventi) {
 function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio, vociTrim }) {
   const [editGomme, setEditGomme] = useState(false);
   const [sostOpen, setSostOpen] = useState(false);
+  // Smaltisce un set (montato o di scorta): data di oggi, 4 gomme, dati copiati dal set; il set esce dalla scheda.
+  const smaltisci = (set, indice) => {
+    const g = vehicle.gomme || {};
+    const voce = { id: nuovoUuid(), data: todayISO(), quantita: 4, tipo: set.tipo || '', marca: set.marca || '', modello: set.modello || '', misura: set.misura || g.misura || '', dot: set.dot || '', km: Number(vehicle.km) || null, motivo: null };
+    const scorta = indice == null ? (g.scorta || []) : (g.scorta || []).filter((_, k) => k !== indice);
+    const montati = indice == null ? {} : g.montati;
+    onSaveGomme && onSaveGomme(vehicle, { gomme: { ...g, montati, scorta, smaltite: [...(g.smaltite || []), voce] } });
+  };
   const [tabStorico, setTabStorico] = useState('realizzare');
   const [cambioIdx, setCambioIdx] = useState(null);
   const [kmCambio, setKmCambio] = useState('');
@@ -3660,6 +3659,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Su cerchio" value={m.cerchio === 'si' ? 'Sì' : m.cerchio === 'no' ? 'No' : '—'} />
             <BarraVita dot={m.dot} />
           </>); })()}
+          {puoScrivereGomme && vehicle.gomme?.montati?.tipo && <SmaltisciBottone label="Smaltisci set montato" onConferma={() => smaltisci(vehicle.gomme.montati, null)} />}
           <div style={{ fontSize:12.5, fontWeight:700, marginTop:10 }}>Scorta ({(vehicle.gomme?.scorta || []).length})</div>
           {(vehicle.gomme?.scorta || []).map((x, i) => (
             <div key={i} style={{ fontSize:12.5, color:MEZZI_COLORS.muted, marginTop:4 }}>
@@ -3685,6 +3685,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
                   </div>
                 </div>
               )}
+              {puoScrivereGomme && <SmaltisciBottone onConferma={() => smaltisci(x, i)} />}
             </div>
           ))}
           <button type="button" onClick={() => setEditGomme(true)} style={{ width:'100%', marginTop:12, background:MEZZI_COLORS.primary, color:'#fff', border:'none', borderRadius:10, padding:11, fontWeight:700, fontSize:13 }}>Modifica pneumatici</button>
