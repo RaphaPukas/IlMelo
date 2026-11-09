@@ -2821,7 +2821,6 @@ function scaricaExcelHtml(html, nomeFile) {
 
 // Cose da fare per un mezzo: scadenze, cambio gomme stagionale, acquisti, tagliandino trimestrale, interventi.
 // Il lavaggio non è un problema: se è dovuto, viene segnalato a parte con la goccia.
-const FREQ_LAVAGGIO_GIORNI = { Settimanale: 7, Mensile: 30, Bimestrale: 60, Trimestrale: 90 };
 function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
   const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
@@ -2866,11 +2865,11 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   }
   const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !(x.descrizione || '').startsWith('Cambio gomme'));
   if (prog.length) out.push({ testo: `${prog.length} ${prog.length === 1 ? 'intervento da realizzare' : 'interventi da realizzare'}`, colore: 'arancio' });
+  const oggiISO = [base.getFullYear(), String(base.getMonth() + 1).padStart(2, '0'), String(base.getDate()).padStart(2, '0')].join('-');
   const lavaggio = (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').some(r => {
     const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
     if (!fatte[0]) return true;
-    const giorni = Math.round((base - new Date(fatte[0] + 'T00:00:00')) / 864e5);
-    return giorni >= (FREQ_LAVAGGIO_GIORNI[r.frequenza] || 30);
+    return calcProssima(fatte[0], r.frequenza) <= oggiISO;
   });
   return { problemi: out, lavaggio };
 }
@@ -9439,7 +9438,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
             </div>
           )}
         </PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={tipo === 'Lavaggio' && !['Trimestrale','Semestrale'].includes(f.frequenza) ? 'Trimestrale' : f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Lavaggio' ? ['Trimestrale','Semestrale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
