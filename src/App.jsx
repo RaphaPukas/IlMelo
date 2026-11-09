@@ -2519,101 +2519,148 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const mts = maints || [];
   const ric = ricorrenti || [];
   const dX = (x) => (x ? dataSeriale(x) : null);
-  const nomeV = (v) => v.gomme?.nominativo || [v.marca, v.modello].filter(Boolean).join(' ') || v.targa;
+  const numN = (x) => (x == null || x === '' ? null : Number(x));
+  const nomeV = (v) => nomeMezzo(v) || v.targa;
   const trova = (v, prefisso) => mts.find(x => x.targa === v.targa && (x.descrizione || '').startsWith(prefisso) && x.stato === 'Programmato');
+  const ultimoTrim = (v) => (v.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1))[0] || null;
   const lavaggiDi = (v) => ric.filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').map(r => {
     const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
     return `${r.titolo}: ${fatte[0] ? fmtDate(fatte[0]) : 'mai'}`;
   }).join('; ') || null;
 
-  // Foglio 1: scadenze e dati generali del mezzo
-  const colA = [
-    ['Veicolo', 's'], ['Targa', 's'], ['Marca', 's'], ['Modello', 's'], ['Anno', 'i'], ['Km', 'i'], ['Carburante', 's'], ['Olio motore', 's'],
-    ['Assicurazione', 'd'], ['Revisione', 'd'], ['Bollo', 'd'], ['Tagliando', 'd'],
-    ['Appuntamento tagliando', 'd'], ['Ora tagliando', 's'], ['Officina tagliando', 's'],
-    ['Kit distribuzione (data scadenza)', 'd'], ['Kit distribuzione (km scadenza)', 'i'],
-    ['Scadenze personalizzate', 's'], ['Km aggiornati il', 'd'],
+  // Stato delle scadenze di un mezzo: scadute, in arrivo (45 giorni), prossima scadenza
+  const analisi = (v) => {
+    const oggi = new Date();
+    const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+    const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
+    const voci = [];
+    [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([l, d]) => { if (d) voci.push({ l, d, g: giorniDa(d) }); });
+    const sd = scadenzaDistribuzione(v);
+    if (sd && sd.dataScad) voci.push({ l: 'Kit distribuzione', d: sd.dataScad, g: giorniDa(sd.dataScad) });
+    if (sd && sd.kmScad != null) {
+      const km = Number(v.km || 0);
+      if (km >= sd.kmScad) voci.push({ l: 'Kit distribuzione (km superati)', d: null, g: -1 });
+      else if (km >= sd.kmScad - 5000) voci.push({ l: 'Kit distribuzione (km vicini)', d: null, g: 1 });
+    }
+    ['anteriore', 'posteriore'].forEach(lato => {
+      const t = v.gomme?.tergicristalli?.[lato];
+      if (t?.data) { const d = aggiungiMesi(t.data, 12); voci.push({ l: 'Tergicristalli ' + lato, d, g: giorniDa(d) }); }
+    });
+    (v.gomme?.scadenzeExtra || []).filter(x => x.data).forEach(x => voci.push({ l: x.nome, d: x.data, g: giorniDa(x.data) }));
+    const scadute = voci.filter(x => x.g < 0);
+    const vicine = voci.filter(x => x.g >= 0 && x.g <= 45);
+    const prossima = voci.filter(x => x.d).sort((a, b) => a.g - b.g)[0];
+    return {
+      stato: scadute.length ? 'Scaduta' : vicine.length ? 'In scadenza' : 'OK',
+      prossima: prossima ? `${prossima.l} · ${fmtDate(prossima.d)}` : '—',
+      daFare: scadute.length + vicine.length,
+    };
+  };
+
+  // Foglio Riepilogo: una riga per mezzo, con lo stato delle scadenze
+  const colRiep = [
+    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
+    ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
+    ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina', 's', 'scadenze'], ['Scadenze da fare', 'i', 'scadenze'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Da acquistare', 's', 'gomme'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'],
   ];
-  const righeA = lista.map(v => {
+  const righeRiep = lista.map(v => {
+    const an = analisi(v);
+    const pr = prioritaAcquisto(v);
+    const ut = ultimoTrim(v);
+    return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
+      an.stato, an.prossima, an.daFare, contaInterventi(mts.filter(x => x.targa === v.targa)),
+      pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null,
+      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
+  });
+  const regoleRiep = [
+    ['Stato scadenze', [['{c}2="Scaduta"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
+    ['Scadenze da fare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
+    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Km aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
+  ];
+
+  // Foglio Scadenze: solo le date delle scadenze
+  const colScad = [
+    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'],
+    ['Assicurazione', 'd', 'scadenze'], ['Revisione', 'd', 'scadenze'], ['Bollo', 'd', 'scadenze'], ['Tagliando', 'd', 'scadenze'],
+    ['Appuntamento tagliando', 'd', 'scadenze'], ['Ora tagliando', 's', 'scadenze'], ['Officina tagliando', 's', 'scadenze'],
+    ['Kit distribuzione (data)', 'd', 'scadenze'], ['Kit distribuzione (km)', 'i', 'scadenze'], ['Scadenze personalizzate', 's', 'scadenze'],
+  ];
+  const righeScad = lista.map(v => {
     const sd = scadenzaDistribuzione(v);
     const at = trova(v, 'Tagliando');
-    return [nomeV(v), v.targa, v.marca, v.modello, v.anno ? Number(v.anno) : null, v.km != null ? Number(v.km) : null, v.carburante, v.olio_motore,
-      dX(v.assicurazione), dX(v.revisione), dX(v.bollo), dX(v.tagliando),
+    return [nomeV(v), v.targa, dX(v.assicurazione), dX(v.revisione), dX(v.bollo), dX(v.tagliando),
       at ? dX(at.appuntamento) : null, at ? (at.appuntamento_ora || null) : null, at ? (at.officina || null) : null,
       sd && sd.dataScad ? dataSeriale(sd.dataScad) : null, sd && sd.kmScad != null ? sd.kmScad : null,
-      (v.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => `${x.nome}: ${fmtDate(x.data)}${x.ripetiMesi ? ' (ogni ' + x.ripetiMesi + ' mesi)' : ''}`).join('; ') || null,
-      dX(v.km_aggiornato)];
+      (v.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => `${x.nome}: ${fmtDate(x.data)}${x.ripetiMesi ? ' (ogni ' + x.ripetiMesi + ' mesi)' : ''}`).join('; ') || null];
   });
-  const scadenzeRegole = [8, 9, 10, 11, 12, 15].map(c => [c, [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]]);
-  const regoleA = [...scadenzeRegole,
-    [16, [['AND(ISNUMBER({c}2),ISNUMBER({5}2),{5}2>={c}2-5000)', 0]]],
-    [18, [['OR({c}2="",{c}2<TODAY()-30)', 1]]]];
-
-  // Foglio 2: gomme
-  const colB = [
-    ['Veicolo', 's'], ['Targa', 's'], ['Misura pneumatici', 's'], ['Tipo montati', 's'], ['Marca montati', 's'], ['Modello montati', 's'],
-    ['Battistrada montati (mm)', 'n1'], ['DOT montati (più vecchio)', 's'], ['Produzione (da DOT)', 'd'], ['Età montati (anni)', 'n1'],
-    ['Treno non uniforme', 's'], ['Gomme diverse (marca e modello)', 's'], ['DOT gomme diverse', 's'], ['Data montaggio gomme diverse', 'd'], ['Km montaggio gomme diverse', 'i'],
-    ['Data montaggio treno', 'd'], ['Mesi di utilizzo del treno', 'i'], ['Km montaggio treno', 'i'],
-    ['Pneumatici di scorta', 's'], ['Gomme smaltite', 's'],
-    ['Appuntamento cambio stagionale', 'd'], ['Ora cambio stagionale', 's'], ['Da acquistare', 's'],
+  const giornoRegola = [
+    ['Assicurazione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Revisione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Bollo', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Kit distribuzione (data)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Appuntamento tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
   ];
-  const righeB = lista.map(v => {
-    const g = v.gomme || {}; const m = g.montati || {}; const eta = etaPneumatico(m.dot);
+
+  // Foglio Gomme: set montato, treno, scorta e cambio stagionale
+  const colGomme = [
+    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Misura pneumatici', 's', 'gomme'],
+    ['Tipo montati', 's', 'gomme'], ['Marca montati', 's', 'gomme'], ['Modello montati', 's', 'gomme'],
+    ['Battistrada montati (mm)', 'n1', 'gomme'], ['DOT montati', 's', 'gomme'], ['Età montati (anni)', 'n1', 'gomme'],
+    ['Data montaggio treno', 'd', 'gomme'], ['Mesi di utilizzo del treno', 'i', 'gomme'], ['Km montaggio treno', 'i', 'gomme'],
+    ['Treno non uniforme', 's', 'gomme'], ['Gomme diverse (marca e modello)', 's', 'gomme'], ['DOT gomme diverse', 's', 'gomme'],
+    ['Data montaggio gomme diverse', 'd', 'gomme'], ['Km montaggio gomme diverse', 'i', 'gomme'],
+    ['Pneumatici di scorta', 's', 'gomme'], ['Gomme smaltite', 's', 'gomme'],
+    ['Appuntamento cambio stagionale', 'd', 'gomme'], ['Ora cambio stagionale', 's', 'gomme'],
+  ];
+  const righeGomme = lista.map(v => {
+    const g = v.gomme || {}; const m = g.montati || {}; const eta = etaPneumatico(m.dot); const bat = livelloBattistrada(m.battistrada, m.tipo);
     const dv = m.misto && m.diverse ? m.diverse : null;
     const cs = trova(v, 'Cambio gomme');
     return [nomeV(v), v.targa, g.misura || null, m.tipo || null, m.marca || null, m.modello || null,
-      (m.battistrada !== undefined && m.battistrada !== null && m.battistrada !== '') ? Number(m.battistrada) : null,
-      m.dot || null, dataDaDot(m.dot) ? dataSeriale(dataDaDot(m.dot)) : null, eta ? Number(eta.anni.toFixed(1)) : null,
+      numN(m.battistrada), m.dot || null, eta ? Number(eta.anni.toFixed(1)) : null,
+      dX(m.dataMontaggio), m.dataMontaggio ? Math.max(0, Math.round((new Date() - new Date(m.dataMontaggio + 'T00:00:00')) / (30.44 * 864e5))) : null, numN(m.kmMontaggio),
       m.misto ? 'SÌ' : 'no', dv ? ([dv.marca, dv.modello].filter(Boolean).join(' ') || null) : null, dv ? (dv.dot || null) : null,
-      dv ? dX(dv.dataMontaggio) : null, dv && dv.kmMontaggio != null && dv.kmMontaggio !== '' ? Number(dv.kmMontaggio) : null,
-      dX(m.dataMontaggio), m.dataMontaggio ? Math.max(0, Math.round((new Date() - new Date(m.dataMontaggio + 'T00:00:00')) / (30.44 * 864e5))) : null,
-      (m.kmMontaggio != null && m.kmMontaggio !== '') ? Number(m.kmMontaggio) : null,
+      dv ? dX(dv.dataMontaggio) : null, dv ? numN(dv.kmMontaggio) : null,
       (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna',
-      (g.smaltite || []).map(x => `${x.data ? fmtDate(x.data) : '—'}: ${x.quantita} gomme ${[x.marca, x.modello].filter(Boolean).join(' ')} DOT ${x.dot || '—'}`).join('; ') || null,
-      cs ? dX(cs.appuntamento) : null, cs ? (cs.appuntamento_ora || null) : null, g.daAcquistare ? (g.daAcquistare === 'estivi' ? 'Set estivo' : 'Set invernale') : null];
+      (g.smaltite || []).map(x => `${x.data ? fmtDate(x.data) : '—'}: ${x.quantita} gomme ${x.tipo || ''} ${[x.marca, x.modello].filter(Boolean).join(' ')} DOT ${x.dot || '—'}`).join('; ') || null,
+      cs ? dX(cs.appuntamento) : null, cs ? (cs.appuntamento_ora || null) : null];
   });
-  const regoleB = [
+  const regoleGomme = [
     ['Battistrada montati (mm)', [['AND(ISNUMBER({c}2),{c}2<2)', 0], ['AND(ISNUMBER({c}2),{c}2>=2,{c}2<3)', 2], ['AND(ISNUMBER({c}2),{c}2>=3,{c}2<4)', 1], ['AND(ISNUMBER({c}2),{c}2>=4)', 3]]],
-    ['Produzione (da DOT)', [['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-120))', 0], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-72))', 2], ['AND(ISNUMBER({c}2),{c}2<=EDATE(TODAY(),-60))', 1]]],
+    ['Età montati (anni)', [['AND(ISNUMBER({c}2),{c}2>=10)', 0], ['AND(ISNUMBER({c}2),{c}2>=6)', 2], ['AND(ISNUMBER({c}2),{c}2>=5)', 1]]],
     ['Treno non uniforme', [['{c}2="SÌ"', 0]]],
     ['Appuntamento cambio stagionale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
   ];
 
-  // Foglio 3: tergicristalli
-  const colT = [
-    ['Veicolo', 's'], ['Targa', 's'], ['Anteriore: tipo', 's'], ['Anteriore: marca e modello', 's'], ['Anteriore: montati il', 'd'], ['Anteriore: da sostituire dal', 'd'],
-    ['Posteriore: tipo', 's'], ['Posteriore: marca e modello', 's'], ['Posteriore: montati il', 'd'], ['Posteriore: da sostituire dal', 'd'],
+  // Foglio Tergicristalli
+  const colTerg = [
+    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Anteriore: tipo', 's', 'scadenze'], ['Anteriore: marca e modello', 's', 'scadenze'], ['Anteriore: montati il', 'd', 'scadenze'], ['Anteriore: da sostituire dal', 'd', 'scadenze'],
+    ['Posteriore: tipo', 's', 'scadenze'], ['Posteriore: marca e modello', 's', 'scadenze'], ['Posteriore: montati il', 'd', 'scadenze'], ['Posteriore: da sostituire dal', 'd', 'scadenze'],
   ];
-  const righeT = lista.map(v => {
+  const righeTerg = lista.map(v => {
     const t = v.gomme?.tergicristalli || {}; const an = t.anteriore || {}; const po = t.posteriore || {};
     return [nomeV(v), v.targa, an.tipo || null, [an.marca, an.modello].filter(Boolean).join(' ') || null, dX(an.data), an.data ? dX(aggiungiMesi(an.data, 12)) : null,
       po.tipo || null, [po.marca, po.modello].filter(Boolean).join(' ') || null, dX(po.data), po.data ? dX(aggiungiMesi(po.data, 12)) : null];
   });
-  const regoleT = [
+  const regoleTerg = [
     ['Anteriore: da sostituire dal', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
     ['Posteriore: da sostituire dal', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0]]],
   ];
 
-  // Foglio 4: interventi, lavaggi e tagliandino trimestrale
-  const ultimoTrim = (v) => (v.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1))[0] || null;
-  const colC = [
-    ['Veicolo', 's'], ['Targa', 's'], ['Interventi da realizzare', 'i'], ['Lavaggi e sanificazione (ultima esecuzione)', 's'],
-    ['Ultimo tagliandino trimestrale', 'd'], ['Prossimo tagliandino trimestrale', 'd'],
-    ['Chilometri attuali', 'i'], ['Chilometri aggiornati il', 'd'],
-  ];
-  const righeC = lista.map(v => {
-    const tt = ultimoTrim(v);
-    return [nomeV(v), v.targa, contaInterventi(mts.filter(x => x.targa === v.targa)), lavaggiDi(v),
-      tt && tt.data ? dX(tt.data) : null, tt && tt.data ? dX(aggiungiMesi(tt.data, 3)) : null,
-      v.km != null ? Number(v.km) : null, dX(v.km_aggiornato)];
+  // Foglio Interventi e lavaggi: cosa è in programma per ogni mezzo
+  const colInt = [['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Interventi da realizzare', 'i', 'interventi'], ['Interventi in programma', 's', 'interventi'], ['Lavaggi e sanificazione (ultima esecuzione)', 's', 'interventi']];
+  const righeInt = lista.map(v => {
+    const prog = mts.filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
+    return [nomeV(v), v.targa, prog.length, prog.map(m => `${m.descrizione || m.tipo}${m.appuntamento ? ' · ' + fmtDate(m.appuntamento) : ''}`).join('; ') || null, lavaggiDi(v)];
   });
-  const regoleC = [
-    ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
-    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Chilometri aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
-  ];
-  const converti = (col, regole) => regole.map(([nome, t]) => [col.findIndex(c => c[0] === nome), t]);
+  const regoleInt = [['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]]];
+
+  // Fogli Tagliandi: uno per ricorrenza (Novembre, Febbraio, Maggio, Agosto)
   const RICORRENZE = ['Novembre', 'Febbraio', 'Maggio', 'Agosto'];
   const MESE_RICORRENZA = { Novembre: 11, Febbraio: 2, Maggio: 5, Agosto: 8 };
   const ricorrenzaDi = (data) => {
@@ -2623,25 +2670,29 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       return best === null || d < best.d ? { n, d } : best;
     }, null).n;
   };
-  const colTrim = [['Veicolo', 's'], ['Targa', 's'], ['Data', 'd'], ['Km', 'i'], ['Olio rabboccato (ml)', 'i'], ['Liquido paraflu rabboccato (ml)', 'i'], ['Problemi rilevati', 's'], ['Note', 's']];
-  const trimPerRicorrenza = {};
-  RICORRENZE.forEach(n => { trimPerRicorrenza[n] = []; });
-  lista.forEach(v => (v.gomme?.tagliandiTrim || []).forEach(t => { if (t.data) trimPerRicorrenza[ricorrenzaDi(t.data)].push({ v, t }); }));
-  const fogliTrim = RICORRENZE.map(n => {
-    const num = (x) => (x == null || x === '' ? null : Number(x));
-    const righe = trimPerRicorrenza[n].sort((a, b) => (a.v.targa < b.v.targa ? -1 : a.v.targa > b.v.targa ? 1 : (a.t.data < b.t.data ? -1 : 1))).map(({ v, t }) => [
-      nomeMezzo(v), v.targa, dX(t.data), num(t.km), num(t.olioMl), num(t.paraMl), t.guasti || null, t.note || null,
-    ]);
-    return { nome: n, col: colTrim, righe, regole: [] };
-  });
+  const colTrim = [['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Data', 'd', 'tagliandi'], ['Km', 'i', 'tagliandi'], ['Olio rabboccato (ml)', 'i', 'tagliandi'], ['Liquido paraflu rabboccato (ml)', 'i', 'tagliandi'], ['Problemi rilevati', 's', 'tagliandi'], ['Note', 's', 'tagliandi']];
+  const trimPer = {};
+  RICORRENZE.forEach(n => { trimPer[n] = []; });
+  lista.forEach(v => (v.gomme?.tagliandiTrim || []).forEach(t => { if (t.data) trimPer[ricorrenzaDi(t.data)].push({ v, t }); }));
+  const fogliTrim = RICORRENZE.map(n => ({
+    nome: 'Tagliandi ' + n, col: colTrim, regole: [],
+    righe: trimPer[n].sort((a, b) => (a.v.targa < b.v.targa ? -1 : a.v.targa > b.v.targa ? 1 : (a.t.data < b.t.data ? -1 : 1))).map(({ v, t }) => [
+      nomeV(v), v.targa, dX(t.data), numN(t.km), numN(t.olioMl), numN(t.paraMl), t.guasti || null, t.note || null,
+    ]),
+  }));
+
+  const converti = (col, regole) => regole.map(([nome, t]) => [col.findIndex(c => c[0] === nome), t]);
   const fogli = [
-    { nome: 'Scadenze', col: colA, righe: righeA, regole: regoleA },
-    { nome: 'Gomme', col: colB, righe: righeB, regole: converti(colB, regoleB) },
-    { nome: 'Tergicristalli', col: colT, righe: righeT, regole: converti(colT, regoleT) },
-    { nome: 'Interventi e lavaggi', col: colC, righe: righeC, regole: converti(colC, regoleC) },
+    { nome: 'Riepilogo', col: colRiep, righe: righeRiep, regole: converti(colRiep, regoleRiep) },
+    { nome: 'Scadenze', col: colScad, righe: righeScad, regole: converti(colScad, giornoRegola) },
+    { nome: 'Gomme', col: colGomme, righe: righeGomme, regole: converti(colGomme, regoleGomme) },
+    { nome: 'Tergicristalli', col: colTerg, righe: righeTerg, regole: converti(colTerg, regoleTerg) },
+    { nome: 'Interventi e lavaggi', col: colInt, righe: righeInt, regole: converti(colInt, regoleInt) },
     ...fogliTrim,
   ];
+
   const enc = new TextEncoder();
+  const stiliHdr = { mezzo: 1, scadenze: 5, gomme: 6, interventi: 7, tagliandi: 8 };
   const xmlFoglio = (f) => {
     const n = f.col.length;
     const ultimaCol = colonnaExcel(n - 1);
@@ -2649,7 +2700,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const fine = Math.max(f.righe.length + 1, 2);
     const stile = (t) => (t === 'd' ? 2 : t === 'n1' ? 3 : t === 'i' ? 4 : 0);
     const righeXml = [
-      `<row r="1">${f.col.map((c, i) => cellaXlsx(colonnaExcel(i) + '1', c[0], 1)).join('')}</row>`,
+      `<row r="1">${f.col.map((c, i) => cellaXlsx(colonnaExcel(i) + '1', c[0], stiliHdr[c[2]] || 1)).join('')}</row>`,
       ...f.righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => cellaXlsx(colonnaExcel(i) + (k + 2), val, stile(f.col[i][1]))).join('')}</row>`),
     ].join('');
     const larg = f.col.map((c, i) => {
@@ -2670,14 +2721,31 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     return { xml, ultimaCol, ultimaRiga };
   };
   const pezzi = fogli.map(xmlFoglio);
-  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
-  const sheetsXml = fogli.map((f, i) => `<sheet name="${xmlEsc(f.nome)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
-  const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
+
+  // Foglio Sintesi: indicatori calcolati con formule sul Riepilogo e sulle Gomme
+  const letteraDi = (col, nome) => colonnaExcel(col.findIndex(c => c[0] === nome));
+  const sint = [
+    ['Mezzi in flotta', `COUNTA(Riepilogo!B2:B500)`],
+    ['Mezzi con scadenze scadute', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Stato scadenze')}2:${letteraDi(colRiep, 'Stato scadenze')}500,"Scaduta")`],
+    ['Mezzi con scadenze in arrivo (45 giorni)', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Stato scadenze')}2:${letteraDi(colRiep, 'Stato scadenze')}500,"In scadenza")`],
+    ['Interventi da realizzare', `SUM(Riepilogo!${letteraDi(colRiep, 'Interventi da realizzare')}2:${letteraDi(colRiep, 'Interventi da realizzare')}500)`],
+    ['Acquisti di gomme con priorità alta', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Da acquistare')}2:${letteraDi(colRiep, 'Da acquistare')}500,"ALTA*")`],
+    ['Treni di gomme non uniformi', `COUNTIF(Gomme!${letteraDi(colGomme, 'Treno non uniforme')}2:${letteraDi(colGomme, 'Treno non uniforme')}500,"SÌ")`],
+  ];
+  const sintRighe = [`<row r="1">${cellaXlsx('A1', 'Indicatore', 1)}${cellaXlsx('B1', 'Valore', 1)}</row>`,
+    ...sint.map(([etic, f], k) => `<row r="${k + 2}">${cellaXlsx('A' + (k + 2), etic, 0)}<c r="B${k + 2}" s="0"><f>${xmlEsc(f)}</f></c></row>`)].join('');
+  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><cols><col min="1" max="1" width="44" customWidth="1"/><col min="2" max="2" width="14" customWidth="1"/></cols><sheetData>${sintRighe}</sheetData></worksheet>`;
+
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  const nomiFogli = ['Sintesi', ...fogli.map(f => f.nome)];
+  const sheetsXml = nomiFogli.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+  const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i + 1}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetsXml}</sheets><definedNames>${definiti}</definedNames></workbook>`;
-  const relFogli = fogli.map((f, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
-  const relWorkbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relFogli}<Relationship Id="rId${fogli.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const tuttiXml = [sintXml, ...pezzi.map(p2 => p2.xml)];
+  const relFogli = tuttiXml.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+  const relWorkbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relFogli}<Relationship Id="rId${tuttiXml.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
   const relRoot = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-  const overrideFogli = fogli.map((f, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+  const overrideFogli = tuttiXml.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
   const contenuti = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrideFogli}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
   const files = [
     { name: '[Content_Types].xml', data: enc.encode(contenuti) },
@@ -2685,7 +2753,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     { name: 'xl/workbook.xml', data: enc.encode(workbook) },
     { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(relWorkbook) },
     { name: 'xl/styles.xml', data: enc.encode(stili) },
-    ...pezzi.map((p2, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(p2.xml) })),
+    ...tuttiXml.map((x, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(x) })),
   ];
   return creaZip(files);
 }
@@ -3144,14 +3212,38 @@ function SmaltisciBottone({ onConferma, label }) {
     <button type="button" onClick={() => setChiedi(true)} style={{ marginTop:8, width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700 }}>{label || 'Smaltisci'}</button>
   );
 }
+// Inizio obbligo per il set da acquistare: invernali dal 15 novembre, estivi dal 15 aprile (modificabili qui).
+const OBBLIGO_PNEUMATICI = { invernali: { giorno: 15, mese: 11 }, estivi: { giorno: 15, mese: 4 } };
+function prossimoObbligo(set, oggi = new Date()) {
+  const { giorno, mese } = OBBLIGO_PNEUMATICI[set];
+  const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+  let d = new Date(base.getFullYear(), mese - 1, giorno);
+  if (d < base) d = new Date(base.getFullYear() + 1, mese - 1, giorno);
+  return d.toISOString().slice(0, 10);
+}
+// Priorità dell'avviso "Da acquistare": alta (rosso) entro 45 giorni o oltre la data, media (giallo) entro 90, bassa (verde) oltre.
+function prioritaAcquisto(vehicle, oggi = new Date()) {
+  const g = vehicle.gomme || {};
+  const periodo = periodoGomma(g.montati?.tipo);
+  const opposto = periodo === 'estive' ? 'invernali' : periodo === 'invernali' ? 'estive' : null;
+  const haOpposto = (g.scorta || []).some(x => periodoGomma(x.tipo) === opposto);
+  let set = null;
+  if (g.daAcquistare) set = g.daAcquistare === 'estivi' ? 'estivi' : 'invernali';
+  else if (opposto && !haOpposto) set = opposto === 'estive' ? 'estivi' : 'invernali';
+  if (!set) return null;
+  const scadenza = prossimoObbligo(set, oggi);
+  const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+  const giorni = Math.round((new Date(scadenza + 'T00:00:00') - base) / 864e5);
+  const priorita = giorni <= 45 ? 'alta' : giorni <= 90 ? 'media' : 'bassa';
+  const colori = { alta: ['#FDECEA', '#B71C1C'], media: ['#FBF1DC', '#8A5A00'], bassa: ['#E7F3EC', '#1F6B45'] }[priorita];
+  return { set, scadenza, giorni, priorita, colori };
+}
 // Storico degli pneumatici smaltiti, e il set da acquistare quando manca la scorta per l'altro periodo.
 function periodoGomma(t) { return /estiv/i.test(t || '') ? 'estive' : /invern/i.test(t || '') ? 'invernali' : null; }
 function GommeExtraCard({ vehicle, onSave, puoModificare }) {
   const g = vehicle.gomme || {};
   const smaltite = g.smaltite || [];
-  const periodo = periodoGomma(g.montati?.tipo);
-  const opposto = periodo === 'estive' ? 'invernali' : periodo === 'invernali' ? 'estive' : null;
-  const haOpposto = (g.scorta || []).some(x => periodoGomma(x.tipo) === opposto);
+  const pr = prioritaAcquisto(vehicle);
   const campo = { width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13, background:'#fff' };
   return (
     <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
@@ -3163,9 +3255,9 @@ function GommeExtraCard({ vehicle, onSave, puoModificare }) {
           <option value="invernali">Set invernale</option>
         </select>
       ) : <div style={{ fontSize:13 }}>{g.daAcquistare ? `Set ${g.daAcquistare === 'estivi' ? 'estivo' : 'invernale'}` : 'Nessuno'}</div>}
-      {opposto && !haOpposto && !g.daAcquistare && (
-        <div style={{ marginTop:8, padding:'6px 9px', borderRadius:8, background:'#FDECEA', color:'#B71C1C', fontSize:12.5, fontWeight:700 }}>
-          Manca il set di gomme {opposto}: indicalo in "Da acquistare".
+      {pr && (
+        <div style={{ marginTop:8, padding:'8px 10px', borderRadius:8, background: pr.colori[0], color: pr.colori[1], fontSize:12.5, fontWeight:700 }}>
+          Set {pr.set === 'estivi' ? 'estivo' : 'invernale'} da acquistare · obbligo dal {fmtDate(pr.scadenza)} · {pr.giorni < 0 ? 'obbligo in corso' : pr.giorni === 0 ? 'oggi' : `mancano ${pr.giorni} giorni`}
         </div>
       )}
       <div style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:12, paddingTop:10 }}>
