@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
-import { Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility } from 'lucide-react';
+import { Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility, Droplet } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
    e' sostituito con un piccolo wrapper sopra il localStorage del browser,
@@ -2819,7 +2819,62 @@ function scaricaExcelHtml(html, nomeFile) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta }) {
+// Cose da fare per un mezzo: scadenze, cambio gomme stagionale, acquisti, tagliandino trimestrale, interventi.
+// Il lavaggio non è un problema: se è dovuto, viene segnalato a parte con la goccia.
+const FREQ_LAVAGGIO_GIORNI = { Settimanale: 7, Mensile: 30, Bimestrale: 60, Trimestrale: 90 };
+function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
+  const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+  const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
+  const out = [];
+  [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([l, d]) => {
+    if (!d) return;
+    const g = giorniDa(d);
+    if (g < 0) out.push({ testo: `${l} scaduta`, colore: 'rosso' });
+    else if (g <= 45) out.push({ testo: `${l} in scadenza`, colore: 'arancio' });
+  });
+  const sd = scadenzaDistribuzione(v);
+  if (sd && sd.dataScad) {
+    const g = giorniDa(sd.dataScad);
+    if (g < 0) out.push({ testo: 'Kit distribuzione scaduto', colore: 'rosso' });
+    else if (g <= 45) out.push({ testo: 'Kit distribuzione in scadenza', colore: 'arancio' });
+  }
+  if (sd && sd.kmScad != null) {
+    const km = Number(v.km || 0);
+    if (km >= sd.kmScad) out.push({ testo: 'Kit distribuzione: km superati', colore: 'rosso' });
+    else if (km >= sd.kmScad - 5000) out.push({ testo: 'Kit distribuzione: km in arrivo', colore: 'arancio' });
+  }
+  ['anteriore', 'posteriore'].forEach(lato => {
+    const t = v.gomme?.tergicristalli?.[lato];
+    if (t?.data && giorniDa(aggiungiMesi(t.data, 12)) < 0) out.push({ testo: `Tergicristalli ${lato} da sostituire`, colore: 'rosso' });
+  });
+  const cs = (maints || []).find(x => x.targa === v.targa && x.stato === 'Programmato' && (x.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(x.descrizione || ''));
+  if (cs) {
+    const scaduto = cs.appuntamento && giorniDa(cs.appuntamento) < 0;
+    out.push({ testo: 'Cambio gomme stagionale da effettuare' + (cs.appuntamento ? ` · ${fmtDate(cs.appuntamento)}` : ''), colore: scaduto ? 'rosso' : 'arancio' });
+  }
+  const pr = prioritaAcquisto(v, oggi);
+  if (pr) {
+    const nome = pr.set === 'estivi' ? 'estivo' : 'invernale';
+    out.push({ testo: `Acquistare set ${nome}`, colore: pr.priorita === 'alta' ? 'rosso' : 'arancio' });
+  }
+  const ut = (v.gomme?.tagliandiTrim || []).slice().sort((x, y) => (x.data < y.data ? 1 : -1))[0];
+  if (!ut) out.push({ testo: 'Tagliandino trimestrale mai registrato', colore: 'arancio' });
+  else {
+    const prossimo = aggiungiMesi(ut.data, 3);
+    const g = giorniDa(prossimo);
+    if (g <= 0) out.push({ testo: `Tagliandino trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
+  }
+  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !(x.descrizione || '').startsWith('Cambio gomme'));
+  if (prog.length) out.push({ testo: `${prog.length} ${prog.length === 1 ? 'intervento da realizzare' : 'interventi da realizzare'}`, colore: 'arancio' });
+  const lavaggio = (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').some(r => {
+    const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
+    if (!fatte[0]) return true;
+    const giorni = Math.round((base - new Date(fatte[0] + 'T00:00:00')) / 864e5);
+    return giorni >= (FREQ_LAVAGGIO_GIORNI[r.frequenza] || 30);
+  });
+  return { problemi: out, lavaggio };
+}
+function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta, ricorrenti }) {
   const [q, setQ] = useState('');
   const filtered = vehicles.filter(v => `${v.marca} ${v.modello} ${v.targa}`.toLowerCase().includes(q.toLowerCase()));
 
@@ -2849,7 +2904,13 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 15.5, color: MEZZI_COLORS.ink, marginBottom: 6 }}>{v.gomme?.nominativo || `${v.marca} ${v.modello}`}</div>
-                    <Plate targa={v.targa} size="sm" />
+                    <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                      <Plate targa={v.targa} size="sm" />
+                      {(() => { const pz = problemiMezzo(v, maints, ricorrenti, params); return (<>
+                        {pz.problemi.length > 0 && <span title={pz.problemi.map(p => p.testo).join(' · ')} style={{ display:'inline-flex', alignItems:'center', gap:3, color: pz.problemi.some(p => p.colore === 'rosso') ? '#C62828' : '#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{pz.problemi.length}</span>}
+                        {pz.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
+                      </>); })()}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     {u && <div style={{ marginBottom: 6 }}><Pill style={URGENCY_STYLE[u]}>{URGENCY_STYLE[u].label}</Pill></div>}
@@ -3705,7 +3766,14 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           </div>
         )}
 
-        <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
+        {(() => { const pz = problemiMezzo(vehicle, maints, ricorrenti, params); if (!pz.problemi.length && !pz.lavaggio) return null; const rossi = pz.problemi.some(p => p.colore === 'rosso'); return (
+        <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:12, border:`1.5px solid ${rossi ? '#C62828' : '#E65100'}`, background: rossi ? '#FDECEA' : '#FFF3E0' }}>
+          {pz.problemi.length > 0 && <div style={{ display:'flex', alignItems:'center', gap:6, fontWeight:800, color: rossi ? '#B71C1C' : '#8A5A00' }}><AlertTriangle size={18} />Attenzione</div>}
+          {pz.problemi.map((p, i) => <div key={i} style={{ fontSize:13, marginTop:4, fontWeight: p.colore === 'rosso' ? 700 : 500, color: p.colore === 'rosso' ? '#B71C1C' : '#8A5A00' }}>{p.testo}</div>)}
+          {pz.lavaggio && <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, marginTop:6, color:'#1565C0', fontWeight:600 }}><Droplet size={16} />Lavaggio da fare</div>}
+        </div>
+      ); })()}
+      <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Plate targa={vehicle.targa} />
             {puoScrivere && (
@@ -4912,7 +4980,7 @@ async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
     if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} vociTrim={vociTrim} apriCambio={!!view.apriCambio} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
-    else content = <VeicoliScreen vehicles={vehicles} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows, ricT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
+    else content = <VeicoliScreen vehicles={vehicles} ricorrenti={ricT.rows} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows, ricT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
   } else if (tab === 'manutenzioni') {
     if (view.name === 'add') content = <MaintForm vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <MaintForm initial={view.m} vehicles={vehicles} maints={maints} params={params} onSave={saveMaint} onCancel={() => goBack()} onDelete={deleteMaint} />;
