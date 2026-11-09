@@ -3664,7 +3664,10 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           </>
         )}
 
-        <SectionLabel theme={MEZZI_COLORS}>Interventi del mezzo · {fmtEuro(totale)}</SectionLabel>
+        <div style={{ marginBottom: 14 }}>
+        <TagliandinoTrimCard vehicle={vehicle} voci={vociTrim || []} puoModificare={puoScrivereGomme} onSalvaCampoVeicolo={(patch) => onSaveGomme && onSaveGomme(vehicle, patch)} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tagliandiTrim: lista } })} />
+      </div>
+      <SectionLabel theme={MEZZI_COLORS}>Interventi del mezzo · {fmtEuro(totale)}</SectionLabel>
         <div style={{ display:'flex', background:'#F2EEF8', borderRadius:999, padding:3, marginBottom:10 }}>
           {[['realizzare', 'Da realizzare'], ['sospeso', 'In sospeso'], ['realizzati', 'Realizzati']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setTabStorico(k)} style={{ flex:1, border:'none', borderRadius:999, padding:'6px 4px', fontSize:12, fontWeight:700, cursor:'pointer', background: tabStorico === k ? MEZZI_COLORS.primary : 'transparent', color: tabStorico === k ? '#fff' : MEZZI_COLORS.primary }}>{l} ({storicoTutto.filter(e => e.gruppo === k).length})</button>
@@ -3689,9 +3692,6 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             </Card>
           ))}
         </div>
-      </div>
-      <div style={{ marginTop: 14 }}>
-        <TagliandinoTrimCard vehicle={vehicle} voci={vociTrim || []} puoModificare={puoScrivereGomme} onSalvaCampoVeicolo={(patch) => onSaveGomme && onSaveGomme(vehicle, patch)} onSave={(lista) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), tagliandiTrim: lista } })} />
       </div>
       {confermaElimina && (
         <ConfirmDelete
