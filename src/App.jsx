@@ -2392,7 +2392,8 @@ const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const fmtEuro = (n) => n == null || n === '' ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
 const fmtKm = (n) => n == null || n === '' ? '—' : `${Number(n).toLocaleString('it-IT')} km`;
 const daysUntil = (iso) => { if (!iso) return null; const d = new Date(iso + 'T00:00:00'); const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((d - t) / 86400000); };
-const vehicleLabel = (v) => v ? `${v.marca} ${v.modello}${v.targa ? ' · ' + v.targa : ''}` : '—';
+function nomeMezzo(v) { return v.gomme?.nominativo || [v.marca, v.modello].filter(Boolean).join(' '); }
+const vehicleLabel = (v) => v ? `${nomeMezzo(v)}${v.targa ? ' · ' + v.targa : ''}` : '—';
 const urgencyOf = (days, params) => {
   if (days == null) return null;
   if (days <= params.urgentDays) return 'urgent';
@@ -2620,11 +2621,37 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Chilometri aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
   ];
   const converti = (col, regole) => regole.map(([nome, t]) => [col.findIndex(c => c[0] === nome), t]);
+  const RICORRENZE = ['Novembre', 'Febbraio', 'Maggio', 'Agosto'];
+  const MESE_RICORRENZA = { Novembre: 11, Febbraio: 2, Maggio: 5, Agosto: 8 };
+  const ricorrenzaDi = (data) => {
+    const m = new Date(data + 'T00:00:00').getMonth() + 1;
+    return RICORRENZE.reduce((best, n) => {
+      const d = Math.min(Math.abs(m - MESE_RICORRENZA[n]), 12 - Math.abs(m - MESE_RICORRENZA[n]));
+      return best === null || d < best.d ? { n, d } : best;
+    }, null).n;
+  };
+  const colTrim = [['Veicolo', 's'], ['Targa', 's'], ['Data', 'd'], ['Km', 'i'], ['Pressione anteriore (bar)', 'n1'], ['Pressione posteriore (bar)', 'n1'],
+    ['Olio motore aggiunto (ml)', 'i'], ['Liquido paraflu aggiunto (ml)', 'i'], ['Voci spuntate', 's'], ['Voci da controllare', 's'], ['Valori della checklist', 's'], ['Guasti o problemi rilevati', 's']];
+  const trimPerRicorrenza = {};
+  RICORRENZE.forEach(n => { trimPerRicorrenza[n] = []; });
+  lista.forEach(v => (v.gomme?.tagliandiTrim || []).forEach(t => { if (t.data) trimPerRicorrenza[ricorrenzaDi(t.data)].push({ v, t }); }));
+  const fogliTrim = RICORRENZE.map(n => {
+    const num = (x) => (x == null || x === '' ? null : Number(x));
+    const righe = trimPerRicorrenza[n].sort((a, b) => (a.v.targa < b.v.targa ? -1 : a.v.targa > b.v.targa ? 1 : (a.t.data < b.t.data ? -1 : 1))).map(({ v, t }) => [
+      nomeMezzo(v), v.targa, dX(t.data), num(t.km), num(t.pressAnt), num(t.pressPost), num(t.olioMl), num(t.paraMl),
+      t.voci && t.voci.length ? `${t.voci.filter(x => x.ok).length}/${t.voci.length}` : null,
+      t.voci ? (t.voci.filter(x => !x.ok).map(x => x.testo).join('; ') || null) : null,
+      t.voci ? (t.voci.filter(x => x.valore).map(x => `${x.testo}: ${x.valore}`).join('; ') || null) : null,
+      t.guasti || null,
+    ]);
+    return { nome: n, col: colTrim, righe, regole: [] };
+  });
   const fogli = [
     { nome: 'Scadenze', col: colA, righe: righeA, regole: regoleA },
     { nome: 'Gomme', col: colB, righe: righeB, regole: converti(colB, regoleB) },
     { nome: 'Tergicristalli', col: colT, righe: righeT, regole: converti(colT, regoleT) },
     { nome: 'Interventi e lavaggi', col: colC, righe: righeC, regole: converti(colC, regoleC) },
+    ...fogliTrim,
   ];
   const enc = new TextEncoder();
   const xmlFoglio = (f) => {
@@ -3849,7 +3876,7 @@ function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDele
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
         <Field label="Veicolo *">
           <select style={inputStyle} value={f.targa} onChange={set('targa')}>
-            {vehicles.map(v => <option key={v.id} value={v.targa}>{v.marca} {v.modello}{v.targa ? ' · ' + v.targa : ' · senza targa'}</option>)}
+            {vehicles.map(v => <option key={v.id} value={v.targa}>{nomeMezzo(v)}{v.targa ? ' · ' + v.targa : ' · senza targa'}</option>)}
           </select>
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -4052,7 +4079,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
               <div style={{ fontSize:12, color: MEZZI_COLORS.muted, marginTop:2 }}>Promemoria ogni {KM_PROMEMORIA_GIORNI} giorni</div>
               {kmAperto && kmDaAggiornare.map(v => (
                 <div key={v.id} style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, marginTop:8, paddingTop:8 }}>
-                  <div style={{ fontWeight:700, fontSize:13 }}>{v.targa} · {v.marca} {v.modello}</div>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{v.targa} · {nomeMezzo(v)}</div>
                   <div style={{ fontSize:12, color: MEZZI_COLORS.muted, marginTop:2 }}>{v.km_aggiornato ? `Ultimo aggiornamento il ${fmtDate(v.km_aggiornato)}` : 'Mai aggiornati dalla scheda'}</div>
                   <div style={{ display:'flex', gap:8, marginTop:6, alignItems:'center' }}>
                     <input type="number" min="0" value={kmDraft[v.id] ?? v.km ?? ''} onChange={e => setKmDraft(p => ({ ...p, [v.id]: e.target.value }))} style={{ flex:1, padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
@@ -4115,7 +4142,16 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
               {r.isGomme && r.v.gomme?.appuntamentoCambio && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); onSaveGomme && onSaveGomme(r.v, null, null, null, false); }} style={{ marginTop:6, width:'100%', padding:9, borderRadius:10, border:'1.5px solid #B71C1C', background:'#fff', color:'#B71C1C', fontWeight:700, fontSize:12.5 }}>Cancella appuntamento</button>
               )}
-              {r.label === 'Tagliando' && tagliandoAperto === r.key && (
+              {r.label === 'Tagliando' && (() => {
+            const pren = (maints || []).find(x => x.targa === r.v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato');
+            return pren && pren.appuntamento ? (
+              <div onClick={(e) => e.stopPropagation()} style={{ marginTop:8, padding:'8px 10px', borderRadius:8, background:'#F4F7F6' }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>Appuntamento: {fmtDate(pren.appuntamento)}{pren.appuntamento_ora ? ' alle ' + pren.appuntamento_ora : ''}{pren.officina ? ' · ' + pren.officina : ''}</div>
+                <button type="button" onClick={() => onEseguiTagliando(r.v, r.v.km)} style={{ marginTop:6, width:'100%', padding:9, borderRadius:10, border:'none', background:'#1F6B45', color:'#fff', fontWeight:700 }}>Eseguito</button>
+              </div>
+            ) : null;
+          })()}
+          {r.label === 'Tagliando' && tagliandoAperto === r.key && (
                 <PannelloTagliando vehicle={r.v} prenotato={(maints || []).find(x => x.targa === r.v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato')}
                   onPrenota={(d, o, off) => onPrenotaTagliando(r.v, d, o, off)} onCancella={() => onCancellaTagliando(r.v)} onEsegui={(km) => onEseguiTagliando(r.v, km)} />
               )}
@@ -4243,7 +4279,7 @@ function SegnalazioneAnomaliaForm({ vehicles, onSave, onCancel }) {
         </div>
         <Field label="Veicolo *">
           <select style={inputStyle} value={f.targa} onChange={set('targa')}>
-            {vehicles.map(v => <option key={v.id} value={v.targa}>{v.marca} {v.modello}{v.targa ? ' · ' + v.targa : ''}</option>)}
+            {vehicles.map(v => <option key={v.id} value={v.targa}>{nomeMezzo(v)}{v.targa ? ' · ' + v.targa : ''}</option>)}
           </select>
         </Field>
         <Field label="Data rilevamento"><input type="date" style={inputStyle} value={f.data} onChange={set('data')} /></Field>
@@ -4369,7 +4405,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }
                     <button type="button" onClick={() => setAperto(open ? null : k)} style={{ flex:1, minWidth:0, background:'none', border:'none', padding:0, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, textAlign:'left' }}>
                       <span style={{ minWidth:0 }}>
                         <span style={{ display:'block', fontWeight:700, fontSize:13.5, color: ink }}>{v.targa}</span>
-                        <span style={{ display:'block', fontSize:11.5, color: muted }}>{v.marca} {v.modello}{s.ultimaISO ? ` · ultimo ${fmtDate(s.ultimaISO)}` : ''}</span>
+                        <span style={{ display:'block', fontSize:11.5, color: muted }}>{nomeMezzo(v)}{s.ultimaISO ? ` · ultimo ${fmtDate(s.ultimaISO)}` : ''}</span>
                       </span>
                       <span style={{ color: muted }}>{open ? '▲' : '▼'}</span>
                     </button>
@@ -4380,7 +4416,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, theme }
                   </div>
                   {open && (
                     <div style={{ marginTop:8 }}>
-                      <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
+                      <ChecklistPassi steps={t.passi} esecuzioni={(t.esecuzioni || []).filter(e => e.mezzo === v.id)} extra={{ mezzo: v.id }} mostraDataKm onSalva={(nuova) => onSalvaAuto(t, v.id, nuova)} />
                     </div>
                   )}
                 </div>
@@ -4445,6 +4481,23 @@ function ListaRicorrenti({ rows, ready, modulo, theme, veicoli, onModifica }) {
       })}
     </div>
   );
+}
+
+// Dalla checklist di un mezzo: aggiorna i km totali e crea il tagliandino trimestrale per ogni checklist completata.
+function aggiornamentoDaChecklist(raw, t, nuovaLista) {
+  if (!raw) return null;
+  const kmNuovi = Math.max(0, ...nuovaLista.map(e => Number(e.km) || 0));
+  const passiVoci = (t.passi || '').split('\n').map(x => x.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+  const gia = raw.gomme?.tagliandiTrim || [];
+  const nuoviTrim = nuovaLista.filter(e => e.completata && !gia.some(x => x.id === e.id)).map(e => ({
+    id: e.id, data: e.data, km: Number(e.km) || kmNuovi || null,
+    pressAnt: null, pressPost: null, olioMl: null, paraMl: null, guasti: null,
+    voci: passiVoci.map((testo, i) => ({ testo, ok: (e.passi || []).includes(i), valore: (e.valori || {})[i] || null })),
+  }));
+  const kmAttuali = Number(raw.km || 0);
+  const kmAumenta = kmNuovi > kmAttuali;
+  if (!nuoviTrim.length && !kmAumenta) return null;
+  return { ...raw, km: kmAumenta ? kmNuovi : kmAttuali, km_aggiornato: kmAumenta ? todayISO() : raw.km_aggiornato, gomme: { ...(raw.gomme || {}), tagliandiTrim: [...gia, ...nuoviTrim] } };
 }
 
 function MezziModule({ onHome, initialNotification }) {
@@ -4519,11 +4572,16 @@ function MezziModule({ onHome, initialNotification }) {
     if (error) setToast('Errore: ' + error.message); else { setToast('Tagliando eliminato'); goBack(); }
   }
   // Salva le spunte di un'auto nel tagliando e ricalcola le date della procedura.
-  async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
+async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
     const tutte = [...(t.esecuzioni || []).filter(e => e.mezzo !== mezzoId), ...nuovaLista];
     const { _source, _date, _kind, ...base } = t;
     const { error } = await ricT.save({ ...base, esecuzioni: tutte, ...datiTagliando(t, tutte) });
     if (error) setToast('Errore: ' + error.message);
+    const patch = aggiornamentoDaChecklist(vehiclesT.rows.find(x => x.id === mezzoId), t, nuovaLista);
+    if (patch) {
+      const { error: e2 } = await vehiclesT.save(patch);
+      if (e2) setToast('Errore: ' + e2.message);
+    }
   }
   const vehicles = vehiclesT.rows, maints = maintsT.rows;
   const ready = vehiclesT.ready && maintsT.ready;
@@ -4716,7 +4774,7 @@ function MezziModule({ onHome, initialNotification }) {
                         </div>
                         <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>{m.descrizione || '—'}</div>
                         <Plate targa={m.targa} size="sm" />
-                        {v && <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted, marginTop: 3 }}>{v.marca} {v.modello}</div>}
+                        {v && <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted, marginTop: 3 }}>{nomeMezzo(v)}</div>}
                         {m.segnalatoDa && <div style={{ fontSize: 11, color: MEZZI_COLORS.muted, marginTop: 3 }}>Da: {m.segnalatoDa}</div>}
                       </div>
                       <Pill style={{ bg: '#FBEDD2', fg: '#8A5A00' }}>{m.stato}</Pill>
@@ -8527,6 +8585,14 @@ function ProcedureScreen({ procedure, tipologieDisponibili, onOpen, onAdd, onHom
 
 /* ---- Checklist dei passi: spunte salvate sulla procedura (chi, quando) ---- */
 // Applica la spunta di un passo all'esecuzione in corso (o ne apre una nuova). Funzione pura.
+function applicaCampiEsecuzione(esecuzioni, patch, nome, totale, extra = {}) {
+  const lista = esecuzioni || [];
+  const aperta = lista.find(e => !e.completata);
+  const adesso = new Date();
+  const ora = String(adesso.getHours()).padStart(2, '0') + ':' + String(adesso.getMinutes()).padStart(2, '0');
+  if (!aperta) return [...lista, { id: uid(), ...extra, data: todayISO(), ora, esecutore: nome, passi: [], valori: {}, completata: false, completataIl: null, ...patch }];
+  return lista.map(e => (e.id === aperta.id ? { ...aperta, ...patch } : e));
+}
 function applicaValoreEsecuzione(esecuzioni, i, valore, nome, totale, extra = {}) {
   const lista = esecuzioni || [];
   const aperta = lista.find(e => !e.completata);
@@ -8550,7 +8616,18 @@ function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale, extra = {}) {
   return lista.map(e => (e.id === aperta.id ? nuova : e));
 }
 
-function ChecklistPassi({ steps, esecuzioni, onSalva, extra }) {
+function CampoEsecuzione({ etichetta, tipo, valore, onSalva, theme }) {
+  const [v, setV] = useState(valore == null ? '' : String(valore));
+  return (
+    <div>
+      <div style={{ fontSize:12, color:theme.muted, fontWeight:600, marginBottom:3 }}>{etichetta}</div>
+      <input type={tipo} value={v} onChange={e => setV(e.target.value)} onBlur={() => { if (v !== (valore == null ? '' : String(valore))) onSalva(v); }}
+        style={{ width:'100%', maxWidth:'100%', minWidth:0, boxSizing:'border-box', padding:'8px 9px', borderRadius:8, border:`1.5px solid ${theme.line}`, fontSize:13, background:'#fff' }} />
+    </div>
+  );
+}
+
+function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm }) {
   const { nomeVisualizzato } = usePermessi();
   const items = (steps || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
   if (items.length === 0) return null;
@@ -8572,6 +8649,14 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra }) {
         {aperta && (
           <div style={{ fontSize:12, color:PROC_COLORS.muted, marginBottom:6 }}>
             In corso · avviata da {aperta.esecutore} alle {aperta.ora} del {fmtDate(aperta.data)}
+          </div>
+        )}
+        {mostraDataKm && (
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+            <CampoEsecuzione etichetta="Data" tipo="date" valore={aperta?.data || ''} theme={PROC_COLORS}
+              onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { data: val }, nomeVisualizzato, items.length, extra || {}))} />
+            <CampoEsecuzione etichetta="Km" tipo="number" valore={aperta?.km ?? ''} theme={PROC_COLORS}
+              onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { km: val === '' ? null : Number(val) }, nomeVisualizzato, items.length, extra || {}))} />
           </div>
         )}
         {items.map((testo, i) => (
