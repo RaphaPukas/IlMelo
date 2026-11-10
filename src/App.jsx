@@ -2514,6 +2514,21 @@ function dataDaDot(dot) {
   const ww = Number(mm[1]); if (ww < 1 || ww > 53) return null;
   return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
 }
+// Stato delle gomme rispetto alla stagione: il set montato deve essere quello richiesto dalla data.
+function statoGommeMezzo(v, oggi = new Date()) {
+  const g = v.gomme || {};
+  const m = g.montati || {};
+  if (!m.tipo) return 'Nessun set montato';
+  const montato = periodoGomma(m.tipo);
+  if (!montato) return 'OK';
+  const mese = oggi.getMonth() + 1;
+  const giorno = oggi.getDate();
+  const inverno = (mese === 11 && giorno >= 15) || mese === 12 || mese <= 3 || (mese === 4 && giorno <= 15);
+  const richiesto = inverno ? 'invernali' : 'estive';
+  if (montato === richiesto) return 'OK';
+  const inScorta = (g.scorta || []).some(x => periodoGomma(x.tipo) === richiesto);
+  return inScorta ? 'Cambio da fare' : `Acquistare set ${richiesto === 'invernali' ? 'invernale' : 'estivo'}`;
+}
 function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const lista = vehicles || [];
   const mts = maints || [];
@@ -2563,7 +2578,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const colRiep = [
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
-    ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Da controllare', 'i', 'scadenze'],
+    ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'],
     ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio da fare', 's', 'interventi'], ['Da acquistare', 's', 'gomme'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'],
   ];
   const righeRiep = lista.map(v => {
@@ -2571,14 +2586,14 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const pr = prioritaAcquisto(v);
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
-      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, an.daFare, riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
+      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, statoGommeMezzo(v), riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
       pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null,
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
     ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
-    ['Da controllare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Stato gomme', [['LEFT({c}2,2)="OK"', 3], ['LEFT({c}2,8)="Cambio d"', 5], ['LEFT({c}2,8)="Acquista"', 0], ['LEFT({c}2,8)="Nessun "', 0]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Lavaggio da fare', [['{c}2="SÌ"', 1]]],
     ['Da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
@@ -2821,7 +2836,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
 
   // Mezzi: una riga per mezzo, dal più urgente
   riga(tutta('Mezzi: situazione delle scadenze', SX.sezione), 22);
-  const intestazioniMezzi = ['Veicolo', 'Targa', 'Stato', 'Prossima scadenza', 'Cosa scade', 'Da controllare', 'Interventi aperti', 'Lavaggio', 'Gomme da acquistare'];
+  const intestazioniMezzi = ['Veicolo', 'Targa', 'Stato', 'Prossima scadenza', 'Cosa scade', 'Stato gomme', 'Interventi aperti', 'Lavaggio', 'Gomme da acquistare'];
   riga(colonne(intestazioniMezzi, SX.intestazione), 22);
   if (!lista.length) riga(tutta('Nessun mezzo in flotta', SX.testo), 20);
   const ordinati = lista.map((v, i) => ({ v, i, an: analisi(v), acq: prioritaAcquisto(v) }))
@@ -2837,7 +2852,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       { da: 2, a: 2, formula: vuotoSe('Stato scadenze'), stile: SX.valore },
       { da: 3, a: 3, formula: `IF(${ref('Scadenza più vicina (data · nome)')}="","",${ref('Scadenza più vicina (data · nome)')})`, stile: SX.dataV },
       { da: 4, a: 4, testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.valore },
-      { da: 5, a: 5, formula: vuotoSe('Da controllare'), stile: SX.valore },
+      { da: 5, a: 5, formula: vuotoSe('Stato gomme'), stile: SX.valore },
       { da: 6, a: 6, formula: vuotoSe('Interventi da realizzare'), stile: SX.valore },
       { da: 7, a: 7, formula: vuotoSe('Lavaggio da fare'), stile: SX.valore },
       { da: 8, a: 8, formula: vuotoSe('Da acquistare'), stile: SX.valore },
@@ -2848,7 +2863,10 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}<TODAY())`, 0);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>=TODAY(),D${nRiga}<=TODAY()+30)`, 5);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>TODAY()+30,D${nRiga}<=TODAY()+45)`, 4);
-    cf(`F${nRiga}`, `AND(ISNUMBER(F${nRiga}),F${nRiga}>0)`, 1);
+    cf(`F${nRiga}`, `LEFT(F${nRiga},2)="OK"`, 3);
+    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Cambio d"`, 5);
+    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Acquista"`, 0);
+    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Nessun "`, 0);
     cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 1);
     cf(`H${nRiga}`, `H${nRiga}="SÌ"`, 1);
     cf(`I${nRiga}`, `LEFT(I${nRiga},4)="Alta"`, 0);
