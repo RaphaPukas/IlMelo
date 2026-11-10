@@ -2577,12 +2577,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
-    ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Da controllare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Lavaggio da fare', [['{c}2="SÌ"', 1]]],
     ['Da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
-    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Km aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
   ];
 
@@ -2591,23 +2591,24 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'],
     ['Assicurazione', 'd', 'scadenze'], ['Revisione', 'd', 'scadenze'], ['Bollo', 'd', 'scadenze'], ['Tagliando', 'd', 'scadenze'],
     ['Appuntamento tagliando', 'd', 'scadenze'], ['Ora tagliando', 's', 'scadenze'], ['Officina tagliando', 's', 'scadenze'],
-    ['Kit distribuzione (data)', 'd', 'scadenze'], ['Kit distribuzione (km)', 'i', 'scadenze'], ['Scadenze personalizzate', 's', 'scadenze'],
+    ['Kit distribuzione (data)', 'd', 'scadenze'], ['Kit distribuzione (km)', 'i', 'scadenze'], ['Cambio gomme stagionale', 'd', 'scadenze'], ['Scadenze personalizzate', 's', 'scadenze'],
   ];
   const righeScad = lista.map(v => {
     const sd = scadenzaDistribuzione(v);
     const at = trova(v, 'Tagliando');
     return [nomeV(v), v.targa, dX(v.assicurazione), dX(v.revisione), dX(v.bollo), dX(v.tagliando),
       at ? dX(at.appuntamento) : null, at ? (at.appuntamento_ora || null) : null, at ? (at.officina || null) : null,
-      sd && sd.dataScad ? dataSeriale(sd.dataScad) : null, sd && sd.kmScad != null ? sd.kmScad : null,
+      sd && sd.dataScad ? dataSeriale(sd.dataScad) : null, sd && sd.kmScad != null ? sd.kmScad : null, (() => { const cg = mts.find(x => x.targa === v.targa && x.stato === 'Programmato' && (x.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(x.descrizione || '')); return cg && cg.appuntamento ? dX(cg.appuntamento) : null; })(),
       (v.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => `${x.nome}: ${fmtDate(x.data)}${x.ripetiMesi ? ' (ogni ' + x.ripetiMesi + ' mesi)' : ''}`).join('; ') || null];
   });
   const giornoRegola = [
-    ['Assicurazione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Revisione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Bollo', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Kit distribuzione (data)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
-    ['Appuntamento tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Assicurazione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Revisione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Bollo', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Kit distribuzione (data)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Appuntamento tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Cambio gomme stagionale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
   ];
 
   // Foglio Gomme: set montato, treno, scorta e cambio stagionale
@@ -2638,7 +2639,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Battistrada montati (mm)', [['AND(ISNUMBER({c}2),{c}2<2)', 0], ['AND(ISNUMBER({c}2),{c}2>=2,{c}2<3)', 2], ['AND(ISNUMBER({c}2),{c}2>=3,{c}2<4)', 1], ['AND(ISNUMBER({c}2),{c}2>=4)', 3]]],
     ['Età montati (anni)', [['AND(ISNUMBER({c}2),{c}2>=10)', 0], ['AND(ISNUMBER({c}2),{c}2>=6)', 2], ['AND(ISNUMBER({c}2),{c}2>=5)', 1]]],
     ['Treno non uniforme', [['{c}2="SÌ"', 0]]],
-    ['Appuntamento cambio stagionale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
+    ['Appuntamento cambio stagionale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
   ];
 
   // Foglio Tergicristalli
@@ -2716,7 +2717,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ].join('');
     const larg = f.col.map((c, i) => {
       const lung = f.righe.map(r => { const val = r[i]; if (val && typeof val === 'object' && 'serial' in val) return 13 + String(val.fmt || '').length; if (val === null || val === undefined || val === '') return 0; if (f.col[i][1] === 'd' && typeof val === 'number') return 10; return String(val).length; });
-      return Math.min(Math.max(Math.min(c[0].length, 18), ...lung, 8) + 3, 40);
+      return Math.max(10, Math.ceil(Math.max(...lung, c[0].length * 1.15)) + 3);
     });
     const cols = `<cols>${larg.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
     let prio = 1;
@@ -2739,12 +2740,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const colR = (nome) => colonnaExcel(colRiep.findIndex(c => c[0] === nome));
   const rR = (nome) => `Riepilogo!${colR(nome)}2:${colR(nome)}500`;
   const rS = (nome) => `Scadenze!${colonnaExcel(colScad.findIndex(c => c[0] === nome))}2:${colonnaExcel(colScad.findIndex(c => c[0] === nome))}500`;
-  const NSINT = 10;
+  const NSINT = 11;
   const xfBase = 10 + Object.keys(formatiData).length;
-  const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, testoGrassetto: xfBase + 7, valore: xfBase + 8, dataV: xfBase + 9 };
-  const al = (h, wrap) => `<alignment horizontal="${h}" vertical="center"${wrap ? ' wrapText="1"' : ''}/>`;
+  const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, testoGrassetto: xfBase + 7, valore: xfBase + 8, dataV: xfBase + 9, intestazione: xfBase + 10 };
+  const al = (h) => `<alignment horizontal="${h}" vertical="center"/>`;
   const xfSintesi = [
-    `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">${al('left', false)}</xf>`,
+    `<xf numFmtId="0" fontId="5" fillId="7" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('left', false)}</xf>`,
     `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center', true)}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('center', false)}</xf>`,
@@ -2753,12 +2754,15 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">${al('left', true)}</xf>`,
     `<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1">${al('left', true)}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">${al('center', true)}</xf>`,
-    `<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1">${al('center', true)}</xf>`,
+    `<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1">${al('center')}</xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
   ].join('');
   const altezzaTesto = (testo, larg) => Math.max(1, Math.ceil(String(testo || '').length * 1.1 / larg));
   const sRighe = [];
   const sCf = [];
   const sMerge = [];
+  const lungColonna = Array(NCOL).fill(10);
+  const unioniDaMisurare = [];
   let nr = 0;
   // Riga composta da segmenti che coprono tutte le colonne: ogni segmento è una cella o un'unione di celle
   const riga = (segmenti, ht) => {
@@ -2776,7 +2780,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       }
       if (sg.a > sg.da) sMerge.push(`${colonnaExcel(sg.da)}${nr}:${colonnaExcel(sg.a)}${nr}`);
     });
-    const altezza = ht || Math.max(20, 14 * altMax + 8);
+    segmenti.forEach(sg => {
+      const lung = sg.lungh !== undefined ? sg.lungh : (sg.testo !== undefined ? String(sg.testo).length : 12);
+      if (sg.a === sg.da) lungColonna[sg.da] = Math.max(lungColonna[sg.da], lung);
+      else unioniDaMisurare.push({ da: sg.da, a: sg.a, lung });
+    });
+    const altezza = ht || 20;
     sRighe.push(`<row r="${nr}" ht="${altezza}" customHeight="1">${celle.join('')}</row>`);
     return nr;
   };
@@ -2786,7 +2795,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const cf = (ref, formula, dxf) => sCf.push([ref, formula, dxf]);
 
   // Titolo e sottotitolo
-  riga(tutta('Flotta · Sintesi', SX.titolo), 34);
+  riga(tutta('FLOTTA SINTESI', SX.titolo), 34);
   riga(tutta('Aggiornato al ' + fmtDate(todayISO()) + ' · i valori si ricalcolano da soli quando apri il file', SX.sottotitolo), 20);
   vuota();
 
@@ -2813,7 +2822,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Mezzi: una riga per mezzo, dal più urgente
   riga(tutta('Mezzi: situazione delle scadenze', SX.sezione), 22);
   const intestazioniMezzi = ['Veicolo', 'Targa', 'Stato', 'Prossima scadenza', 'Cosa scade', 'Da controllare', 'Interventi aperti', 'Lavaggio', 'Gomme da acquistare'];
-  riga(colonne(intestazioniMezzi, SX.sezione), 22);
+  riga(colonne(intestazioniMezzi, SX.intestazione), 22);
   if (!lista.length) riga(tutta('Nessun mezzo in flotta', SX.testo), 20);
   const ordinati = lista.map((v, i) => ({ v, i, an: analisi(v), acq: prioritaAcquisto(v) }))
     .sort((x, y) => (x.an.dataProssima || '9999') < (y.an.dataProssima || '9999') ? -1 : (x.an.dataProssima || '9999') > (y.an.dataProssima || '9999') ? 1 : 0);
@@ -2824,20 +2833,21 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const acqTesto = acq ? `${acq.priorita === 'alta' ? 'Alta' : acq.priorita === 'media' ? 'Media' : 'Bassa'}: set ${acq.set === 'estivi' ? 'estivo' : 'invernale'}` : '';
     const nRiga = riga([
       { da: 0, a: 0, formula: `IF(Riepilogo!A${r}="","",Riepilogo!A${r})`, stile: SX.testoGrassetto },
-      { da: 1, a: 1, formula: `IF(Riepilogo!B${r}="","",Riepilogo!B${r})`, stile: SX.testo },
+      { da: 1, a: 1, formula: `IF(Riepilogo!B${r}="","",Riepilogo!B${r})`, stile: SX.valore },
       { da: 2, a: 2, formula: vuotoSe('Stato scadenze'), stile: SX.valore },
       { da: 3, a: 3, formula: `IF(${ref('Scadenza più vicina (data · nome)')}="","",${ref('Scadenza più vicina (data · nome)')})`, stile: SX.dataV },
-      { da: 4, a: 4, testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.testo },
+      { da: 4, a: 4, testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.valore },
       { da: 5, a: 5, formula: vuotoSe('Da controllare'), stile: SX.valore },
       { da: 6, a: 6, formula: vuotoSe('Interventi da realizzare'), stile: SX.valore },
       { da: 7, a: 7, formula: vuotoSe('Lavaggio da fare'), stile: SX.valore },
-      { da: 8, a: 8, formula: vuotoSe('Da acquistare'), stile: SX.testo },
+      { da: 8, a: 8, formula: vuotoSe('Da acquistare'), stile: SX.valore },
     ], Math.max(22, 14 * Math.max(altezzaTesto(acqTesto, WID[0]), altezzaTesto(an.prossima, WID[0])) + 10));
     cf(`C${nRiga}`, `C${nRiga}="Fuori termine"`, 0);
     cf(`C${nRiga}`, `C${nRiga}="In scadenza"`, 1);
     cf(`C${nRiga}`, `C${nRiga}="OK"`, 3);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}<TODAY())`, 0);
-    cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>=TODAY(),D${nRiga}<=TODAY()+45)`, 1);
+    cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>=TODAY(),D${nRiga}<=TODAY()+30)`, 5);
+    cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>TODAY()+30,D${nRiga}<=TODAY()+45)`, 4);
     cf(`F${nRiga}`, `AND(ISNUMBER(F${nRiga}),F${nRiga}>0)`, 1);
     cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 1);
     cf(`H${nRiga}`, `H${nRiga}="SÌ"`, 1);
@@ -2848,9 +2858,9 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   vuota();
 
   // Scadenze per tipo: scadute, in arrivo ed esito
-  riga(tutta('Scadenze per tipo', SX.sezione), 22);
-  riga([{ da: 0, a: 2, testo: 'Tipo', stile: SX.sezione }, { da: 3, a: 4, testo: 'Fuori termine', stile: SX.sezione }, { da: 5, a: 6, testo: 'Entro 45 giorni', stile: SX.sezione }, { da: 7, a: 8, testo: 'Esito', stile: SX.sezione }], 22);
-  ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)'].forEach(nome => {
+  riga(tutta('Scadenze per tipo', SX.intestazione), 22);
+  riga([{ da: 0, a: 2, testo: 'Tipo', stile: SX.intestazione }, { da: 3, a: 4, testo: 'Fuori termine', stile: SX.intestazione }, { da: 5, a: 6, testo: 'Entro 45 giorni', stile: SX.intestazione }, { da: 7, a: 8, testo: 'Esito', stile: SX.intestazione }], 22);
+  ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)', 'Cambio gomme stagionale'].forEach(nome => {
     const r = nr + 1;
     riga([
       { da: 0, a: 2, testo: nome, stile: SX.testo },
@@ -2875,11 +2885,13 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
 
   let prioS = 1;
   const cfXml = sCf.map(([ref, formula, dxf]) => `<conditionalFormatting sqref="${ref}"><cfRule type="expression" dxfId="${dxf}" priority="${prioS++}" stopIfTrue="1"><formula>${xmlEsc(formula)}</formula></cfRule></conditionalFormatting>`).join('');
-  const colsXml = `<cols>${WID.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
+  const WIDF = lungColonna.map(l => Math.max(10, Math.ceil(l * 1.15) + 3));
+  unioniDaMisurare.forEach(u => { let somma = 0; for (let c = u.da; c <= u.a; c++) somma += WIDF[c]; const mancano = Math.ceil(u.lung * 1.15) + 3 - somma; if (mancano > 0) for (let c = u.da; c <= u.a; c++) WIDF[c] += mancano / (u.a - u.da + 1); });
+  const colsXml = `<cols>${WIDF.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(2)}" customWidth="1"/>`).join('')}</cols>`;
   const mergeXml = sMerge.length ? `<mergeCells count="${sMerge.length}">${sMerge.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
-  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>${colsXml}<sheetData>${sRighe.join('')}</sheetData>${mergeXml}${cfXml}</worksheet>`;
+  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>${colsXml}<sheetData>${sRighe.join('')}</sheetData><sheetProtection sheet="1" objects="1" scenarios="1"/>${mergeXml}${cfXml}</worksheet>`;
 
-  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="5"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9DEE0"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${10 + NSINT + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="6"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF000000"/><name val="Arial"/></font></fonts><fills count="8"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFE699"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9DEE0"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${10 + NSINT + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="6"><dxf><font><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE53935"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FF4E342E"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFB74D"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf><dxf><font><color rgb="FF000000"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFFF00"/></patternFill></fill></dxf><dxf><font><color rgb="FF000000"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFA500"/></patternFill></fill></dxf></dxfs></styleSheet>`;
   const nomiFogli = ['Sintesi', ...fogli.map(f => f.nome)];
   const sheetsXml = nomiFogli.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
   const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i + 1}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
@@ -3057,14 +3069,14 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                     <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
                       <Plate targa={v.targa} size="sm" />
                       {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); return (<>
-                        {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" />{rm.scadute > 0 && <span style={{ color:'#C62828' }}>{rm.scadute}</span>}{rm.inScadenza > 0 && <span style={{ color:'#E65100' }}>{rm.inScadenza}</span>}</span>}
-                        {rm.interventi > 0 && <span title="Interventi da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.interventi}</span>}
+                        {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" />{rm.scadute > 0 && <span style={{ color:'#E53935' }}>{rm.scadute}</span>}{rm.inScadenza > 0 && <span style={{ color:'#F57C00' }}>{rm.inScadenza}</span>}</span>}
+                        {rm.interventi > 0 && <span title="Interventi da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#F57C00', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.interventi}</span>}
                         {rm.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
                       </>); })()}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const cerchio = (colore, n) => <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:22, height:22, borderRadius:'50%', background: colore, color:'#fff', fontWeight:700, fontSize:11 }}>{n}</span>; return <div style={{ marginBottom: 6 }}>{rm.scadute > 0 ? cerchio('#C62828', rm.scadute) : rm.inScadenza > 0 ? cerchio('#E65100', rm.inScadenza) : <span style={{ fontWeight:700, fontSize:12, color:'#1F6B45' }}>OK</span>}</div>; })()}
+                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const cerchio = (colore, n, pieno) => <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:22, height:22, borderRadius:'50%', boxSizing:'border-box', background: pieno ? colore : '#FFFFFF', border: `2px solid ${colore}`, color: pieno ? '#FFFFFF' : colore, fontWeight:700, fontSize:11 }}>{n}</span>; return <div style={{ marginBottom: 6 }}>{rm.scadute > 0 ? cerchio('#E53935', rm.scadute, true) : rm.inScadenza > 0 ? cerchio('#F57C00', rm.inScadenza, false) : <span style={{ fontWeight:700, fontSize:12, color:'#1F6B45' }}>OK</span>}</div>; })()}
                   </div>
                   <ChevronRight size={18} color={MEZZI_COLORS.muted} />
                 </div>
@@ -3887,7 +3899,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         )}
 
         {(() => { const pz = problemiMezzo(vehicle, maints, ricorrenti, params); if (!pz.problemi.length && !pz.lavaggio) return null; const rossi = pz.problemi.some(p => p.colore === 'rosso'); return (
-        <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:12, border:`1.5px solid ${rossi ? '#C62828' : '#E65100'}`, background: rossi ? '#FDECEA' : '#FFF3E0' }}>
+        <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:12, border:`1.5px solid ${rossi ? '#E53935' : '#F57C00'}`, background: rossi ? '#FDECEA' : '#FFF3E0' }}>
           {pz.problemi.length > 0 && <div style={{ display:'flex', alignItems:'center', gap:6, fontWeight:800, color: rossi ? '#B71C1C' : '#8A5A00' }}><AlertTriangle size={18} />Attenzione</div>}
           {pz.problemi.map((p, i) => <div key={i} style={{ fontSize:13, marginTop:4, fontWeight: p.colore === 'rosso' ? 700 : 500, color: p.colore === 'rosso' ? '#B71C1C' : '#8A5A00' }}>{p.testo}</div>)}
           {pz.lavaggio && <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, marginTop:6, color:'#1565C0', fontWeight:600 }}><Droplet size={16} />Lavaggio da fare</div>}
@@ -4738,7 +4750,7 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatch
         return (
           <div key={t.id} style={{ background: surface, border: `2px solid ${theme.primary || '#33594E'}`, borderRadius: 14, padding: 12, marginBottom: 12 }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-              <button type="button" onClick={() => setEspansi({ ...espansi, [t.id]: !espansi[t.id] })} style={{ background:'none', border:'none', padding:0, textAlign:'left', flex:1, minWidth:0, fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink, cursor:'pointer' }}>{t.titolo || 'Tagliando'} <span style={{ fontWeight:800, fontSize:13, marginLeft:6, color: righe.length > 0 && fatti === righe.length ? '#1F6B45' : '#C62828' }}>{fatti}/{righe.length}</span> <span style={{ fontSize:12, color: muted, fontWeight:600, marginLeft:4 }}>{espansi[t.id] ? '▲' : '▼'}</span></button>
+              <button type="button" onClick={() => setEspansi({ ...espansi, [t.id]: !espansi[t.id] })} style={{ background:'none', border:'none', padding:0, textAlign:'left', flex:1, minWidth:0, fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 15, color: ink, cursor:'pointer' }}>{t.titolo || 'Tagliando'} <span style={{ fontWeight:800, fontSize:13, marginLeft:6, color: righe.length > 0 && fatti === righe.length ? '#1F6B45' : '#E53935' }}>{fatti}/{righe.length}</span> <span style={{ fontSize:12, color: muted, fontWeight:600, marginLeft:4 }}>{espansi[t.id] ? '▲' : '▼'}</span></button>
               {onModifica && <button type="button" onClick={() => onModifica(t)} style={{ background:'none', border:`1.5px solid ${line}`, borderRadius:8, padding:'4px 10px', fontWeight:700, fontSize:12, color: theme.primary || ink }}>Modifica</button>}
             </div>
             <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{t.tipo || 'Tagliando'} · {t.frequenza} · {righe.length} auto{daFare ? ` · ${daFare} in ritardo` : ''}</div>
@@ -10828,7 +10840,7 @@ return (
       height: 21,
       padding: '0 6px',
       borderRadius: 999,
-      background: '#C62828',
+      background: '#E53935',
       color: '#fff',
       fontSize: 11,
       fontWeight: 800,
