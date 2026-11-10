@@ -2733,33 +2733,61 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   };
   const pezzi = fogli.map(xmlFoglio);
 
-  // Foglio Sintesi: riquadri in alto, semaforo per mezzo, scadenze per tipo e legenda; tutto a formule con colori di allarme
+  // Foglio Sintesi: griglia unica di nove colonne, bordi sottili, testi a capo e altezza di riga calcolata
+  const WID = [26, 14, 18, 18, 30, 16, 16, 14, 26];
+  const NCOL = WID.length;
   const colR = (nome) => colonnaExcel(colRiep.findIndex(c => c[0] === nome));
   const rR = (nome) => `Riepilogo!${colR(nome)}2:${colR(nome)}500`;
   const rS = (nome) => `Scadenze!${colonnaExcel(colScad.findIndex(c => c[0] === nome))}2:${colonnaExcel(colScad.findIndex(c => c[0] === nome))}500`;
+  const NSINT = 9;
   const xfBase = 9 + Object.keys(formatiData).length;
-  const SX = { titolo: xfBase, etichetta: xfBase + 1, valore: xfBase + 2, sezione: xfBase + 3, tileLabel: xfBase + 4, tileValue: xfBase + 5 };
-  const xfSintesi = `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`;
+  const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, valore: xfBase + 7, dataV: xfBase + 8 };
+  const bordo = '<bottom style="thin"><color rgb="FFD9DEE0"/></bottom>';
+  const al = (h, wrap) => `<alignment horizontal="${h}" vertical="center"${wrap ? ' wrapText="1"' : ''}/>`;
+  const xfSintesi = [
+    `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">${al('left', false)}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('left', true)}</xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center', true)}</xf>`,
+    `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">${al('center', false)}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('center', true)}</xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('left', true)}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">${al('left', true)}</xf>`,
+    `<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1">${al('center', true)}</xf>`,
+    `<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1">${al('center', true)}</xf>`,
+  ].join('');
+  const altezzaTesto = (testo, larg) => Math.max(1, Math.ceil(String(testo || '').length * 1.15 / larg));
   const sRighe = [];
   const sCf = [];
+  const sMerge = [];
   let nr = 0;
   const riga = (celle, ht) => {
     nr++;
     const xml = celle.map((c, i) => {
       const ref = colonnaExcel(i) + nr;
-      return c.formula !== undefined ? `<c r="${ref}" s="${c.stile}"><f>${xmlEsc(c.formula)}</f></c>` : cellaXlsx(ref, c.testo, c.stile);
+      if (c.formula !== undefined) return `<c r="${ref}" s="${c.stile}"><f>${xmlEsc(c.formula)}</f></c>`;
+      return cellaXlsx(ref, c.testo, c.stile);
     }).join('');
-    sRighe.push(`<row r="${nr}" ht="${ht || 18}" customHeight="1">${xml}</row>`);
+    const righe = Math.max(1, ...celle.map((c, i) => (c.testo && c.stile !== SX.titolo ? altezzaTesto(c.testo, WID[i] || 14) : 1)));
+    const altezza = ht || Math.max(20, 15 * righe + 6);
+    sRighe.push(`<row r="${nr}" ht="${altezza}" customHeight="1">${xml}</row>`);
     return nr;
   };
-  const vuota = () => { nr++; };
+  // Riga a tutta larghezza: i testi nelle prime colonne, le altre celle vuote con lo stesso stile
+  const banda = (testi, stile, ht) => {
+    const celle = Array.from({ length: NCOL }, (_, i) => ({ testo: testi[i] || '', stile }));
+    return riga(celle, ht);
+  };
+  const vuota = () => { nr++; sRighe.push(`<row r="${nr}" ht="8" customHeight="1"/>`); };
   const cf = (ref, formula, dxf) => sCf.push([ref, formula, dxf]);
 
-  riga([{ testo: 'SINTESI DELLA FLOTTA', stile: SX.titolo }], 30);
-  riga([{ testo: 'Dati aggiornati al ' + fmtDate(todayISO()) + ' · le formule si ricalcolano da sole quando apri il file', stile: SX.etichetta }]);
+  // Titolo e sottotitolo, uniti su tutta la larghezza
+  nr++; sRighe.push(`<row r="${nr}" ht="34" customHeight="1">${cellaXlsx('A' + nr, 'SINTESI DELLA FLOTTA', SX.titolo)}${Array.from({ length: NCOL - 1 }, (_, i) => `<c r="${colonnaExcel(i + 1)}${nr}" s="${SX.titolo}"/>`).join('')}</row>`);
+  sMerge.push(`A${nr}:${colonnaExcel(NCOL - 1)}${nr}`);
+  nr++; sRighe.push(`<row r="${nr}" ht="20" customHeight="1">${cellaXlsx('A' + nr, 'Dati aggiornati al ' + fmtDate(todayISO()) + ' · le formule si ricalcolano da sole quando apri il file', SX.sottotitolo)}${Array.from({ length: NCOL - 1 }, (_, i) => `<c r="${colonnaExcel(i + 1)}${nr}" s="${SX.sottotitolo}"/>`).join('')}</row>`);
+  sMerge.push(`A${nr}:${colonnaExcel(NCOL - 1)}${nr}`);
   vuota();
 
-  // Riquadri: etichetta (riga 4), valore (riga 5), dettaglio (riga 6)
+  // Riquadri in tutta la larghezza: tre per riga, ciascuno su due colonne unite (etichetta, valore, dettaglio)
   const tiles = [
     { etic: 'Mezzi in flotta', f: `COUNTA(${rR('Targa')})`, dxf: null },
     { etic: 'Scadenze scadute', f: `COUNTIF(${rR('Stato scadenze')},"Scaduta")`, dxf: 0 },
@@ -2769,33 +2797,54 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     { etic: 'Treni da acquistare', f: `COUNTA(${rR('Da acquistare')})`, dxf: 1 },
   ];
   const dettaglioTreni = `"priorità alta: "&COUNTIF(${rR('Da acquistare')},"ALTA*")&" · estivi: "&COUNTIF(${rR('Da acquistare')},"*estivo*")&" · invernali: "&COUNTIF(${rR('Da acquistare')},"*invernale*")`;
-  riga(tiles.map(t => ({ testo: t.etic, stile: SX.tileLabel })), 32);
-  riga(tiles.map(t => ({ formula: t.f, stile: SX.tileValue })), 38);
-  tiles.forEach((t, i) => { if (t.dxf !== null) cf(`${colonnaExcel(i)}5`, `${colonnaExcel(i)}5>0`, t.dxf); });
-  riga(tiles.map((t, i) => (i === 5 ? { formula: dettaglioTreni, stile: SX.etichetta } : { testo: '', stile: SX.etichetta })), 20);
+  const tileCols = [0, 3, 6]; // tre riquadri per riga, ciascuno su tre colonne
+  [0, 3].forEach(riga0 => {
+    const gruppo = tiles.slice(riga0 === 0 ? 0 : 3, riga0 === 0 ? 3 : 6);
+    const cel1 = []; const cel2 = []; const cel3 = [];
+    for (let c = 0; c < NCOL; c++) {
+      const k = tileCols.findIndex((st, idx) => c >= st && c < (tileCols[idx + 1] || NCOL));
+      const t = gruppo[k];
+      const primaDelGruppo = c === (tileCols[k]);
+      cel1.push(primaDelGruppo ? { testo: t.etic, stile: SX.tileLabel } : { testo: '', stile: SX.tileLabel });
+      cel2.push(primaDelGruppo ? { formula: t.f, stile: SX.tileValue } : { testo: '', stile: SX.tileValue });
+      cel3.push(primaDelGruppo && riga0 === 3 && k === 2 ? { formula: dettaglioTreni, stile: SX.tileDetail } : { testo: '', stile: SX.tileDetail });
+    }
+    const rEt = riga(cel1, 30);
+    const rVal = riga(cel2, 40);
+    const rDet = riga(cel3, 20);
+    gruppo.forEach((t, k) => {
+      const colonna = colonnaExcel(tileCols[k]);
+      sMerge.push(`${colonna}${rEt}:${colonnaExcel((tileCols[k + 1] || NCOL) - 1)}${rEt}`);
+      sMerge.push(`${colonna}${rVal}:${colonnaExcel((tileCols[k + 1] || NCOL) - 1)}${rVal}`);
+      sMerge.push(`${colonna}${rDet}:${colonnaExcel((tileCols[k + 1] || NCOL) - 1)}${rDet}`);
+      if (t.dxf !== null) cf(`${colonna}${rVal}`, `${colonna}${rVal}>0`, t.dxf);
+    });
+  });
   vuota();
 
-  // Semaforo: i mezzi ordinati per urgenza (prima le scadenze più vicine o già scadute), con data leggibile
+  // Semaforo: i mezzi ordinati per urgenza
+  banda(['Stato della flotta · semaforo per mezzo'], SX.sezione, 24);
   const intestazioniSem = ['Veicolo', 'Targa', 'Stato scadenze', 'Prossima scadenza', 'Cosa scade', 'Scadenze da fare', 'Interventi', 'Lavaggio', 'Acquisto gomme'];
   riga(intestazioniSem.map(h => ({ testo: h, stile: SX.sezione })), 24);
-  if (!lista.length) riga([{ testo: 'Nessun mezzo in flotta', stile: SX.etichetta }]);
-  const ordinati = lista.map((v, i) => ({ v, i, an: analisi(v) }))
+  if (!lista.length) banda(['Nessun mezzo in flotta'], SX.testo, 20);
+  const ordinati = lista.map((v, i) => ({ v, i, an: analisi(v), acq: prioritaAcquisto(v) }))
     .sort((x, y) => (x.an.dataProssima || '9999') < (y.an.dataProssima || '9999') ? -1 : (x.an.dataProssima || '9999') > (y.an.dataProssima || '9999') ? 1 : 0);
-  ordinati.forEach(({ v, i, an }) => {
+  ordinati.forEach(({ v, i, an, acq }) => {
     const r = i + 2;
     const ref = (nome) => `Riepilogo!${colR(nome)}${r}`;
     const vuotoSe = (nome) => `IF(${ref(nome)}="","",${ref(nome)})`;
+    const acqTesto = acq ? `${acq.priorita.toUpperCase()}: set ${acq.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(acq.scadenza)}` : '';
     const nRiga = riga([
-      { formula: `IF(Riepilogo!A${r}="","",Riepilogo!A${r})`, stile: SX.etichetta },
-      { formula: `IF(Riepilogo!B${r}="","",Riepilogo!B${r})`, stile: SX.etichetta },
+      { formula: `IF(Riepilogo!A${r}="","",Riepilogo!A${r})`, stile: SX.testo },
+      { formula: `IF(Riepilogo!B${r}="","",Riepilogo!B${r})`, stile: SX.valore },
       { formula: vuotoSe('Stato scadenze'), stile: SX.valore },
-      { formula: `IF(${ref('Scadenza più vicina (data · nome)')}="","",${ref('Scadenza più vicina (data · nome)')})`, stile: 2 },
-      { testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.etichetta },
+      { formula: `IF(${ref('Scadenza più vicina (data · nome)')}="","",${ref('Scadenza più vicina (data · nome)')})`, stile: SX.dataV },
+      { testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.testo },
       { formula: vuotoSe('Scadenze da fare'), stile: SX.valore },
       { formula: vuotoSe('Interventi da realizzare'), stile: SX.valore },
       { formula: vuotoSe('Lavaggio da fare'), stile: SX.valore },
-      { formula: vuotoSe('Da acquistare'), stile: SX.etichetta },
-    ], 20);
+      { formula: vuotoSe('Da acquistare'), stile: SX.testo },
+    ], Math.max(22, 15 * Math.max(altezzaTesto(acqTesto, WID[8]), altezzaTesto(an.prossima, WID[4])) + 8));
     cf(`C${nRiga}`, `C${nRiga}="Scaduta"`, 0);
     cf(`C${nRiga}`, `C${nRiga}="In scadenza"`, 1);
     cf(`C${nRiga}`, `C${nRiga}="OK"`, 3);
@@ -2811,27 +2860,34 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   vuota();
 
   // Scadenze per tipo: quante scadute e quante entro 45 giorni
-  riga([{ testo: 'Scadenze per tipo', stile: SX.sezione }, { testo: 'Scadute', stile: SX.sezione }, { testo: 'Entro 45 giorni', stile: SX.sezione }], 22);
+  banda(['Scadenze per tipo'], SX.sezione, 24);
+  riga([{ testo: 'Tipo', stile: SX.sezione }, { testo: 'Scadute', stile: SX.sezione }, { testo: 'Entro 45 giorni', stile: SX.sezione }], 22);
   ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)'].forEach(nome => {
     const r = riga([
-      { testo: nome, stile: SX.etichetta },
+      { testo: nome, stile: SX.testo },
       { formula: `COUNTIFS(${rS(nome)},"<"&TODAY())`, stile: SX.valore },
       { formula: `COUNTIFS(${rS(nome)},">="&TODAY(),${rS(nome)},"<="&TODAY()+45)`, stile: SX.valore },
-    ]);
+    ], 22);
     cf(`B${r}`, `B${r}>0`, 0);
     cf(`C${r}`, `C${r}>0`, 1);
   });
   vuota();
-  riga([{ testo: 'Legenda', stile: SX.sezione }]);
-  cf(`A${riga([{ testo: 'Rosso: da intervenire subito', stile: SX.etichetta }])}`, 'TRUE', 0);
-  cf(`A${riga([{ testo: 'Giallo: da controllare entro 45 giorni', stile: SX.etichetta }])}`, 'TRUE', 1);
-  cf(`A${riga([{ testo: 'Verde: in regola', stile: SX.etichetta }])}`, 'TRUE', 3);
+
+  // Legenda: tre righe unite su tutta la larghezza, colorate
+  banda(['Legenda'], SX.sezione, 24);
+  [['Rosso: da intervenire subito', 0], ['Giallo: da controllare entro 45 giorni', 1], ['Verde: in regola', 3]].forEach(([testo, dxf]) => {
+    const r = banda([testo], SX.testo, 22);
+    sMerge.push(`A${r}:${colonnaExcel(NCOL - 1)}${r}`);
+    cf(`A${r}`, 'TRUE', dxf);
+  });
 
   let prioS = 1;
   const cfXml = sCf.map(([ref, formula, dxf]) => `<conditionalFormatting sqref="${ref}"><cfRule type="expression" dxfId="${dxf}" priority="${prioS++}" stopIfTrue="1"><formula>${xmlEsc(formula)}</formula></cfRule></conditionalFormatting>`).join('');
-  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews><cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="2" width="13" customWidth="1"/><col min="3" max="3" width="16" customWidth="1"/><col min="4" max="4" width="16" customWidth="1"/><col min="5" max="5" width="28" customWidth="1"/><col min="6" max="6" width="14" customWidth="1"/><col min="7" max="7" width="13" customWidth="1"/><col min="8" max="8" width="12" customWidth="1"/><col min="9" max="9" width="24" customWidth="1"/></cols><sheetData>${sRighe.join('')}</sheetData>${cfXml}</worksheet>`;
+  const colsXml = `<cols>${WID.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
+  const mergeXml = sMerge.length ? `<mergeCells count="${sMerge.length}">${sMerge.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
+  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>${colsXml}<sheetData>${sRighe.join('')}</sheetData>${mergeXml}${cfXml}</worksheet>`;
 
-  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="5"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="12"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="18"/><color rgb="FF25454F"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${15 + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="5"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="12"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="18"/><color rgb="FF25454F"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9DEE0"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${9 + NSINT + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
   const nomiFogli = ['Sintesi', ...fogli.map(f => f.nome)];
   const sheetsXml = nomiFogli.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
   const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i + 1}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
