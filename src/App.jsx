@@ -2551,7 +2551,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const vicine = voci.filter(x => x.g >= 0 && x.g <= 45);
     const prossima = voci.filter(x => x.d).sort((a, b) => a.g - b.g)[0];
     return {
-      stato: scadute.length ? 'Scaduta' : vicine.length ? 'In scadenza' : 'OK',
+      stato: scadute.length ? 'Fuori termine' : vicine.length ? 'In scadenza' : 'OK',
       prossima: prossima ? `${prossima.l} · ${fmtDate(prossima.d)}` : '—',
       daFare: scadute.length + vicine.length,
       dataProssima: prossima ? prossima.d : null,
@@ -2576,7 +2576,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
   });
   const regoleRiep = [
-    ['Stato scadenze', [['{c}2="Scaduta"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
+    ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
     ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
     ['Da controllare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
@@ -2793,7 +2793,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Riquadri: tre per riga, ciascuno su tre colonne unite; etichetta, valore e dettaglio
   const riquadri = [
     { etic: 'Mezzi in flotta', f: `COUNTA(${rR('Targa')})`, dxf: null },
-    { etic: 'Scadute', f: `COUNTIF(${rR('Stato scadenze')},"Scaduta")`, dxf: 0 },
+    { etic: 'Fuori termine', f: `COUNTIF(${rR('Stato scadenze')},"Fuori termine")`, dxf: 0 },
     { etic: 'In scadenza entro 45 giorni', f: `COUNTIF(${rR('Stato scadenze')},"In scadenza")`, dxf: 1 },
     { etic: 'Interventi aperti', f: `SUM(${rR('Interventi da realizzare')})`, dxf: 1 },
     { etic: 'Lavaggi da fare', f: `COUNTIF(${rR('Lavaggio da fare')},"SÌ")`, dxf: 1 },
@@ -2833,7 +2833,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       { da: 7, a: 7, formula: vuotoSe('Lavaggio da fare'), stile: SX.valore },
       { da: 8, a: 8, formula: vuotoSe('Da acquistare'), stile: SX.testo },
     ], Math.max(22, 14 * Math.max(altezzaTesto(acqTesto, WID[0]), altezzaTesto(an.prossima, WID[0])) + 10));
-    cf(`C${nRiga}`, `C${nRiga}="Scaduta"`, 0);
+    cf(`C${nRiga}`, `C${nRiga}="Fuori termine"`, 0);
     cf(`C${nRiga}`, `C${nRiga}="In scadenza"`, 1);
     cf(`C${nRiga}`, `C${nRiga}="OK"`, 3);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}<TODAY())`, 0);
@@ -2849,7 +2849,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
 
   // Scadenze per tipo: scadute, in arrivo ed esito
   riga(tutta('Scadenze per tipo', SX.sezione), 22);
-  riga([{ da: 0, a: 2, testo: 'Tipo', stile: SX.sezione }, { da: 3, a: 4, testo: 'Scadute', stile: SX.sezione }, { da: 5, a: 6, testo: 'Entro 45 giorni', stile: SX.sezione }, { da: 7, a: 8, testo: 'Esito', stile: SX.sezione }], 22);
+  riga([{ da: 0, a: 2, testo: 'Tipo', stile: SX.sezione }, { da: 3, a: 4, testo: 'Fuori termine', stile: SX.sezione }, { da: 5, a: 6, testo: 'Entro 45 giorni', stile: SX.sezione }, { da: 7, a: 8, testo: 'Esito', stile: SX.sezione }], 22);
   ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)'].forEach(nome => {
     const r = nr + 1;
     riga([
@@ -3016,6 +3016,28 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   });
   return { problemi: out, lavaggio };
 }
+// Mini cruscotto del mezzo nell'elenco: scadenze (calendario), attività da fare (triangolo), lavaggio (goccia) e stato.
+function riepilogoMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
+  const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+  const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
+  const date = [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]];
+  const sd = scadenzaDistribuzione(v);
+  if (sd && sd.dataScad) date.push(['Kit distribuzione', sd.dataScad]);
+  ['anteriore', 'posteriore'].forEach(lato => { const t = v.gomme?.tergicristalli?.[lato]; if (t?.data) date.push(['Tergicristalli', aggiungiMesi(t.data, 12)]); });
+  (v.gomme?.scadenzeExtra || []).filter(x => x.data).forEach(x => date.push([x.nome, x.data]));
+  const cs = (maints || []).find(x => x.targa === v.targa && x.stato === 'Programmato' && (x.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(x.descrizione || ''));
+  if (cs && cs.appuntamento) date.push(['Cambio gomme', cs.appuntamento]);
+  let scadute = 0; let inScadenza = 0;
+  date.forEach(([, d]) => { const g = giorniDa(d); if (g < 0) scadute++; else if (g <= 45) inScadenza++; });
+  if (sd && sd.kmScad != null) { const km = Number(v.km || 0); if (km >= sd.kmScad) scadute++; else if (km >= sd.kmScad - 5000) inScadenza++; }
+  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !(x.descrizione || '').startsWith('Cambio gomme'));
+  let attivita = prog.length;
+  const ut = tagliandiDi(v, ricorrenti)[0];
+  if (!ut || giorniDa(aggiungiMesi(ut.data, 3)) <= 0) attivita++;
+  if (prioritaAcquisto(v, oggi)) attivita++;
+  const lavaggio = problemiMezzo(v, maints, ricorrenti, params, oggi).lavaggio;
+  return { scadute, inScadenza, attivita, lavaggio };
+}
 function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta, ricorrenti }) {
   const [q, setQ] = useState('');
   const filtered = vehicles.filter(v => `${v.marca} ${v.modello} ${v.targa}`.toLowerCase().includes(q.toLowerCase()));
@@ -3048,15 +3070,15 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                     <div style={{ fontWeight: 700, fontSize: 15.5, color: MEZZI_COLORS.ink, marginBottom: 6 }}>{v.gomme?.nominativo || `${v.marca} ${v.modello}`}</div>
                     <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                       <Plate targa={v.targa} size="sm" />
-                      {(() => { const pz = problemiMezzo(v, maints, ricorrenti, params); return (<>
-                        {pz.problemi.length > 0 && <span title={pz.problemi.map(p => p.testo).join(' · ')} style={{ display:'inline-flex', alignItems:'center', gap:3, color: pz.problemi.some(p => p.colore === 'rosso') ? '#C62828' : '#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{pz.problemi.length}</span>}
-                        {pz.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
+                      {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); return (<>
+                        {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" />{rm.scadute > 0 && <span style={{ color:'#C62828' }}>{rm.scadute}</span>}{rm.inScadenza > 0 && <span style={{ color:'#E65100' }}>{rm.inScadenza}</span>}</span>}
+                        {rm.attivita > 0 && <span title="Attività da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.attivita}</span>}
+                        {rm.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
                       </>); })()}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {u && <div style={{ marginBottom: 6 }}><Pill style={URGENCY_STYLE[u]}>{URGENCY_STYLE[u].label}</Pill></div>}
-                    <div style={{ fontSize: 11.5, color: MEZZI_COLORS.muted }}>{nInterventi} interventi</div>
+                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const st = rm.scadute > 0 ? ['Fuori termine', '#C62828'] : (rm.inScadenza > 0 || rm.attivita > 0) ? ['Da controllare', '#E65100'] : ['OK', '#1F6B45']; return <span style={{ display:'inline-block', padding:'3px 10px', borderRadius:999, background: st[1], color:'#fff', fontWeight:700, fontSize:12 }}>{st[0]}</span>; })()}
                   </div>
                   <ChevronRight size={18} color={MEZZI_COLORS.muted} />
                 </div>
@@ -8172,7 +8194,7 @@ function RiepilogoStrScreen({ camere, reparti, tecnici, interventi, manutenzioni
           <ClickableStatCard label="Fuori servizio" value={fuoriServizio} accent={fuoriServizio ? STR_COLORS.danger : STR_COLORS.ok} onClick={() => onOpenCamereConStato('Fuori Servizio')} disabled={!fuoriServizio} />
           <ClickableStatCard label="In manutenzione" value={inManutenzioneCamere} accent={inManutenzioneCamere ? STR_COLORS.amber : STR_COLORS.ok} onClick={() => onOpenCamereConStato('In Manutenzione')} disabled={!inManutenzioneCamere} />
           <ClickableStatCard label="Interventi aperti" value={aperti + inCorso} accent={(aperti + inCorso) ? STR_COLORS.danger : STR_COLORS.ok} onClick={() => onOpenInterventiConStato('Aperto')} disabled={!(aperti + inCorso)} />
-          <ClickableStatCard label="Scadute" value={scadute} accent={scadute ? STR_COLORS.danger : STR_COLORS.ok} onClick={onOpenScadenze} disabled={!scadute} />
+          <ClickableStatCard label="Fuori termine" value={scadute} accent={scadute ? STR_COLORS.danger : STR_COLORS.ok} onClick={onOpenScadenze} disabled={!scadute} />
           <ClickableStatCard label="In scadenza (7gg)" value={inScadenza} accent={inScadenza ? STR_COLORS.amber : STR_COLORS.ok} onClick={onOpenScadenze} disabled={!inScadenza} />
         </div>
         <div style={{ marginBottom: 6 }}>
