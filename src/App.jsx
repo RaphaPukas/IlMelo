@@ -2554,6 +2554,8 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       stato: scadute.length ? 'Scaduta' : vicine.length ? 'In scadenza' : 'OK',
       prossima: prossima ? `${prossima.l} · ${fmtDate(prossima.d)}` : '—',
       daFare: scadute.length + vicine.length,
+      dataProssima: prossima ? prossima.d : null,
+      etichetta: prossima ? prossima.l : null,
     };
   };
 
@@ -2561,22 +2563,24 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const colRiep = [
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
-    ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina', 's', 'scadenze'], ['Scadenze da fare', 'i', 'scadenze'],
-    ['Interventi da realizzare', 'i', 'interventi'], ['Da acquistare', 's', 'gomme'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'],
+    ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Scadenze da fare', 'i', 'scadenze'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio da fare', 's', 'interventi'], ['Da acquistare', 's', 'gomme'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'],
   ];
   const righeRiep = lista.map(v => {
     const an = analisi(v);
     const pr = prioritaAcquisto(v);
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
-      an.stato, an.prossima, an.daFare, contaInterventi(mts.filter(x => x.targa === v.targa)),
+      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, an.daFare, contaInterventi(mts.filter(x => x.targa === v.targa)), problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
       pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null,
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Scaduta"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
+    ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
     ['Scadenze da fare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Lavaggio da fare', [['{c}2="SÌ"', 1]]],
     ['Da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
     ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+45)', 1]]],
     ['Km aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
@@ -2693,6 +2697,13 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
 
   const enc = new TextEncoder();
   const stiliHdr = { mezzo: 1, scadenze: 5, gomme: 6, interventi: 7, tagliandi: 8 };
+  // Data che mostra anche il nome della scadenza: il valore resta una data (si ordina per data), il formato aggiunge il nome.
+  const formatiData = {};
+  const styleDi = (etichetta) => {
+    if (!etichetta) return 2;
+    if (!formatiData[etichetta]) { const n = Object.keys(formatiData).length; formatiData[etichetta] = { xf: 9 + n, fmtId: 166 + n, codice: `dd/mm/yyyy" · ${etichetta}"` }; }
+    return formatiData[etichetta].xf;
+  };
   const xmlFoglio = (f) => {
     const n = f.col.length;
     const ultimaCol = colonnaExcel(n - 1);
@@ -2701,10 +2712,10 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const stile = (t) => (t === 'd' ? 2 : t === 'n1' ? 3 : t === 'i' ? 4 : 0);
     const righeXml = [
       `<row r="1">${f.col.map((c, i) => cellaXlsx(colonnaExcel(i) + '1', c[0], stiliHdr[c[2]] || 1)).join('')}</row>`,
-      ...f.righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => cellaXlsx(colonnaExcel(i) + (k + 2), val, stile(f.col[i][1]))).join('')}</row>`),
+      ...f.righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => (val && typeof val === 'object' && 'serial' in val) ? cellaXlsx(colonnaExcel(i) + (k + 2), val.serial, styleDi(val.fmt)) : cellaXlsx(colonnaExcel(i) + (k + 2), val, stile(f.col[i][1]))).join('')}</row>`),
     ].join('');
     const larg = f.col.map((c, i) => {
-      const lung = f.righe.map(r => { const val = r[i]; if (val === null || val === undefined || val === '') return 0; if (f.col[i][1] === 'd' && typeof val === 'number') return 10; return String(val).length; });
+      const lung = f.righe.map(r => { const val = r[i]; if (val && typeof val === 'object' && 'serial' in val) return 13 + String(val.fmt || '').length; if (val === null || val === undefined || val === '') return 0; if (f.col[i][1] === 'd' && typeof val === 'number') return 10; return String(val).length; });
       return Math.min(Math.max(Math.min(c[0].length, 18), ...lung, 8) + 3, 40);
     });
     const cols = `<cols>${larg.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
@@ -2722,21 +2733,67 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   };
   const pezzi = fogli.map(xmlFoglio);
 
-  // Foglio Sintesi: indicatori calcolati con formule sul Riepilogo e sulle Gomme
-  const letteraDi = (col, nome) => colonnaExcel(col.findIndex(c => c[0] === nome));
-  const sint = [
-    ['Mezzi in flotta', `COUNTA(Riepilogo!B2:B500)`],
-    ['Mezzi con scadenze scadute', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Stato scadenze')}2:${letteraDi(colRiep, 'Stato scadenze')}500,"Scaduta")`],
-    ['Mezzi con scadenze in arrivo (45 giorni)', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Stato scadenze')}2:${letteraDi(colRiep, 'Stato scadenze')}500,"In scadenza")`],
-    ['Interventi da realizzare', `SUM(Riepilogo!${letteraDi(colRiep, 'Interventi da realizzare')}2:${letteraDi(colRiep, 'Interventi da realizzare')}500)`],
-    ['Acquisti di gomme con priorità alta', `COUNTIF(Riepilogo!${letteraDi(colRiep, 'Da acquistare')}2:${letteraDi(colRiep, 'Da acquistare')}500,"ALTA*")`],
-    ['Treni di gomme non uniformi', `COUNTIF(Gomme!${letteraDi(colGomme, 'Treno non uniforme')}2:${letteraDi(colGomme, 'Treno non uniforme')}500,"SÌ")`],
-  ];
-  const sintRighe = [`<row r="1">${cellaXlsx('A1', 'Indicatore', 1)}${cellaXlsx('B1', 'Valore', 1)}</row>`,
-    ...sint.map(([etic, f], k) => `<row r="${k + 2}">${cellaXlsx('A' + (k + 2), etic, 0)}<c r="B${k + 2}" s="0"><f>${xmlEsc(f)}</f></c></row>`)].join('');
-  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><cols><col min="1" max="1" width="44" customWidth="1"/><col min="2" max="2" width="14" customWidth="1"/></cols><sheetData>${sintRighe}</sheetData></worksheet>`;
+  // Foglio Sintesi: cruscotto con indicatori a formula, sezioni e colori di allarme
+  const rR = (nome) => `Riepilogo!${colonnaExcel(colRiep.findIndex(c => c[0] === nome))}2:${colonnaExcel(colRiep.findIndex(c => c[0] === nome))}500`;
+  const rS = (nome) => `Scadenze!${colonnaExcel(colScad.findIndex(c => c[0] === nome))}2:${colonnaExcel(colScad.findIndex(c => c[0] === nome))}500`;
+  const rG = (nome) => `Gomme!${colonnaExcel(colGomme.findIndex(c => c[0] === nome))}2:${colonnaExcel(colGomme.findIndex(c => c[0] === nome))}500`;
+  const xfBase = 9 + Object.keys(formatiData).length;
+  const SX = { titolo: xfBase, etichetta: xfBase + 1, valore: xfBase + 2, sezione: xfBase + 3 };
+  const xfSintesi = `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>`;
+  const sRighe = [];
+  const sCf = [];
+  let nr = 0;
+  const riga = (celle) => {
+    nr++;
+    const xml = celle.map((c, i) => {
+      const ref = colonnaExcel(i) + nr;
+      return c.formula !== undefined ? `<c r="${ref}" s="${c.stile}"><f>${xmlEsc(c.formula)}</f></c>` : cellaXlsx(ref, c.testo, c.stile);
+    }).join('');
+    sRighe.push(`<row r="${nr}" ht="${celle.some(c => c.stile === SX.titolo) ? 26 : 20}" customHeight="1">${xml}</row>`);
+    return nr;
+  };
+  const vuota = () => { nr++; };
+  // Indicatore con valore a formula e colore di allarme quando il valore è maggiore di zero
+  const indicatore = (etichetta, formula, dxf) => {
+    const r = riga([{ testo: etichetta, stile: SX.etichetta }, { formula, stile: SX.valore }]);
+    if (dxf !== null) sCf.push([`B${r}`, `B${r}>0`, dxf]);
+  };
 
-  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  riga([{ testo: 'SINTESI DELLA FLOTTA', stile: SX.titolo }]);
+  riga([{ testo: 'Dati aggiornati al ' + fmtDate(todayISO()) + ' · i valori si ricalcolano da soli quando apri il file', stile: SX.etichetta }]);
+  vuota();
+  riga([{ testo: 'Stato della flotta', stile: SX.sezione }, { testo: 'Valore', stile: SX.sezione }]);
+  indicatore('Mezzi in flotta', `COUNTA(${rR('Targa')})`, null);
+  indicatore('Mezzi con scadenze scadute', `COUNTIF(${rR('Stato scadenze')},"Scaduta")`, 0);
+  indicatore('Mezzi con scadenze entro 45 giorni', `COUNTIF(${rR('Stato scadenze')},"In scadenza")`, 1);
+  indicatore('Mezzi in regola', `COUNTIF(${rR('Stato scadenze')},"OK")`, 3);
+  indicatore('Interventi da realizzare', `SUM(${rR('Interventi da realizzare')})`, 1);
+  indicatore('Mezzi con lavaggio da fare', `COUNTIF(${rR('Lavaggio da fare')},"SÌ")`, 1);
+  indicatore('Tagliandini trimestrali in ritardo', `COUNTIFS(${rR('Prossimo tagliandino trimestrale')},"<"&TODAY())`, 0);
+  indicatore('Treni di gomme non uniformi', `COUNTIF(${rG('Treno non uniforme')},"SÌ")`, 1);
+  indicatore('Gomme da acquistare · priorità alta', `COUNTIF(${rR('Da acquistare')},"ALTA*")`, 0);
+  indicatore('Gomme da acquistare · altra priorità', `COUNTA(${rR('Da acquistare')})-COUNTIF(${rR('Da acquistare')},"ALTA*")`, 1);
+  vuota();
+  riga([{ testo: 'Scadenze per tipo', stile: SX.sezione }, { testo: 'Scadute', stile: SX.sezione }, { testo: 'Entro 45 giorni', stile: SX.sezione }]);
+  ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)'].forEach(nome => {
+    const r = riga([
+      { testo: nome, stile: SX.etichetta },
+      { formula: `COUNTIFS(${rS(nome)},"<"&TODAY())`, stile: SX.valore },
+      { formula: `COUNTIFS(${rS(nome)},">="&TODAY(),${rS(nome)},"<="&TODAY()+45)`, stile: SX.valore },
+    ]);
+    sCf.push([`B${r}`, `B${r}>0`, 0]);
+    sCf.push([`C${r}`, `C${r}>0`, 1]);
+  });
+  vuota();
+  riga([{ testo: 'Legenda', stile: SX.sezione }]);
+  sCf.push([`A${riga([{ testo: 'Rosso: da intervenire subito', stile: SX.etichetta }])}`, 'TRUE', 0]);
+  sCf.push([`A${riga([{ testo: 'Giallo: da controllare entro 45 giorni', stile: SX.etichetta }])}`, 'TRUE', 1]);
+  sCf.push([`A${riga([{ testo: 'Verde: in regola', stile: SX.etichetta }])}`, 'TRUE', 3]);
+  let prioS = 1;
+  const cfXml = sCf.map(([ref, formula, dxf]) => `<conditionalFormatting sqref="${ref}"><cfRule type="expression" dxfId="${dxf}" priority="${prioS++}" stopIfTrue="1"><formula>${xmlEsc(formula)}</formula></cfRule></conditionalFormatting>`).join('');
+  const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews><cols><col min="1" max="1" width="50" customWidth="1"/><col min="2" max="2" width="18" customWidth="1"/><col min="3" max="3" width="20" customWidth="1"/></cols><sheetData>${sRighe.join('')}</sheetData>${cfXml}</worksheet>`;
+
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="4"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="12"/><color rgb="FF212823"/><name val="Arial"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${13 + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="4"><dxf><font><b/><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFC62828"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFB15C00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBE3C7"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf></dxfs></styleSheet>`;
   const nomiFogli = ['Sintesi', ...fogli.map(f => f.nome)];
   const sheetsXml = nomiFogli.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
   const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i + 1}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
