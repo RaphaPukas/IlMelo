@@ -3006,7 +3006,7 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
     const g = giorniDa(prossimo);
     if (g <= 0) out.push({ testo: `Tagliandino trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
   }
-  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !(x.descrizione || '').startsWith('Cambio gomme'));
+  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
   prog.forEach(m => out.push({ testo: `${m.descrizione || m.tipo || 'Intervento'}${m.appuntamento ? ' · ' + fmtDate(m.appuntamento) : ''}`, colore: 'arancio' }));
   const oggiISO = [base.getFullYear(), String(base.getMonth() + 1).padStart(2, '0'), String(base.getDate()).padStart(2, '0')].join('-');
   const lavaggio = (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').some(r => {
@@ -3030,13 +3030,10 @@ function riepilogoMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   let scadute = 0; let inScadenza = 0;
   date.forEach(([, d]) => { const g = giorniDa(d); if (g < 0) scadute++; else if (g <= 45) inScadenza++; });
   if (sd && sd.kmScad != null) { const km = Number(v.km || 0); if (km >= sd.kmScad) scadute++; else if (km >= sd.kmScad - 5000) inScadenza++; }
-  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !(x.descrizione || '').startsWith('Cambio gomme'));
-  let attivita = prog.length;
-  const ut = tagliandiDi(v, ricorrenti)[0];
-  if (!ut || giorniDa(aggiungiMesi(ut.data, 3)) <= 0) attivita++;
-  if (prioritaAcquisto(v, oggi)) attivita++;
+  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
+  const interventi = prog.length;
   const lavaggio = problemiMezzo(v, maints, ricorrenti, params, oggi).lavaggio;
-  return { scadute, inScadenza, attivita, lavaggio };
+  return { scadute, inScadenza, interventi, lavaggio };
 }
 function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta, ricorrenti }) {
   const [q, setQ] = useState('');
@@ -3068,17 +3065,17 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 15.5, color: MEZZI_COLORS.ink, marginBottom: 6 }}>{v.gomme?.nominativo || `${v.marca} ${v.modello}`}</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
                       <Plate targa={v.targa} size="sm" />
                       {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); return (<>
                         {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" />{rm.scadute > 0 && <span style={{ color:'#C62828' }}>{rm.scadute}</span>}{rm.inScadenza > 0 && <span style={{ color:'#E65100' }}>{rm.inScadenza}</span>}</span>}
-                        {rm.attivita > 0 && <span title="Attività da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.attivita}</span>}
+                        {rm.interventi > 0 && <span title="Interventi da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#E65100', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.interventi}</span>}
                         {rm.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
                       </>); })()}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const st = rm.scadute > 0 ? ['Fuori termine', '#C62828'] : (rm.inScadenza > 0 || rm.attivita > 0) ? ['Da controllare', '#E65100'] : ['OK', '#1F6B45']; return <span style={{ display:'inline-block', padding:'3px 10px', borderRadius:999, background: st[1], color:'#fff', fontWeight:700, fontSize:12 }}>{st[0]}</span>; })()}
+                    {u && <div style={{ marginBottom: 6 }}><Pill style={URGENCY_STYLE[u]}>{URGENCY_STYLE[u].label}</Pill></div>}
                   </div>
                   <ChevronRight size={18} color={MEZZI_COLORS.muted} />
                 </div>
