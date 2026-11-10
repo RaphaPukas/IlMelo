@@ -3064,7 +3064,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const st = rm.scadute > 0 ? ['Fuori termine', '#C62828'] : rm.inScadenza > 0 ? ['In scadenza', '#E65100'] : ['OK', '#1F6B45']; return <div style={{ marginBottom: 6 }}><span style={{ display:'inline-block', padding:'3px 10px', borderRadius:999, background: st[1], color:'#fff', fontWeight:700, fontSize:12 }}>{st[0]}</span></div>; })()}
+                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const cerchio = (colore, n) => <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:22, height:22, borderRadius:'50%', background: colore, color:'#fff', fontWeight:700, fontSize:11 }}>{n}</span>; return <div style={{ marginBottom: 6 }}>{rm.scadute > 0 ? cerchio('#C62828', rm.scadute) : rm.inScadenza > 0 ? cerchio('#E65100', rm.inScadenza) : <span style={{ fontWeight:700, fontSize:12, color:'#1F6B45' }}>OK</span>}</div>; })()}
                   </div>
                   <ChevronRight size={18} color={MEZZI_COLORS.muted} />
                 </div>
