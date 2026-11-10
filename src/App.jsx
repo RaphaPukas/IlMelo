@@ -2571,7 +2571,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const pr = prioritaAcquisto(v);
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
-      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, an.daFare, contaInterventi(mts.filter(x => x.targa === v.targa)), problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
+      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, an.daFare, riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
       pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null,
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
   });
@@ -2997,43 +2997,32 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   const pr = prioritaAcquisto(v, oggi);
   if (pr) {
     const nome = pr.set === 'estivi' ? 'estivo' : 'invernale';
-    out.push({ testo: `Acquistare set ${nome}`, colore: pr.priorita === 'alta' ? 'rosso' : 'arancio' });
+    out.push({ tipo: 'intervento', testo: `Acquistare set ${nome}`, colore: pr.priorita === 'alta' ? 'rosso' : 'arancio' });
   }
   const ut = tagliandiDi(v, ricorrenti)[0];
-  if (!ut) out.push({ testo: 'Tagliandino trimestrale mai registrato', colore: 'arancio' });
+  if (!ut) out.push({ tipo: 'intervento', testo: 'Tagliandino trimestrale mai registrato', colore: 'arancio' });
   else {
     const prossimo = aggiungiMesi(ut.data, 3);
     const g = giorniDa(prossimo);
-    if (g <= 0) out.push({ testo: `Tagliandino trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
+    if (g <= 0) out.push({ tipo: 'intervento', testo: `Tagliandino trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
   }
   const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
-  prog.forEach(m => out.push({ testo: `${m.descrizione || m.tipo || 'Intervento'}${m.appuntamento ? ' · ' + fmtDate(m.appuntamento) : ''}`, colore: 'arancio' }));
+  prog.forEach(m => out.push({ tipo: 'intervento', testo: `${m.descrizione || m.tipo || 'Intervento'}${m.appuntamento ? ' · ' + fmtDate(m.appuntamento) : ''}`, colore: 'arancio' }));
   const oggiISO = [base.getFullYear(), String(base.getMonth() + 1).padStart(2, '0'), String(base.getDate()).padStart(2, '0')].join('-');
   const lavaggio = (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').some(r => {
     const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
     if (!fatte[0]) return true;
     return calcProssima(fatte[0], r.frequenza) <= oggiISO;
   });
-  return { problemi: out, lavaggio };
+  return { problemi: out.map(p => ({ tipo: 'scadenza', ...p })), lavaggio };
 }
 // Mini cruscotto del mezzo nell'elenco: scadenze (calendario), attività da fare (triangolo), lavaggio (goccia) e stato.
 function riepilogoMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
-  const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
-  const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
-  const date = [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]];
-  const sd = scadenzaDistribuzione(v);
-  if (sd && sd.dataScad) date.push(['Kit distribuzione', sd.dataScad]);
-  ['anteriore', 'posteriore'].forEach(lato => { const t = v.gomme?.tergicristalli?.[lato]; if (t?.data) date.push(['Tergicristalli', aggiungiMesi(t.data, 12)]); });
-  (v.gomme?.scadenzeExtra || []).filter(x => x.data).forEach(x => date.push([x.nome, x.data]));
-  const cs = (maints || []).find(x => x.targa === v.targa && x.stato === 'Programmato' && (x.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(x.descrizione || ''));
-  if (cs && cs.appuntamento) date.push(['Cambio gomme', cs.appuntamento]);
-  let scadute = 0; let inScadenza = 0;
-  date.forEach(([, d]) => { const g = giorniDa(d); if (g < 0) scadute++; else if (g <= 45) inScadenza++; });
-  if (sd && sd.kmScad != null) { const km = Number(v.km || 0); if (km >= sd.kmScad) scadute++; else if (km >= sd.kmScad - 5000) inScadenza++; }
-  const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
-  const interventi = prog.length;
-  const lavaggio = problemiMezzo(v, maints, ricorrenti, params, oggi).lavaggio;
-  return { scadute, inScadenza, interventi, lavaggio };
+  const pz = problemiMezzo(v, maints, ricorrenti, params, oggi);
+  const scadute = pz.problemi.filter(p => p.tipo === 'scadenza' && p.colore === 'rosso').length;
+  const inScadenza = pz.problemi.filter(p => p.tipo === 'scadenza' && p.colore === 'arancio').length;
+  const interventi = pz.problemi.filter(p => p.tipo === 'intervento').length;
+  return { scadute, inScadenza, interventi, lavaggio: pz.lavaggio };
 }
 function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome, onEsporta, ricorrenti }) {
   const [q, setQ] = useState('');
@@ -3075,7 +3064,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {u && <div style={{ marginBottom: 6 }}><Pill style={URGENCY_STYLE[u]}>{URGENCY_STYLE[u].label}</Pill></div>}
+                    {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); const st = rm.scadute > 0 ? ['Fuori termine', '#C62828'] : rm.inScadenza > 0 ? ['In scadenza', '#E65100'] : ['OK', '#1F6B45']; return <div style={{ marginBottom: 6 }}><span style={{ display:'inline-block', padding:'3px 10px', borderRadius:999, background: st[1], color:'#fff', fontWeight:700, fontSize:12 }}>{st[0]}</span></div>; })()}
                   </div>
                   <ChevronRight size={18} color={MEZZI_COLORS.muted} />
                 </div>
