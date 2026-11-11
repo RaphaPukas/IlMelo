@@ -2739,9 +2739,9 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const xfSintesi = [
     `<xf numFmtId="0" fontId="5" fillId="7" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('left', false)}</xf>`,
-    `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('centerContinuous')}</xf>`,
-    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('centerContinuous')}</xf>`,
-    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('centerContinuous')}</xf>`,
+    `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('center')}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('center')}</xf>`,
     `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('left', true)}</xf>`,
     `<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1">${al('left', true)}</xf>`,
     `<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1">${al('left', true)}</xf>`,
@@ -2804,7 +2804,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const dettaglioTreni = `"Priorità alta: "&COUNTIF(${rR('Pneumatici da acquistare')},"ALTA*")&" · Estivi: "&COUNTIF(${rR('Pneumatici da acquistare')},"*estivo*")&" · Invernali: "&COUNTIF(${rR('Pneumatici da acquistare')},"*invernale*")`;
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
-    const segm = (k) => ({ da: k * 3, a: k * 3 + 2, senzaUnione: true });
+    const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
     const rEt = riga(gruppo.map((t, k) => ({ ...segm(k), testo: t.etic, stile: SX.tileLabel })), 26);
     const rVal = riga(gruppo.map((t, k) => ({ ...segm(k), formula: t.f, stile: SX.tileValue })), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
@@ -2874,8 +2874,8 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Legenda
   riga(tutta('Legenda', SX.sezioneGrande), 26);
   [['Rosso: intervenire subito', 0], ['Giallo: controllare entro 45 giorni', 4], ['Verde: in regola', 3]].forEach(([testo, dxf]) => {
-    const r = riga([{ ...tutta(testo, SX.testo)[0], senzaUnione: true }], 20);
-    cf(`A${r}:I${r}`, 'TRUE', dxf);
+    const r = riga(tutta(testo, SX.testo), 20);
+    cf(`A${r}`, 'TRUE', dxf);
   });
 
   let prioS = 1;
