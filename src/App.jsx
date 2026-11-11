@@ -2298,40 +2298,28 @@ const TIPI_GOMME = ['Invernali', 'Estive', 'Quattro stagioni'];
 function alertGomme(tipologiaGomme) {
   if (tipologiaGomme === 'Quattro stagioni') return null;
   const now = new Date();
-  const mese = now.getMonth() + 1; // 1-12
-  const giorno = now.getDate();
-
-  // Calcolo "giorno dell'anno" semplificato: usiamo mese*100+giorno per comparazioni semplici
-  const md = mese * 100 + giorno;
-
-  // Periodi cambio:
-  //   Estive (A -> verso invernali): giallo 1015-1115, rosso 1116-0414
-  //   Invernali (B -> verso estive): giallo 0415-0515, rosso 0516-1014
-
-  const gialloInvernali = (md >= 1015 && md <= 1115);
-  const rossoInvernali  = (md >= 1116 || md <= 414); // novembre 16 -> aprile 14
-  const gialloEstive    = (md >= 415 && md <= 515);
-  const rossoEstive     = (md >= 516 && md <= 1014);
-
-  if (tipologiaGomme === 'Invernali') {
-    // Montate invernali: non avvisare di montare invernali (A)
-    // Avvisare di montare estive (B)
-    if (gialloEstive) return { tipo: 'estive', livello: 'giallo', testo: 'Montare gomme estive' };
-    if (rossoEstive)  return { tipo: 'estive', livello: 'rosso',  testo: 'Montare gomme estive' };
-    return null;
+  const md = (now.getMonth() + 1) * 100 + now.getDate();
+  // Autunno: giallo 16-30 ottobre, arancione 31 ottobre-14 novembre, rosso dal 15 novembre (obbligo) finché montate le estive.
+  // Primavera: giallo 1-15 aprile, arancione 16-30 aprile, rosso dal 1 maggio finché montate le invernali.
+  const gialloInv    = (md >= 1016 && md <= 1030);
+  const arancioneInv = (md >= 1031 && md <= 1114);
+  const rossoInv     = (md >= 1115 || md <= 414);
+  const gialloEst    = (md >= 401 && md <= 415);
+  const arancioneEst = (md >= 416 && md <= 430);
+  const rossoEst     = (md >= 501 && md <= 1014);
+  const avviso = (tipo, livello, testo) => ({ tipo, livello, testo });
+  const estive = tipologiaGomme === 'Estive';
+  const invernali = tipologiaGomme === 'Invernali';
+  if (estive || !invernali) {
+    if (arancioneInv) return avviso('invernali', 'arancione', 'Montare pneumatici invernali!');
+    if (gialloInv)    return avviso('invernali', 'giallo', 'Prenota cambio stagionale!');
+    if (rossoInv)     return avviso('invernali', 'rosso', 'Montare pneumatici invernali');
   }
-  if (tipologiaGomme === 'Estive') {
-    // Montate estive: non avvisare di montare estive (B)
-    // Avvisare di montare invernali (A)
-    if (gialloInvernali) return { tipo: 'invernali', livello: 'giallo', testo: 'Montare gomme invernali' };
-    if (rossoInvernali)  return { tipo: 'invernali', livello: 'rosso',  testo: 'Montare gomme invernali' };
-    return null;
+  if (invernali || !estive) {
+    if (arancioneEst) return avviso('estive', 'arancione', 'Montare pneumatici estivi!');
+    if (gialloEst)    return avviso('estive', 'giallo', 'Prenota cambio stagionale!');
+    if (rossoEst)     return avviso('estive', 'rosso', 'Montare pneumatici estivi');
   }
-  // Tipologia non specificata: mostra tutti gli avvisi
-  if (gialloInvernali) return { tipo: 'invernali', livello: 'giallo', testo: 'Montare gomme invernali' };
-  if (rossoInvernali)  return { tipo: 'invernali', livello: 'rosso',  testo: 'Montare gomme invernali' };
-  if (gialloEstive)    return { tipo: 'estive', livello: 'giallo', testo: 'Montare gomme estive' };
-  if (rossoEstive)     return { tipo: 'estive', livello: 'rosso',  testo: 'Montare gomme estive' };
   return null;
 }
 
@@ -2514,21 +2502,12 @@ function dataDaDot(dot) {
   const ww = Number(mm[1]); if (ww < 1 || ww > 53) return null;
   return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
 }
-// Stato delle gomme rispetto alla stagione: il set montato deve essere quello richiesto dalla data.
-function statoGommeMezzo(v, oggi = new Date()) {
-  const g = v.gomme || {};
-  const m = g.montati || {};
-  if (!m.tipo) return 'Nessun set montato';
-  const montato = periodoGomma(m.tipo);
-  if (!montato) return 'OK';
-  const mese = oggi.getMonth() + 1;
-  const giorno = oggi.getDate();
-  const inverno = (mese === 11 && giorno >= 15) || mese === 12 || mese <= 3 || (mese === 4 && giorno <= 15);
-  const richiesto = inverno ? 'invernali' : 'estive';
-  if (montato === richiesto) return 'OK';
-  const inScorta = (g.scorta || []).some(x => periodoGomma(x.tipo) === richiesto);
-  return inScorta ? 'Cambio da fare' : `Acquistare set ${richiesto === 'invernali' ? 'invernale' : 'estivo'}`;
+// Stato delle gomme: lo stesso avviso che compare nella scheda del mezzo (alertGomme).
+function statoGommeMezzo(v) {
+  const av = alertGomme(v.gomme?.montati?.tipo);
+  return av ? { testo: av.testo, livello: av.livello } : { testo: 'OK', livello: null };
 }
+
 function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const lista = vehicles || [];
   const mts = maints || [];
@@ -2586,14 +2565,14 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const pr = prioritaAcquisto(v);
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
-      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, statoGommeMezzo(v), riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
+      an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, (() => { const sg = statoGommeMezzo(v); return sg.livello === 'giallo' ? { testo: sg.testo, stile: 10 } : sg.livello === 'rosso' ? { testo: sg.testo, stile: 11 } : sg.livello === 'arancione' ? { testo: sg.testo, stile: 12 } : sg.testo; })(), riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'SÌ' : 'no',
       pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null,
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
     ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
-    ['Stato gomme', [['LEFT({c}2,2)="OK"', 3], ['LEFT({c}2,8)="Cambio d"', 5], ['LEFT({c}2,8)="Acquista"', 0], ['LEFT({c}2,8)="Nessun "', 0]]],
+    ['Stato gomme', [['{c}2="OK"', 3]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Lavaggio da fare', [['{c}2="SÌ"', 1]]],
     ['Da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
@@ -2717,7 +2696,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const formatiData = {};
   const styleDi = (etichetta) => {
     if (!etichetta) return 2;
-    if (!formatiData[etichetta]) { const n = Object.keys(formatiData).length; formatiData[etichetta] = { xf: 10 + n, fmtId: 166 + n, codice: `dd/mm/yyyy" · ${etichetta}"` }; }
+    if (!formatiData[etichetta]) { const n = Object.keys(formatiData).length; formatiData[etichetta] = { xf: 13 + n, fmtId: 166 + n, codice: `dd/mm/yyyy" · ${etichetta}"` }; }
     return formatiData[etichetta].xf;
   };
   const xmlFoglio = (f) => {
@@ -2728,7 +2707,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const stile = (t) => (t === 'd' ? 2 : t === 'n1' ? 3 : t === 'i' ? 4 : 0);
     const righeXml = [
       `<row r="1">${f.col.map((c, i) => cellaXlsx(colonnaExcel(i) + '1', c[0], stiliHdr[c[2]] || 1)).join('')}</row>`,
-      ...f.righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => (val && typeof val === 'object' && 'serial' in val) ? cellaXlsx(colonnaExcel(i) + (k + 2), val.serial, styleDi(val.fmt)) : cellaXlsx(colonnaExcel(i) + (k + 2), val, i === 0 ? 9 : stile(f.col[i][1]))).join('')}</row>`),
+      ...f.righe.map((r, k) => `<row r="${k + 2}">${r.map((val, i) => (val && typeof val === 'object' && 'serial' in val) ? cellaXlsx(colonnaExcel(i) + (k + 2), val.serial, styleDi(val.fmt)) : (val && typeof val === 'object' && 'testo' in val) ? cellaXlsx(colonnaExcel(i) + (k + 2), val.testo, val.stile) : cellaXlsx(colonnaExcel(i) + (k + 2), val, i === 0 ? 9 : stile(f.col[i][1]))).join('')}</row>`),
     ].join('');
     const larg = f.col.map((c, i) => {
       const lung = f.righe.map(r => { const val = r[i]; if (val && typeof val === 'object' && 'serial' in val) return 13 + String(val.fmt || '').length; if (val === null || val === undefined || val === '') return 0; if (f.col[i][1] === 'd' && typeof val === 'number') return 10; return String(val).length; });
@@ -2756,7 +2735,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const rR = (nome) => `Riepilogo!${colR(nome)}2:${colR(nome)}500`;
   const rS = (nome) => `Scadenze!${colonnaExcel(colScad.findIndex(c => c[0] === nome))}2:${colonnaExcel(colScad.findIndex(c => c[0] === nome))}500`;
   const NSINT = 11;
-  const xfBase = 10 + Object.keys(formatiData).length;
+  const xfBase = 13 + Object.keys(formatiData).length;
   const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, testoGrassetto: xfBase + 7, valore: xfBase + 8, dataV: xfBase + 9, intestazione: xfBase + 10 };
   const al = (h) => `<alignment horizontal="${h}" vertical="center"/>`;
   const xfSintesi = [
@@ -2852,7 +2831,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       { da: 2, a: 2, formula: vuotoSe('Stato scadenze'), stile: SX.valore },
       { da: 3, a: 3, formula: `IF(${ref('Scadenza più vicina (data · nome)')}="","",${ref('Scadenza più vicina (data · nome)')})`, stile: SX.dataV },
       { da: 4, a: 4, testo: an.dataProssima ? (an.prossima.split(' · ')[0] || '—') : '—', stile: SX.valore },
-      { da: 5, a: 5, formula: vuotoSe('Stato gomme'), stile: SX.valore },
+      { da: 5, a: 5, testo: statoGommeMezzo(v).testo, stile: statoGommeMezzo(v).livello === 'giallo' ? 10 : statoGommeMezzo(v).livello === 'rosso' ? 11 : SX.valore },
       { da: 6, a: 6, formula: vuotoSe('Interventi da realizzare'), stile: SX.valore },
       { da: 7, a: 7, formula: vuotoSe('Lavaggio da fare'), stile: SX.valore },
       { da: 8, a: 8, formula: vuotoSe('Da acquistare'), stile: SX.valore },
@@ -2863,10 +2842,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}<TODAY())`, 0);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>=TODAY(),D${nRiga}<=TODAY()+30)`, 5);
     cf(`D${nRiga}`, `AND(ISNUMBER(D${nRiga}),D${nRiga}>TODAY()+30,D${nRiga}<=TODAY()+45)`, 4);
-    cf(`F${nRiga}`, `LEFT(F${nRiga},2)="OK"`, 3);
-    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Cambio d"`, 5);
-    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Acquista"`, 0);
-    cf(`F${nRiga}`, `LEFT(F${nRiga},8)="Nessun "`, 0);
+    cf(`F${nRiga}`, `F${nRiga}="OK"`, 3);
     cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 1);
     cf(`H${nRiga}`, `H${nRiga}="SÌ"`, 1);
     cf(`I${nRiga}`, `LEFT(I${nRiga},4)="Alta"`, 0);
@@ -2909,7 +2885,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const mergeXml = sMerge.length ? `<mergeCells count="${sMerge.length}">${sMerge.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
   const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>${colsXml}<sheetData>${sRighe.join('')}</sheetData><sheetProtection sheet="1" objects="1" scenarios="1"/>${mergeXml}${cfXml}</worksheet>`;
 
-  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="6"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF000000"/><name val="Arial"/></font></fonts><fills count="8"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFE699"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9DEE0"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${10 + NSINT + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="6"><dxf><font><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE53935"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FF4E342E"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFB74D"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf><dxf><font><color rgb="FF000000"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFFF00"/></patternFill></fill></dxf><dxf><font><color rgb="FF000000"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFA500"/></patternFill></fill></dxf></dxfs></styleSheet>`;
+  const stili = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="${2 + Object.keys(formatiData).length}"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="0.0"/>${Object.values(formatiData).map(d => `<numFmt numFmtId="${d.fmtId}" formatCode="${xmlEsc(d.codice)}"/>`).join('')}</numFmts><fonts count="8"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF25454F"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF212823"/><name val="Arial"/></font><font><b/><sz val="14"/><color rgb="FF000000"/><name val="Arial"/></font><font><sz val="10"/><color rgb="FF9A6B03"/><name val="Arial"/></font><font><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="11"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF25454F"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF8A5A00"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6B45"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B5BA5"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5B4B8A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFE699"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFBF1DC"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE53935"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF57C00"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9DEE0"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${13 + NSINT + Object.keys(formatiData).length}"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="6" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="6" fillId="8" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="7" fillId="9" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="7" fillId="10" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>${Object.values(formatiData).map(d => `<xf numFmtId="${d.fmtId}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join('')}${xfSintesi}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="6"><dxf><font><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE53935"/></patternFill></fill></dxf><dxf><font><color rgb="FF8A5A00"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FF4E342E"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFFB74D"/></patternFill></fill></dxf><dxf><font><color rgb="FF1F6B45"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFE7F3EC"/></patternFill></fill></dxf><dxf><font><color rgb="FF9A6B03"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFFBF1DC"/></patternFill></fill></dxf><dxf><font><color rgb="FFFFFFFF"/></font><fill><patternFill patternType="solid"><bgColor rgb="FFF57C00"/></patternFill></fill></dxf></dxfs></styleSheet>`;
   const nomiFogli = ['Sintesi', ...fogli.map(f => f.nome)];
   const sheetsXml = nomiFogli.map((n, i) => `<sheet name="${xmlEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
   const definiti = fogli.map((f, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i + 1}" hidden="1">'${xmlEsc(f.nome)}'!$A$1:$${pezzi[i].ultimaCol}$${pezzi[i].ultimaRiga}</definedName>`).join('');
@@ -3901,15 +3877,15 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         {alertGomma && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, marginBottom: 12,
-            background: alertGomma.livello === 'rosso' ? '#F7DCD9' : '#FDF3D0',
-            border: `1.5px solid ${alertGomma.livello === 'rosso' ? '#E8A09A' : '#F0D060'}`,
+            background: alertGomma.livello === 'rosso' ? '#F7DCD9' : alertGomma.livello === 'arancione' ? '#FDE7CC' : '#FDF3D0',
+            border: `1.5px solid ${alertGomma.livello === 'rosso' ? '#E8A09A' : alertGomma.livello === 'arancione' ? '#F57C00' : '#F0D060'}`,
           }}>
-            <AlertTriangle size={18} color={alertGomma.livello === 'rosso' ? '#A3352A' : '#8A6000'} style={{ flexShrink: 0 }} />
+            <AlertTriangle size={18} color={alertGomma.livello === 'rosso' ? '#A3352A' : alertGomma.livello === 'arancione' ? '#B35400' : '#8A6000'} style={{ flexShrink: 0 }} />
             <div>
-              <div style={{ fontWeight: 700, fontSize: 13.5, color: alertGomma.livello === 'rosso' ? '#A3352A' : '#6B4A00' }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: alertGomma.livello === 'rosso' ? '#A3352A' : alertGomma.livello === 'arancione' ? '#B35400' : '#6B4A00' }}>
                 {alertGomma.testo.toUpperCase()}
               </div>
-              <div style={{ fontSize: 11.5, color: alertGomma.livello === 'rosso' ? '#C0504A' : '#8A6A00', marginTop: 2 }}>
+              <div style={{ fontSize: 11.5, color: alertGomma.livello === 'rosso' ? '#C0504A' : alertGomma.livello === 'arancione' ? '#B35400' : '#8A6A00', marginTop: 2 }}>
                 {alertGomma.livello === 'giallo' ? 'Periodo consigliato' : 'Periodo scaduto — cambio urgente'}
               </div>
             </div>
