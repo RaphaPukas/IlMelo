@@ -2569,7 +2569,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
     ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'], ['Pneumatici da acquistare', 's', 'gomme'],
-    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Tagliandino eseguito', 'i', 'tagliandi'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo check trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Check eseguito', 'i', 'tagliandi'],
   ];
   const righeRiep = lista.map(v => {
     const an = analisi(v);
@@ -2586,7 +2586,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
     ['Lavaggio', [['{c}2="Da fare"', 4], ['{c}2="OK"', 3]]],
     ['Pneumatici da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
-    ['Prossimo tagliandino trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
+    ['Prossimo check trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Km aggiornati il', [['OR({c}2="",{c}2<TODAY()-30)', 1]]],
   ];
 
@@ -2672,7 +2672,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   RICORRENZE.forEach(n => { trimPer[n] = []; });
   lista.forEach(v => tagliandiDi(v, ric).forEach(t => trimPer[ricorrenzaDi(t.data)].push({ v, t })));
   const fogliTrim = RICORRENZE.map(n => ({
-    nome: 'Tagliandi ' + n, col: colTrim, regole: [],
+    nome: 'Check ' + n, col: colTrim, regole: [],
     righe: trimPer[n].sort((a, b) => (a.v.targa < b.v.targa ? -1 : a.v.targa > b.v.targa ? 1 : (a.t.data < b.t.data ? -1 : 1))).map(({ v, t }) => [
       nomeV(v), v.targa, dX(t.data), numN(t.km), numN(t.olioMl), numN(t.paraMl), t.problemi || t.guasti || null, [t.note, t.riparazioni ? 'Riparazioni: ' + t.riparazioni : null].filter(Boolean).join(' · ') || null,
     ]),
@@ -2807,15 +2807,15 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
-    const formulaTrim = `SUM(${rR('Tagliandino eseguito')})&" su "&COUNTA(${rR('Targa')})`;
+    const formulaTrim = `SUM(${rR('Check eseguito')})&" su "&COUNTA(${rR('Targa')})`;
     const formulaAppuntamenti = `SUM(${rR('Appuntamenti fissati')})`;
-    const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Tagliandini trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
+    const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Check trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
     const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 6, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.valoreDestra, senzaUnione: true }, { da: 7, a: 7, testo: inizio === 0 ? 'eseguiti' : 'fissati', stile: SX.valoreSinistra, senzaUnione: true }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
     gruppo.forEach((t, k) => { if (t.dxf !== null) cf(k === 2 ? `I${rVal}` : `${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
     if (inizio === 0) {
       const rA = (nome) => rR(nome).replace(/!([A-Z]+)(\d+):([A-Z]+)(\d+)/, (m, a, b, c, d) => `!$${a}$${b}:$${c}$${d}`);
-      const daFare = `(COUNTA(${rA('Targa')})-SUM(${rA('Tagliandino eseguito')}))`;
+      const daFare = `(COUNTA(${rA('Targa')})-SUM(${rA('Check eseguito')}))`;
       cf(`G${rVal}:H${rVal}`, `${daFare}>=10`, 0);
       cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=5,${daFare}<=9)`, 2);
       cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=1,${daFare}<=4)`, 4);
@@ -2987,7 +2987,7 @@ function scaricaExcelHtml(html, nomeFile) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Cose da fare per un mezzo: scadenze, cambio gomme stagionale, acquisti, tagliandino trimestrale, interventi.
+// Cose da fare per un mezzo: scadenze, cambio gomme stagionale, acquisti, check trimestrale, interventi.
 // Il lavaggio non è un problema: se è dovuto, viene segnalato a parte con la goccia.
 function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
@@ -3025,11 +3025,11 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
     out.push({ tipo: 'intervento', testo: `Acquistare set ${nome}`, colore: pr.priorita === 'alta' ? 'rosso' : 'arancio' });
   }
   const ut = tagliandiDi(v, ricorrenti)[0];
-  if (!ut) out.push({ tipo: 'intervento', testo: 'Tagliandino trimestrale mai registrato', colore: 'arancio' });
+  if (!ut) out.push({ tipo: 'intervento', testo: 'Check trimestrale mai registrato', colore: 'arancio' });
   else {
     const prossimo = aggiungiMesi(ut.data, 3);
     const g = giorniDa(prossimo);
-    if (g <= 0) out.push({ tipo: 'intervento', testo: `Tagliandino trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
+    if (g <= 0) out.push({ tipo: 'intervento', testo: `Check trimestrale da fare (dal ${fmtDate(prossimo)})`, colore: g < 0 ? 'rosso' : 'arancio' });
   }
   const prog = (maints || []).filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !(x.descrizione || '').startsWith('Tagliando') && !isCambioStagionale(x));
   prog.forEach(m => out.push({ tipo: 'intervento', testo: `${m.descrizione || m.tipo || 'Intervento'}${m.appuntamento ? ' · ' + fmtDate(m.appuntamento) : ''}`, colore: 'arancio' }));
@@ -3511,7 +3511,7 @@ function GommeExtraCard({ vehicle, onSave, puoModificare }) {
 function procTagliandoMezzi(ricorrenti) {
   return (ricorrenti || []).find(r => (r.tipo === 'Tagliandino interno' || /checklist/i.test(r.titolo || '')) && r.modulo === 'Mezzi') || null;
 }
-// Tagliandino trimestrale nella scheda: la checklist completa (stessi dati delle Scadenze) e lo storico.
+// Check trimestrale nella scheda: la checklist completa (stessi dati delle Scadenze) e lo storico.
 function TagliandinoScheda({ vehicle, proc, tagliandi, onSalva, onSalvaCampoVeicolo, inizialmenteAperto }) {
   const [aperto, setAperto] = useState(!!inizialmenteAperto);
   const [modifica, setModifica] = useState(null);
@@ -3537,7 +3537,7 @@ function TagliandinoScheda({ vehicle, proc, tagliandi, onSalva, onSalvaCampoVeic
   return (
     <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
       <button type="button" onClick={() => setAperto(!aperto)} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', background:'none', border:'none', padding:0, cursor:'pointer', fontWeight:800, fontSize:14, color:MEZZI_COLORS.ink, marginBottom: aperto ? 6 : 0 }}>
-        <span>Tagliandino trimestrale{lista.length ? ` · ${lista.length} registrati` : ''}</span>
+        <span>Check trimestrale{lista.length ? ` · ${lista.length} registrati` : ''}</span>
         <span style={{ fontSize:12, color:MEZZI_COLORS.muted }}>{aperto ? '▲ chiudi' : '▼ apri'}</span>
       </button>
       {aperto && !proc && <div style={{ fontSize:12.5, color:MEZZI_COLORS.muted }}>Non c'è la procedura "Tagliandino interno" per i mezzi: creala in Procedure.</div>}
@@ -4381,7 +4381,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
       if (ttUlt && ttUlt.data) {
         const prossimoTrim = aggiungiMesi(ttUlt.data, 3);
         const gTrim = daysUntil(prossimoTrim);
-        if (gTrim <= 45) out.push({ key: v.id + 'trim', v, label: 'Tagliandino trimestrale', d: prossimoTrim, days: gTrim, u: urgencyOf(gTrim, params), isGomme: false });
+        if (gTrim <= 45) out.push({ key: v.id + 'trim', v, label: 'Check trimestrale', d: prossimoTrim, days: gTrim, u: urgencyOf(gTrim, params), isGomme: false });
       }
       const sd = scadenzaDistribuzione(v);
       if (sd) {
@@ -4914,7 +4914,7 @@ function tagliandiDi(v, ricorrenti) {
   const manuali = (v.gomme?.tagliandiTrim || []).map(t => ({ ...t, fonte: 'manuale' }));
   return [...daChecklist, ...manuali].filter(t => t.data).sort((a, b) => (a.data < b.data ? 1 : -1));
 }
-// Dalla checklist di un mezzo: aggiorna i km totali e crea il tagliandino trimestrale per ogni checklist completata.
+// Dalla checklist di un mezzo: aggiorna i km totali e crea il check trimestrale per ogni checklist completata.
 function aggiornamentoDaChecklist(raw, t, nuovaLista) {
   if (!raw) return null;
   const kmNuovi = Math.max(0, ...nuovaLista.map(e => Number(e.km) || 0));
