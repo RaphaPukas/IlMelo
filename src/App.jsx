@@ -2505,7 +2505,7 @@ function dataDaDot(dot) {
 // Stato delle gomme: lo stesso avviso che compare nella scheda del mezzo (alertGomme).
 function statoGommeMezzo(v) {
   const av = alertGomme(v.gomme?.montati?.tipo);
-  return av ? { testo: av.testo, livello: av.livello } : { testo: 'OK', livello: null };
+  return av ? { testo: av.testo.replace(/Montare pneumatici (invernali|estivi)!?/, 'Montare $1'), livello: av.livello } : { testo: 'OK', livello: null };
 }
 
 function generaFlottaXlsx(vehicles, maints, ricorrenti) {
@@ -2805,10 +2805,10 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
-    const rEt = riga(gruppo.map((t, k) => ({ ...segm(k), testo: t.etic, stile: SX.tileLabel })), 26);
-    const rVal = riga(gruppo.flatMap((t, k) => [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
+    const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [6, 7, 8].map(c => ({ da: c, a: c, testo: c === 8 ? t.etic : '', stile: SX.tileLabel, senzaUnione: true })) : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
+    const rVal = riga(gruppo.flatMap((t, k) => [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...((k === 2 ? j === 2 : j === 1) ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
-    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(`${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k * 3 + 1)}$${rVal}>0`, t.dxf); });
+    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(`${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
   });
   vuota();
 
