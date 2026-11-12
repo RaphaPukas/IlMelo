@@ -2732,9 +2732,9 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const colR = (nome) => colonnaExcel(colRiep.findIndex(c => c[0] === nome));
   const rR = (nome) => `Riepilogo!${colR(nome)}2:${colR(nome)}500`;
   const rS = (nome) => `Scadenze!${colonnaExcel(colScad.findIndex(c => c[0] === nome))}2:${colonnaExcel(colScad.findIndex(c => c[0] === nome))}500`;
-  const NSINT = 12;
+  const NSINT = 14;
   const xfBase = 13 + Object.keys(formatiData).length;
-  const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, testoGrassetto: xfBase + 7, valore: xfBase + 8, dataV: xfBase + 9, intestazione: xfBase + 10, sezioneGrande: xfBase + 11 };
+  const SX = { titolo: xfBase, sottotitolo: xfBase + 1, tileLabel: xfBase + 2, tileValue: xfBase + 3, tileDetail: xfBase + 4, sezione: xfBase + 5, testo: xfBase + 6, testoGrassetto: xfBase + 7, valore: xfBase + 8, dataV: xfBase + 9, intestazione: xfBase + 10, sezioneGrande: xfBase + 11, valoreDestra: xfBase + 12, valoreSinistra: xfBase + 13 };
   const al = (h) => `<alignment horizontal="${h}" vertical="center"/>`;
   const xfSintesi = [
     `<xf numFmtId="0" fontId="5" fillId="7" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
@@ -2749,6 +2749,8 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     `<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1">${al('center')}</xf>`,
     `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
     `<xf numFmtId="0" fontId="8" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">${al('center')}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('right')}</xf>`,
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">${al('left')}</xf>`,
   ].join('');
   const altezzaTesto = (testo, larg) => Math.max(1, Math.ceil(String(testo || '').length * 1.1 / larg));
   const sRighe = [];
@@ -2808,11 +2810,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const formulaTrim = `SUM(${rR('Tagliandino eseguito')})&" su "&COUNTA(${rR('Targa')})`;
     const formulaAppuntamenti = `SUM(${rR('Appuntamenti fissati')})`;
     const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Tagliandini trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
-    const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 6, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.tileValue, senzaUnione: true }, { da: 7, a: 7, testo: inizio === 0 ? 'eseguiti' : 'fissati', stile: SX.tileValue, senzaUnione: true }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
+    const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 6, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.valoreDestra, senzaUnione: true }, { da: 7, a: 7, testo: inizio === 0 ? 'eseguiti' : 'fissati', stile: SX.valoreSinistra, senzaUnione: true }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
     gruppo.forEach((t, k) => { if (t.dxf !== null) cf(k === 2 ? `I${rVal}` : `${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
     if (inizio === 0) {
-      const daFare = `(COUNTA(${rR('Targa')})-SUM(${rR('Tagliandino eseguito')}))`;
+      const rA = (nome) => rR(nome).replace(/!([A-Z]+)(\d+):([A-Z]+)(\d+)/, (m, a, b, c, d) => `!$${a}$${b}:$${c}$${d}`);
+      const daFare = `(COUNTA(${rA('Targa')})-SUM(${rA('Tagliandino eseguito')}))`;
       cf(`G${rVal}:H${rVal}`, `${daFare}>=10`, 0);
       cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=5,${daFare}<=9)`, 2);
       cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=1,${daFare}<=4)`, 4);
