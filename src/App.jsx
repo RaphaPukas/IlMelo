@@ -2806,9 +2806,9 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
     const rEt = riga(gruppo.map((t, k) => ({ ...segm(k), testo: t.etic, stile: SX.tileLabel })), 26);
-    const rVal = riga(gruppo.map((t, k) => ({ ...segm(k), formula: t.f, stile: SX.tileValue })), 26);
+    const rVal = riga(gruppo.flatMap((t, k) => [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
-    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(`${colonnaExcel(k * 3)}${rVal}`, `${colonnaExcel(k * 3)}${rVal}>0`, t.dxf); });
+    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(`${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k * 3 + 1)}$${rVal}>0`, t.dxf); });
   });
   vuota();
 
@@ -2872,7 +2872,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   vuota();
 
   // Legenda
-  riga(tutta('Legenda', SX.sezioneGrande), 26);
+  riga(Array.from({ length: NCOL }, (_, c) => ({ da: c, a: c, testo: c === 0 ? 'Legenda' : '', stile: SX.sezioneGrande, senzaUnione: true })), 26);
   [['Rosso: intervenire subito', 0], ['Giallo: controllare entro 45 giorni', 4], ['Verde: in regola', 3]].forEach(([testo, dxf]) => {
     const r = riga(tutta(testo, SX.testo), 20);
     cf(`A${r}`, 'TRUE', dxf);
@@ -2882,6 +2882,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const cfXml = sCf.map(([ref, formula, dxf]) => `<conditionalFormatting sqref="${ref}"><cfRule type="expression" dxfId="${dxf}" priority="${prioS++}" stopIfTrue="1"><formula>${xmlEsc(formula)}</formula></cfRule></conditionalFormatting>`).join('');
   const WIDF = lungColonna.map(l => Math.max(10, Math.ceil(l * 1.15) + 3));
   unioniDaMisurare.forEach(u => { let somma = 0; for (let c = u.da; c <= u.a; c++) somma += WIDF[c]; const mancano = Math.ceil(u.lung * 1.15) + 3 - somma; if (mancano > 0) for (let c = u.da; c <= u.a; c++) WIDF[c] += mancano / (u.a - u.da + 1); });
+  for (let c = 0; c < 6; c++) WIDF[c] = 20;
   const colsXml = `<cols>${WIDF.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(2)}" customWidth="1"/>`).join('')}</cols>`;
   const mergeXml = sMerge.length ? `<mergeCells count="${sMerge.length}">${sMerge.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
   const sintXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>${colsXml}<sheetData>${sRighe.join('')}</sheetData><sheetProtection sheet="1" objects="1" scenarios="1"/>${mergeXml}${cfXml}</worksheet>`;
