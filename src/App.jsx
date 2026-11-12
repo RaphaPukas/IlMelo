@@ -3506,7 +3506,26 @@ function procTagliandoMezzi(ricorrenti) {
 // Tagliandino trimestrale nella scheda: la checklist completa (stessi dati delle Scadenze) e lo storico.
 function TagliandinoScheda({ vehicle, proc, tagliandi, onSalva, onSalvaCampoVeicolo, inizialmenteAperto }) {
   const [aperto, setAperto] = useState(!!inizialmenteAperto);
+  const [modifica, setModifica] = useState(null);
   const lista = tagliandi || [];
+  const bozzaDi = (x) => ({ id: x.id, data: x.data || '', km: x.km ?? '', olio: x.olioMl ?? '', para: x.paraMl ?? '', problemi: x.problemi || '', riparazioni: x.riparazioni || '', note: x.note || '' });
+  const confermaModifica = () => {
+    if (!proc || !modifica) return;
+    const esec = (proc.esecuzioni || []).filter(e => e.mezzo === vehicle.id);
+    const voci = (proc.passi || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+    const iOlio = voci.findIndex(x => /olio.*motore/i.test(x));
+    const iPara = voci.findIndex(x => /paraflu/i.test(x));
+    const nuova = esec.map(e => {
+      if (e.id !== modifica.id) return e;
+      const valori = { ...(e.valori || {}) };
+      if (iOlio >= 0) valori[iOlio] = modifica.olio === '' ? '' : `${modifica.olio} ml`;
+      if (iPara >= 0) valori[iPara] = modifica.para === '' ? '' : `${modifica.para} ml`;
+      return { ...e, data: modifica.data || e.data, km: modifica.km === '' ? null : Number(modifica.km), problemi: modifica.problemi || null, riparazioni: modifica.riparazioni || null, note: modifica.note || null, valori };
+    });
+    onSalva && onSalva(proc, vehicle.id, nuova);
+    if (modifica.km !== '' && onSalvaCampoVeicolo) onSalvaCampoVeicolo({ km: Math.max(Number(vehicle.km || 0), Number(modifica.km) || 0), km_aggiornato: todayISO() });
+    setModifica(null);
+  };
   return (
     <Card theme={MEZZI_COLORS} style={{ marginBottom: 12 }}>
       <button type="button" onClick={() => setAperto(!aperto)} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', background:'none', border:'none', padding:0, cursor:'pointer', fontWeight:800, fontSize:14, color:MEZZI_COLORS.ink, marginBottom: aperto ? 6 : 0 }}>
@@ -3525,12 +3544,33 @@ function TagliandinoScheda({ vehicle, proc, tagliandi, onSalva, onSalvaCampoVeic
           <div style={{ fontWeight:700, fontSize:12.5, color:MEZZI_COLORS.muted, marginBottom:4 }}>Storico</div>
           {lista.slice(0, 6).map(x => (
             <div key={x.id || x.data} style={{ borderTop:`1px solid ${MEZZI_COLORS.line}`, padding:'6px 0', fontSize:12.5 }}>
-              <div style={{ fontWeight:700 }}>{fmtDate(x.data)}{x.km != null ? ` · ${Number(x.km).toLocaleString('it-IT')} km` : ''}{x.fonte === 'manuale' ? ' · manuale' : ''}</div>
-              <div style={{ color:MEZZI_COLORS.muted }}>Olio {x.olioMl ?? 0} ml · paraflu {x.paraMl ?? 0} ml</div>
-              {x.problemi && <div>Problemi: {x.problemi}</div>}
-              {x.riparazioni && <div>Riparazioni: {x.riparazioni}</div>}
-              {x.note && <div>Note: {x.note}</div>}
-              {!x.problemi && x.guasti && <div>Problemi: {x.guasti}</div>}
+              {modifica && modifica.id === x.id ? (
+                <>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
+                    <label style={{ fontSize:12 }}>Data<input type="date" value={modifica.data} onChange={e => setModifica({ ...modifica, data: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                    <label style={{ fontSize:12 }}>Km<input type="number" value={modifica.km} onChange={e => setModifica({ ...modifica, km: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                    <label style={{ fontSize:12 }}>Olio (ml)<input type="number" value={modifica.olio} onChange={e => setModifica({ ...modifica, olio: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                    <label style={{ fontSize:12 }}>Paraflu (ml)<input type="number" value={modifica.para} onChange={e => setModifica({ ...modifica, para: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                  </div>
+                  <label style={{ fontSize:12, display:'block', marginBottom:4 }}>Problemi rilevati<input type="text" value={modifica.problemi} onChange={e => setModifica({ ...modifica, problemi: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                  <label style={{ fontSize:12, display:'block', marginBottom:4 }}>Riparazioni effettuate<input type="text" value={modifica.riparazioni} onChange={e => setModifica({ ...modifica, riparazioni: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                  <label style={{ fontSize:12, display:'block', marginBottom:4 }}>Note<input type="text" value={modifica.note} onChange={e => setModifica({ ...modifica, note: e.target.value })} style={{ ...inputStyle, width:'100%' }} /></label>
+                  <div style={{ display:'flex', gap:14, marginTop:6 }}>
+                    <button type="button" onClick={confermaModifica} style={{ background:'none', border:'none', color:MEZZI_COLORS.primary, fontWeight:700, fontSize:12.5, padding:0, cursor:'pointer' }}>Conferma modifica</button>
+                    <button type="button" onClick={() => setModifica(null)} style={{ background:'none', border:'none', color:MEZZI_COLORS.muted, fontSize:12.5, padding:0, cursor:'pointer' }}>Annulla</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontWeight:700 }}>{fmtDate(x.data)}{x.km != null ? ` · ${Number(x.km).toLocaleString('it-IT')} km` : ''}{x.fonte === 'manuale' ? ' · manuale' : ''}</div>
+                  <div style={{ color:MEZZI_COLORS.muted }}>Olio {x.olioMl ?? 0} ml · paraflu {x.paraMl ?? 0} ml</div>
+                  {x.problemi && <div>Problemi: {x.problemi}</div>}
+                  {x.riparazioni && <div>Riparazioni: {x.riparazioni}</div>}
+                  {x.note && <div>Note: {x.note}</div>}
+                  {!x.problemi && x.guasti && <div>Problemi: {x.guasti}</div>}
+                  {x.fonte === 'checklist' && proc && <button type="button" onClick={() => setModifica(bozzaDi(x))} style={{ marginTop:4, background:'none', border:'none', color:MEZZI_COLORS.primary, fontWeight:700, fontSize:12.5, padding:0, cursor:'pointer' }}>Modifica</button>}
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -9032,7 +9072,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehic
             <CampoEsecuzione etichetta="Data" tipo="date" valore={aperta?.data || ''} theme={PROC_COLORS}
               onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { data: val }, nomeVisualizzato, items.length, extra || {}))} />
             <CampoEsecuzione etichetta="Km" tipo="number" valore={aperta?.km ?? ''} theme={PROC_COLORS}
-              onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { km: val === '' ? null : Number(val) }, nomeVisualizzato, items.length, extra || {}))} />
+              onSalva={(val) => { onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { km: val === '' ? null : Number(val) }, nomeVisualizzato, items.length, extra || {})); if (val !== '' && onSalvaCampoVeicolo && vehicle) onSalvaCampoVeicolo({ km: Math.max(Number(vehicle.km || 0), Number(val) || 0), km_aggiornato: todayISO() }); }} />
           </div>
         )}
         {mostraDataKm && (
