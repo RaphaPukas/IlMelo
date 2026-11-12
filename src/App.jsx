@@ -2796,7 +2796,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const riquadri = [
     { etic: 'Mezzi in flotta', f: `COUNTA(${rR('Targa')})`, dxf: null },
     { etic: 'Scadenze fuori termine', f: `COUNTIF(${rR('Stato scadenze')},"Fuori termine")`, dxf: 0 },
-    { etic: 'In scadenza entro 45 giorni', f: `COUNTIF(${rR('Stato scadenze')},"In scadenza")`, dxf: 1 },
+    { etic: 'Termini in scadenza entro 45 giorni', f: `COUNTIF(${rR('Stato scadenze')},"In scadenza")`, dxf: 1 },
     { etic: 'Interventi aperti', f: `SUM(${rR('Interventi da realizzare')})`, dxf: 1 },
     { etic: 'Lavaggi da fare', f: `COUNTIF(${rR('Lavaggio')},"Da fare")`, dxf: 4 },
     { etic: 'Treni da acquistare', f: `COUNTA(${rR('Pneumatici da acquistare')})`, dxf: 1 },
@@ -2805,10 +2805,10 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
-    const formulaTrim = `SUM(${rR('Tagliandino eseguito')})&" su "&COUNTA(${rR('Targa')})&" eseguiti"`;
+    const formulaTrim = `SUM(${rR('Tagliandino eseguito')})&" su "&COUNTA(${rR('Targa')})`;
     const formulaAppuntamenti = `SUM(${rR('Appuntamenti fissati')})`;
     const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Tagliandini trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
-    const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.tileValue }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
+    const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 6, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.tileValue, senzaUnione: true }, { da: 7, a: 7, testo: inizio === 0 ? 'eseguiti' : 'fissati', stile: SX.tileValue, senzaUnione: true }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
     gruppo.forEach((t, k) => { if (t.dxf !== null) cf(k === 2 ? `I${rVal}` : `${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
     if (inizio === 0) {
@@ -2852,7 +2852,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     cf(`D${nRiga}`, `C${nRiga}="Fuori termine"`, 0);
     cf(`D${nRiga}`, `C${nRiga}="In scadenza"`, 4);
     cf(`F${nRiga}`, `F${nRiga}="OK"`, 3);
-    cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 6);
+    cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 4);
     cf(`H${nRiga}`, `H${nRiga}="Da fare"`, 4);
     cf(`H${nRiga}`, `H${nRiga}="OK"`, 3);
     cf(`I${nRiga}`, `LEFT(I${nRiga},4)="Alta"`, 0);
@@ -2873,7 +2873,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       { da: 7, a: 8, formula: `IF(D${r}>0,"Intervenire",IF(F${r}>0,"Controllare","In regola"))`, stile: SX.valore },
     ], 20);
     cf(`D${r}`, `D${r}>0`, 0);
-    cf(`F${r}`, `F${r}>0`, 1);
+    if (nome !== 'Cambio gomme stagionale') cf(`F${r}`, `F${r}>0`, 1);
+    if (nome === 'Cambio gomme stagionale') {
+      cf(`F${r}`, `AND($F$${r}>0,OR(AND(MONTH(TODAY())=11,DAY(TODAY())>=11),MONTH(TODAY())=12,MONTH(TODAY())<=3))`, 0);
+      cf(`F${r}`, `AND($F$${r}>0,MONTH(TODAY())=11,DAY(TODAY())<=10)`, 2);
+      cf(`F${r}`, `AND($F$${r}>0,MONTH(TODAY())=10)`, 4);
+    }
     cf(`H${r}`, `H${r}="Intervenire"`, 0);
     cf(`H${r}`, `H${r}="Controllare"`, 1);
     cf(`H${r}`, `H${r}="In regola"`, 3);
@@ -2883,8 +2888,8 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Legenda
   riga(Array.from({ length: NCOL }, (_, c) => ({ da: c, a: c, testo: c === 0 ? 'Legenda' : '', stile: SX.sezioneGrande, senzaUnione: true })), 26);
   [['Rosso: intervenire subito', 0], ['Giallo: controllare entro 45 giorni', 4], ['Verde: in regola', 3]].forEach(([testo, dxf]) => {
-    const r = riga(tutta(testo, SX.testo), 20);
-    cf(`A${r}`, 'TRUE', dxf);
+    const r = riga([{ da: 0, a: 0, testo, stile: SX.testo, senzaUnione: true }, ...Array.from({ length: NCOL - 1 }, (_, c) => ({ da: c + 1, a: c + 1, testo: '', stile: SX.testo, senzaUnione: true }))], 20);
+    cf(`A${r}:I${r}`, 'TRUE', dxf);
   });
 
   let prioS = 1;
