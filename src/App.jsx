@@ -2330,14 +2330,14 @@ const SEED_VEHICLES = [
   { id: 'v3', targa: 'FG-762-VS', marca: 'Fiat', modello: 'Panda Van', tipo: 'Auto', anno: 2018, km: 125000, carburante: '', colore: 'Bianco', assicurazione: '2027-01-03', revisione: '2026-03-24', bollo: '2026-06-07', note: 'Officina mobile' },
   { id: 'v4', targa: 'EY-466-NZ', marca: 'Renault', modello: 'Kangoo', tipo: 'Pulmino', anno: 2021, km: 42000, carburante: '', colore: 'Bianco', assicurazione: '2026-05-08', revisione: '2027-04-13', bollo: '2026-08-06', note: '' },
   { id: 'v5', targa: '', marca: 'Renault', modello: 'Kangoo', tipo: 'Auto', anno: 2022, km: 28000, carburante: '', colore: 'Grigio', assicurazione: '2026-10-15', revisione: '2027-07-22', bollo: '2026-05-23', note: 'Auto direzione' },
-  { id: 'v6', targa: 'EY-005-BS', marca: 'Renault', modello: 'Clio', tipo: 'Auto', anno: null, km: 211917, carburante: '', colore: 'Rosso', assicurazione: '', revisione: '2028-07-31', bollo: '', note: '' },
-  { id: 'v7', targa: 'GL-936-ZA', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', bollo: '', note: '' },
-  { id: 'v8', targa: 'GX-928-NA', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', bollo: '', note: '' },
-  { id: 'v9', targa: 'DZ-', marca: 'Fiat', modello: 'Punto', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', bollo: '', note: '' },
-  { id: 'v10', targa: 'HA-579-NV', marca: 'Fiat', modello: 'Ducato', tipo: 'Furgone', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', note: '' },
-  { id: 'v11', targa: 'EY-524-BT', marca: 'Fiat', modello: 'Scudo', tipo: 'Furgone', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', note: '' },
-  { id: 'v12', targa: 'FE-859-EJ', marca: 'Volkswagen', modello: 'Crafter', tipo: 'Furgone', anno: null, km: 124378, carburante: '', colore: '', assicurazione: '', revisione: '2028-07-31', bollo: '', note: '' },
-  { id: 'v13', targa: 'GR-191-TH', marca: 'Dacia', modello: 'Duster', tipo: 'Auto', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', note: '' },
+  { id: 'v6', targa: 'EY-005-BS', marca: 'Renault', modello: 'Clio', tipo: 'Auto', anno: null, km: 211917, carburante: '', colore: 'Rosso', assicurazione: '', revisione: '2028-07-31', note: '' },
+  { id: 'v7', targa: 'GL-936-ZA', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', note: '' },
+  { id: 'v8', targa: 'GX-928-NA', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', note: '' },
+  { id: 'v9', targa: 'DZ-', marca: 'Fiat', modello: 'Punto', tipo: 'Auto', anno: null, km: null, carburante: '', colore: 'Bianco', assicurazione: '', revisione: '', note: '' },
+  { id: 'v10', targa: 'HA-579-NV', marca: 'Fiat', modello: 'Ducato', tipo: 'Furgone', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', note: '' },
+  { id: 'v11', targa: 'EY-524-BT', marca: 'Fiat', modello: 'Scudo', tipo: 'Furgone', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', note: '' },
+  { id: 'v12', targa: 'FE-859-EJ', marca: 'Volkswagen', modello: 'Crafter', tipo: 'Furgone', anno: null, km: 124378, carburante: '', colore: '', assicurazione: '', revisione: '2028-07-31', note: '' },
+  { id: 'v13', targa: 'GR-191-TH', marca: 'Dacia', modello: 'Duster', tipo: 'Auto', anno: null, km: null, carburante: '', colore: '', assicurazione: '', revisione: '', note: '' },
   { id: 'v14', targa: 'EN-', marca: 'Fiat', modello: 'Panda', tipo: 'Auto', anno: 2017, km: 198000, carburante: 'Benzina', colore: 'Bianco', assicurazione: '2026-03-19', revisione: '2026-05-28', bollo: '2027-01-13', note: 'Trasporto merci pesanti' },
 ];
 
@@ -2528,7 +2528,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
     const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
     const voci = [];
-    [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([l, d]) => { if (d) voci.push({ l, d, g: giorniDa(d) }); });
+    [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Tagliando', v.tagliando]].forEach(([l, d]) => { if (d) voci.push({ l, d, g: giorniDa(d) }); });
     const sd = scadenzaDistribuzione(v);
     if (sd && sd.dataScad) voci.push({ l: 'Kit distribuzione', d: sd.dataScad, g: giorniDa(sd.dataScad) });
     if (sd && sd.kmScad != null) {
@@ -2558,7 +2558,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
     ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'], ['Pneumatici da acquistare', 's', 'gomme'],
-    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'],
   ];
   const righeRiep = lista.map(v => {
     const an = analisi(v);
@@ -2566,7 +2566,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
       an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, (() => { const sg = statoGommeMezzo(v); return sg.livello === 'giallo' ? { testo: sg.testo, stile: 10 } : sg.livello === 'rosso' ? { testo: sg.testo, stile: 11 } : sg.livello === 'arancione' ? { testo: sg.testo, stile: 12 } : sg.testo; })(), pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null, riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'Da fare' : 'OK',
-      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null];
+      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
@@ -2582,14 +2582,14 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Foglio Scadenze: solo le date delle scadenze
   const colScad = [
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'],
-    ['Assicurazione', 'd', 'scadenze'], ['Revisione', 'd', 'scadenze'], ['Bollo', 'd', 'scadenze'], ['Tagliando', 'd', 'scadenze'],
+    ['Assicurazione', 'd', 'scadenze'], ['Revisione', 'd', 'scadenze'], ['Tagliando', 'd', 'scadenze'],
     ['Appuntamento tagliando', 'd', 'scadenze'], ['Ora tagliando', 's', 'scadenze'], ['Officina tagliando', 's', 'scadenze'],
     ['Kit distribuzione (data)', 'd', 'scadenze'], ['Kit distribuzione (km)', 'i', 'scadenze'], ['Cambio gomme stagionale', 'd', 'scadenze'], ['Scadenze personalizzate', 's', 'scadenze'],
   ];
   const righeScad = lista.map(v => {
     const sd = scadenzaDistribuzione(v);
     const at = trova(v, 'Tagliando');
-    return [nomeV(v), v.targa, dX(v.assicurazione), dX(v.revisione), dX(v.bollo), dX(v.tagliando),
+    return [nomeV(v), v.targa, dX(v.assicurazione), dX(v.revisione),  dX(v.tagliando),
       at ? dX(at.appuntamento) : null, at ? (at.appuntamento_ora || null) : null, at ? (at.officina || null) : null,
       sd && sd.dataScad ? dataSeriale(sd.dataScad) : null, sd && sd.kmScad != null ? sd.kmScad : null, (() => { const cg = mts.find(x => x.targa === v.targa && x.stato === 'Programmato' && (x.descrizione || '').startsWith('Cambio gomme') && !/usurat/i.test(x.descrizione || '')); return cg && cg.appuntamento ? dX(cg.appuntamento) : null; })(),
       (v.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => `${x.nome}: ${fmtDate(x.data)}${x.ripetiMesi ? ' (ogni ' + x.ripetiMesi + ' mesi)' : ''}`).join('; ') || null];
@@ -2597,7 +2597,6 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const giornoRegola = [
     ['Assicurazione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Revisione', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
-    ['Bollo', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Kit distribuzione (data)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Appuntamento tagliando', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
@@ -2805,10 +2804,12 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
-    const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [6, 7, 8].map(c => ({ da: c, a: c, testo: c === 8 ? t.etic : '', stile: SX.tileLabel, senzaUnione: true })) : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
-    const rVal = riga(gruppo.flatMap((t, k) => [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...((k === 2 ? j === 2 : j === 1) ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
+    const formulaTrim = `COUNTIF(${rR('Prossimo tagliandino trimestrale')},">"&TODAY())&"/"&COUNTA(${rR('Targa')})&" ("&IFERROR(TEXT(COUNTIF(${rR('Prossimo tagliandino trimestrale')},">"&TODAY())/COUNTA(${rR('Targa')}),"0%"),"0%")&")"`;
+    const formulaAppuntamenti = `SUM(${rR('Appuntamenti fissati')})`;
+    const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Tagliandini trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
+    const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.tileValue }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
-    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(`${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
+    gruppo.forEach((t, k) => { if (t.dxf !== null) cf(k === 2 ? `I${rVal}` : `${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
   });
   vuota();
 
@@ -2855,7 +2856,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   // Scadenze per tipo: scadute, in arrivo ed esito
   riga(tutta('Scadenze per tipo', SX.sezioneGrande), 26);
   riga([{ da: 0, a: 2, testo: 'Tipo', stile: SX.intestazione }, { da: 3, a: 4, testo: 'Fuori termine', stile: SX.intestazione }, { da: 5, a: 6, testo: 'Entro 45 giorni', stile: SX.intestazione }, { da: 7, a: 8, testo: 'Esito', stile: SX.intestazione }], 22);
-  ['Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Kit distribuzione (data)', 'Cambio gomme stagionale'].forEach(nome => {
+  ['Assicurazione', 'Revisione', 'Tagliando', 'Kit distribuzione (data)', 'Cambio gomme stagionale'].forEach(nome => {
     const r = nr + 1;
     riga([
       { da: 0, a: 2, testo: nome, stile: SX.testo },
@@ -2932,7 +2933,7 @@ function generaFlottaExcelHtml(vehicles, maints, params) {
   };
   const cella = ([testo, col]) => `<td style="background:${col ? col[0] : '#FFFFFF'};color:${col ? col[1] : '#1B2A2E'};border:1px solid #bbbbbb">${e(testo)}</td>`;
   const semplice = (t) => [t, null];
-  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Bollo', 'Tagliando', 'Tergicristalli anteriore', 'Tergicristalli posteriore', 'Pneumatici montati', 'Marca e modello montati', 'Battistrada montati', 'DOT montati', 'Età montati', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Interventi da realizzare', 'Chilometri aggiornati il'];
+  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Tagliando', 'Tergicristalli anteriore', 'Tergicristalli posteriore', 'Pneumatici montati', 'Marca e modello montati', 'Battistrada montati', 'DOT montati', 'Età montati', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Interventi da realizzare', 'Chilometri aggiornati il'];
   const righe = (vehicles || []).map(v => {
     const g = v.gomme || {};
     const m = g.montati || {};
@@ -2946,7 +2947,7 @@ function generaFlottaExcelHtml(vehicles, maints, params) {
     return [
       semplice(v.targa), semplice(v.marca), semplice(v.modello), semplice(v.anno || '—'), semplice(v.km != null ? Number(v.km).toLocaleString('it-IT') : '—'),
       semplice(v.carburante || '—'), semplice(v.colore || '—'), semplice(g.misura || '—'), semplice(v.olio_motore || '—'),
-      scad(v.assicurazione), scad(v.revisione), scad(v.bollo), scad(v.tagliando),
+      scad(v.assicurazione), scad(v.revisione), scad(v.tagliando),
       tergi('anteriore'), tergi('posteriore'),
       semplice(m.tipo || '—'), semplice([m.marca, m.modello].filter(Boolean).join(' ') || '—'),
       [bat ? bat.mm.toFixed(1).replace('.', ',') + ' mm · ' + bat.livello : '—', colBat(bat)],
@@ -2976,7 +2977,7 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   const base = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
   const giorniDa = (iso) => Math.round((new Date(iso + 'T00:00:00') - base) / 864e5);
   const out = [];
-  [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([l, d]) => {
+  [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Tagliando', v.tagliando]].forEach(([l, d]) => {
     if (!d) return;
     const g = giorniDa(d);
     if (g < 0) out.push({ testo: `${l} scaduta`, colore: 'rosso' });
@@ -3037,7 +3038,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
   const filtered = vehicles.filter(v => `${v.marca} ${v.modello} ${v.targa}`.toLowerCase().includes(q.toLowerCase()));
 
   const worstUrgency = (v) => {
-    const days = [v.assicurazione, v.revisione, v.bollo].map(daysUntil).filter(d => d != null);
+    const days = [v.assicurazione, v.revisione].map(daysUntil).filter(d => d != null);
     if (!days.length) return null;
     return urgencyOf(Math.min(...days), params);
   };
@@ -3211,7 +3212,7 @@ function scadenzaDistribuzione(v) {
 function contaScadenze(vehicles, maints, params) {
   let n = 0;
   (vehicles || []).forEach(v => {
-    [v.assicurazione, v.revisione, v.bollo, v.tagliando].forEach(d => { if (d && ['urgent', 'medium'].includes(urgencyOf(daysUntil(d), params))) n++; });
+    [v.assicurazione, v.revisione, v.tagliando].forEach(d => { if (d && ['urgent', 'medium'].includes(urgencyOf(daysUntil(d), params))) n++; });
     ['anteriore', 'posteriore'].forEach(l => { const t = (v.gomme?.tergicristalli || {})[l]; if (t?.data && daysUntil(aggiungiMesi(t.data, 12)) <= 0) n++; });
     if (!v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > KM_PROMEMORIA_GIORNI) n++;
     const g = v.gomme || {};
@@ -3759,7 +3760,7 @@ function generaSchedaHtml(vehicle, eventi) {
     <h2>Dati generali</h2>
     <table>${riga('Anno', vehicle.anno)}${riga('Chilometri attuali', vehicle.km != null ? Number(vehicle.km).toLocaleString('it-IT') + ' km' : '')}${riga('Carburante', vehicle.carburante)}${riga('Colore', vehicle.colore)}${riga('Misura pneumatici (libretto)', g.misura)}${riga('Olio motore', vehicle.olio_motore)}</table>
     <h2>Scadenze</h2>
-    <table>${riga('Assicurazione', dataIt(vehicle.assicurazione))}${riga('Revisione', dataIt(vehicle.revisione))}${riga('Bollo', dataIt(vehicle.bollo))}${riga('Tagliando', dataIt(vehicle.tagliando))}${riga('Tergicristalli anteriore', scadTergi('anteriore'))}${riga('Tergicristalli posteriore', scadTergi('posteriore'))}</table>
+    <table>${riga('Assicurazione', dataIt(vehicle.assicurazione))}${riga('Revisione', dataIt(vehicle.revisione))}${riga('Tagliando', dataIt(vehicle.tagliando))}${riga('Tergicristalli anteriore', scadTergi('anteriore'))}${riga('Tergicristalli posteriore', scadTergi('posteriore'))}</table>
     <h2>Pneumatici montati</h2>
     <table>${riga('Tipo', m.tipo)}${riga('Marca e modello', [m.marca, m.modello].filter(Boolean).join(' '))}${riga('Misura', m.misura || g.misura)}${riga('DOT e età', m.dot ? m.dot + (etaM ? ' · ' + etaM.anni.toFixed(1) + ' anni' : '') : '—')}${riga('Su cerchio', m.cerchio === 'si' ? 'sì' : 'no')}${riga('Chilometri percorsi', Math.round(kmRealiSet(m, vehicle.km)).toLocaleString('it-IT') + ' km')}</table>
     ${m.misto ? `<div class="nb">NB: treno non uniforme${m.notaMisto ? ' · ' + e(m.notaMisto) : ''}</div>` : ''}
@@ -3827,7 +3828,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
   const puoEliminare = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
   const deadlines = [
-    ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Bollo', vehicle.bollo], ['Tagliando', vehicle.tagliando],
+    ['Assicurazione', vehicle.assicurazione], ['Revisione', vehicle.revisione], ['Tagliando', vehicle.tagliando],
     ...(vehicle.gomme?.scadenzeExtra || []).filter(x => x.data).map(x => [x.nome, x.data]),
   ].filter(([, d]) => d);
   const own = maints.filter(m => m.targa === vehicle.targa).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
@@ -4041,7 +4042,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
   const [scad, setScad] = useState(initial?.gomme?.scadenzeExtra || []);
   const [nominativo, setNominativo] = useState(initial?.gomme?.nominativo || '');
   const [dist, setDist] = useState(initial?.gomme?.distribuzione || {});
-  const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', bollo: '', modelloGomme: '', tipologiaGomme: '', note: '' });
+  const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
 
@@ -4076,7 +4077,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <SectionLabel theme={MEZZI_COLORS}>Scadenze</SectionLabel>
         <Field label="Assicurazione"><input type="date" style={inputStyle} value={f.assicurazione} onChange={set('assicurazione')} /></Field>
         <Field label="Revisione"><input type="date" style={inputStyle} value={f.revisione} onChange={set('revisione')} /></Field>
-        <Field label="Bollo"><input type="date" style={inputStyle} value={f.bollo} onChange={set('bollo')} /></Field>
+        
         <Field label="Tagliando (scadenza)"><input type="date" style={inputStyle} value={f.tagliando || ''} onChange={set('tagliando')} /></Field>
         <Field label="Note"><textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} value={f.note} onChange={set('note')} /></Field>
       </div>
@@ -4345,7 +4346,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
         if (giorni > 0) return;
         out.push({ key: v.id + 'terg' + lato, v, label: 'Tergicristalli ' + lato, d: scad, days: giorni, u: urgencyOf(giorni, params), isGomme: false });
       });
-      [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Bollo', v.bollo], ['Tagliando', v.tagliando]].forEach(([label, d]) => {
+      [['Assicurazione', v.assicurazione], ['Revisione', v.revisione], ['Tagliando', v.tagliando]].forEach(([label, d]) => {
         if (!d) return;
         const days = daysUntil(d);
         out.push({ key: v.id + label, v, label, d, days, u: urgencyOf(days, params), isGomme: false });
@@ -4522,7 +4523,7 @@ function DashboardScreen({ vehicles, maints, params, onMenu, onHome, onVai, onOf
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [maints]);
   const maxTipo = perTipo.length ? perTipo[0][1] : 1;
-  const urgenti = vehicles.filter(v => [v.assicurazione, v.revisione, v.bollo].some(d => urgencyOf(daysUntil(d), params) === 'urgent')).length;
+  const urgenti = vehicles.filter(v => [v.assicurazione, v.revisione].some(d => urgencyOf(daysUntil(d), params) === 'urgent')).length;
 
   return (
     <>
@@ -5056,8 +5057,7 @@ async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
       'Targa': v.targa || '', 'Marca': v.marca, 'Modello': v.modello, 'Tipo': v.tipo,
       'Anno Immatricolazione': v.anno || '', 'Data Acquisto': '', 'Km Attuali': v.km || '',
       'Carburante': v.carburante || '', 'Colore': v.colore || '', 'Telaio': '',
-      'Assicurazione Scad.': dt(v.assicurazione), 'Revisione Scad.': dt(v.revisione), 'Bollo Scad.': dt(v.bollo),
-      'Note': v.note || '',
+      'Assicurazione Scad.': dt(v.assicurazione), 'Revisione Scad.': dt(v.revisione), 'Note': v.note || '',
     }));
     const wsAna = XLSX.utils.json_to_sheet(anagraficaRows, { cellDates: true });
     wsAna['!cols'] = [11, 9, 12, 9, 10, 12, 10, 11, 9, 18, 13, 13, 11, 26].map(w => ({ wch: w }));
@@ -8601,7 +8601,7 @@ const PROC_COLORS = {
 // (stesso pattern gia' usato da STR_CATEGORIE_REPARTO / RepartoForm: nessuna
 // tabella nuova, la tipologia resta una semplice stringa su procedure_manuali).
 const PROC_TIPOLOGIE = ['Idraulico','Elettrico','Muratura/Edile','Climatizzazione','Antincendio','Informatica','Sicurezza','Generale'];
-const PROC_FREQUENZE = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane','Mensile','Bimestrale','Trimestrale','Semestrale','Annuale'];
+const PROC_FREQUENZE = ['Giornaliera','Settimanale','Ogni 2 settimane','Ogni 3 settimane','Mensile','Bimestrale','Trimestrale','Quadrimestrale','Semestrale','Annuale'];
 const PROC_UNITA = ['pz','kg','lt','m','conf','scatola','rotolo','pacco'];
 
 const PROC_STATI = ['Attiva', 'In revisione', 'Obsoleta'];
@@ -8870,6 +8870,7 @@ function calcProssima(ultima, frequenza, giorni) {
     case 'Mensile':          d.setMonth(d.getMonth() + 1);      break;
     case 'Bimestrale':       d.setMonth(d.getMonth() + 2);      break;
     case 'Trimestrale':      d.setMonth(d.getMonth() + 3);      break;
+    case 'Quadrimestrale':   d.setMonth(d.getMonth() + 4);      break;
     case 'Semestrale':       d.setMonth(d.getMonth() + 6);      break;
     case 'Annuale':          d.setFullYear(d.getFullYear() + 1); break;
     default:                 d.setDate(d.getDate() + 7);        break;
@@ -9585,7 +9586,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
             </div>
           )}
         </PROC_Field>
-        <PROC_Field label="Frequenza"><select style={procInputStyle} value={tipo === 'Lavaggio' && !['Trimestrale','Semestrale'].includes(f.frequenza) ? 'Trimestrale' : f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Lavaggio' ? ['Trimestrale','Semestrale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
+        <PROC_Field label="Frequenza"><select style={procInputStyle} value={tipo === 'Lavaggio' && !['Trimestrale','Quadrimestrale','Semestrale'].includes(f.frequenza) ? 'Trimestrale' : f.frequenza} onChange={set('frequenza')}>{(tipo === 'Stagionale' ? ['Semestrale','Annuale'] : tipo === 'Lavaggio' ? ['Trimestrale','Quadrimestrale','Semestrale'] : PROC_FREQUENZE).map(fr => <option key={fr}>{fr}</option>)}</select></PROC_Field>
 
         {mostraGiorni && (
           <div style={{ marginBottom:14 }}>
