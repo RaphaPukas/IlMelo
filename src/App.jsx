@@ -2509,6 +2509,17 @@ function statoGommeMezzo(v) {
 }
 
 function generaFlottaXlsx(vehicles, maints, ricorrenti) {
+  const RICORRENZE = ['Novembre', 'Febbraio', 'Maggio', 'Agosto'];
+  const MESE_RICORRENZA = { Novembre: 11, Febbraio: 2, Maggio: 5, Agosto: 8 };
+  const ricorrenzaDi = (data) => {
+    const m = new Date(data + 'T00:00:00').getMonth() + 1;
+    return RICORRENZE.reduce((best, n) => {
+      const d = Math.min(Math.abs(m - MESE_RICORRENZA[n]), 12 - Math.abs(m - MESE_RICORRENZA[n]));
+      return best === null || d < best.d ? { n, d } : best;
+    }, null).n;
+  };
+  const colTrim = [['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Data', 'd', 'tagliandi'], ['Km', 'i', 'tagliandi'], ['Olio rabboccato (ml)', 'i', 'tagliandi'], ['Liquido paraflu rabboccato (ml)', 'i', 'tagliandi'], ['Problemi rilevati', 's', 'tagliandi'], ['Note', 's', 'tagliandi']];
+  const ricorrenzaCorrente = ricorrenzaDi(todayISO());
   const lista = vehicles || [];
   const mts = maints || [];
   const ric = ricorrenti || [];
@@ -2558,7 +2569,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
     ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'], ['Pneumatici da acquistare', 's', 'gomme'],
-    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo tagliandino trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Tagliandino eseguito', 'i', 'tagliandi'],
   ];
   const righeRiep = lista.map(v => {
     const an = analisi(v);
@@ -2566,7 +2577,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
       an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, (() => { const sg = statoGommeMezzo(v); return sg.livello === 'giallo' ? { testo: sg.testo, stile: 10 } : sg.livello === 'rosso' ? { testo: sg.testo, stile: 11 } : sg.livello === 'arancione' ? { testo: sg.testo, stile: 12 } : sg.testo; })(), pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null, riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'Da fare' : 'OK',
-      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length];
+      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length, tagliandiDi(v, ric).some(t => ricorrenzaDi(t.data) === ricorrenzaCorrente && t.data >= aggiungiMesi(todayISO(), -6)) ? 1 : 0];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
@@ -2657,16 +2668,6 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   const regoleInt = [['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]]];
 
   // Fogli Tagliandi: uno per ricorrenza (Novembre, Febbraio, Maggio, Agosto)
-  const RICORRENZE = ['Novembre', 'Febbraio', 'Maggio', 'Agosto'];
-  const MESE_RICORRENZA = { Novembre: 11, Febbraio: 2, Maggio: 5, Agosto: 8 };
-  const ricorrenzaDi = (data) => {
-    const m = new Date(data + 'T00:00:00').getMonth() + 1;
-    return RICORRENZE.reduce((best, n) => {
-      const d = Math.min(Math.abs(m - MESE_RICORRENZA[n]), 12 - Math.abs(m - MESE_RICORRENZA[n]));
-      return best === null || d < best.d ? { n, d } : best;
-    }, null).n;
-  };
-  const colTrim = [['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Data', 'd', 'tagliandi'], ['Km', 'i', 'tagliandi'], ['Olio rabboccato (ml)', 'i', 'tagliandi'], ['Liquido paraflu rabboccato (ml)', 'i', 'tagliandi'], ['Problemi rilevati', 's', 'tagliandi'], ['Note', 's', 'tagliandi']];
   const trimPer = {};
   RICORRENZE.forEach(n => { trimPer[n] = []; });
   lista.forEach(v => tagliandiDi(v, ric).forEach(t => trimPer[ricorrenzaDi(t.data)].push({ v, t })));
@@ -2804,12 +2805,19 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
   [0, 3].forEach(inizio => {
     const gruppo = riquadri.slice(inizio, inizio + 3);
     const segm = (k) => ({ da: k * 3, a: k * 3 + 2 });
-    const formulaTrim = `COUNTIF(${rR('Prossimo tagliandino trimestrale')},">"&TODAY())&"/"&COUNTA(${rR('Targa')})&" ("&IFERROR(TEXT(COUNTIF(${rR('Prossimo tagliandino trimestrale')},">"&TODAY())/COUNTA(${rR('Targa')}),"0%"),"0%")&")"`;
+    const formulaTrim = `SUM(${rR('Tagliandino eseguito')})&" su "&COUNTA(${rR('Targa')})&" eseguiti"`;
     const formulaAppuntamenti = `SUM(${rR('Appuntamenti fissati')})`;
     const rEt = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, testo: inizio === 0 ? 'Tagliandini trimestrali' : 'Appuntamenti programmati', stile: SX.tileLabel }, { da: 8, a: 8, testo: t.etic, stile: SX.tileLabel, senzaUnione: true }] : [{ ...segm(k), testo: t.etic, stile: SX.tileLabel }]), 26);
     const rVal = riga(gruppo.flatMap((t, k) => k === 2 ? [{ da: 6, a: 7, formula: inizio === 0 ? formulaTrim : formulaAppuntamenti, stile: SX.tileValue }, { da: 8, a: 8, formula: t.f, stile: SX.tileValue, senzaUnione: true }] : [0, 1, 2].map(j => ({ da: k * 3 + j, a: k * 3 + j, ...(j === 1 ? { formula: t.f } : { testo: '' }), stile: SX.tileValue, senzaUnione: true }))), 26);
     const rDet = riga(gruppo.map((t, k) => ({ ...segm(k), ...(inizio === 3 && k === 2 ? { formula: dettaglioTreni } : { testo: '' }), stile: SX.tileDetail })), 20);
     gruppo.forEach((t, k) => { if (t.dxf !== null) cf(k === 2 ? `I${rVal}` : `${colonnaExcel(k * 3)}${rVal}:${colonnaExcel(k * 3 + 2)}${rVal}`, `$${colonnaExcel(k === 2 ? 8 : k * 3 + 1)}$${rVal}>0`, t.dxf); });
+    if (inizio === 0) {
+      const daFare = `(COUNTA(${rR('Targa')})-SUM(${rR('Tagliandino eseguito')}))`;
+      cf(`G${rVal}:H${rVal}`, `${daFare}>=10`, 0);
+      cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=5,${daFare}<=9)`, 2);
+      cf(`G${rVal}:H${rVal}`, `AND(${daFare}>=1,${daFare}<=4)`, 4);
+      cf(`G${rVal}:H${rVal}`, `${daFare}=0`, 3);
+    }
   });
   vuota();
 
