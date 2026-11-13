@@ -2877,7 +2877,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 's', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
     ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'], ['Pneumatici da acquistare', 's', 'gomme'],
-    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo check trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Check eseguito', 'i', 'tagliandi'],
+    ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo check trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Check eseguito', 'i', 'tagliandi'], ['Priorità interventi', 'i', 'interventi'],
   ];
   const righeRiep = lista.map(v => {
     const an = analisi(v);
@@ -2885,13 +2885,13 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     const ut = ultimoTrim(v);
     return [nomeV(v), v.targa, v.marca, v.modello, numN(v.anno), numN(v.km), dX(v.km_aggiornato), v.carburante || null,
       an.stato, an.dataProssima ? { serial: dX(an.dataProssima), fmt: an.etichetta } : null, (() => { const sg = statoGommeMezzo(v); return sg.livello === 'giallo' ? { testo: sg.testo, stile: 10 } : sg.livello === 'rosso' ? { testo: sg.testo, stile: 11 } : sg.livello === 'arancione' ? { testo: sg.testo, stile: 12 } : sg.testo; })(), pr ? `${pr.priorita.toUpperCase()}: set ${pr.set === 'estivi' ? 'estivo' : 'invernale'} · obbligo ${fmtDate(pr.scadenza)} · ${pr.giorni}gg` : null, riepilogoMezzo(v, mts, ric, DEFAULT_PARAMS).interventi, problemiMezzo(v, mts, ric, DEFAULT_PARAMS).lavaggio ? 'Da fare' : 'OK',
-      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length, tagliandiDi(v, ric).some(t => ricorrenzaDi(t.data) === ricorrenzaCorrente && t.data >= aggiungiMesi(todayISO(), -6)) ? 1 : 0];
+      ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length, tagliandiDi(v, ric).some(t => ricorrenzaDi(t.data) === ricorrenzaCorrente && t.data >= aggiungiMesi(todayISO(), -6)) ? 1 : 0, (() => { const aperti = mts.filter(x => x.targa === v.targa && STATI_PROGRAMMATI.includes(x.stato) && !isCambioStagionale(x) && !(x.descrizione || '').startsWith('Tagliando')); return aperti.length ? Math.max(...aperti.map(x => x.priorita === 'Alta' ? 3 : x.priorita === 'Bassa' ? 1 : 2)) : 0; })()];
   });
   const regoleRiep = [
     ['Stato scadenze', [['{c}2="Fuori termine"', 0], [`AND({c}2="In scadenza",ISNUMBER(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2>=TODAY(),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2<=TODAY()+30)`, 5], [`AND({c}2="In scadenza",ISNUMBER(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2>TODAY()+30,${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2<=TODAY()+45)`, 4], ['{c}2="OK"', 3]]],
     ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Stato gomme', [['{c}2="OK"', 3]]],
-    ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
+    ['Interventi da realizzare', [[`${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}2=3`, 0], [`OR(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}2=2,AND(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}2=0,{c}2>0))`, 2], [`${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}2=1`, 4], ['AND(ISNUMBER({c}2),{c}2=0)', 3]]],
     ['Lavaggio', [['{c}2="Da fare"', 4], ['{c}2="OK"', 3]]],
     ['Pneumatici da acquistare', [['LEFT({c}2,4)="ALTA"', 0], ['LEFT({c}2,4)="MEDI"', 1], ['LEFT({c}2,4)="BASS"', 3]]],
     ['Prossimo check trimestrale', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
@@ -3163,7 +3163,10 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
     cf(`D${nRiga}`, `C${nRiga}="Fuori termine"`, 0);
     cf(`D${nRiga}`, `C${nRiga}="In scadenza"`, 4);
     cf(`F${nRiga}`, `F${nRiga}="OK"`, 3);
-    cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}>0)`, 4);
+    cf(`G${nRiga}`, `Riepilogo!$${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}$${r}=3`, 0);
+    cf(`G${nRiga}`, `OR(Riepilogo!${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}$${r}=2,AND(Riepilogo!${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}$${r}=0,ISNUMBER(G${nRiga}),G${nRiga}>0))`, 2);
+    cf(`G${nRiga}`, `AND(Riepilogo!${colonnaExcel(colRiep.findIndex(c => c[0] === 'Priorità interventi'))}$${r}=1,ISNUMBER(G${nRiga}),G${nRiga}>0)`, 4);
+    cf(`G${nRiga}`, `AND(ISNUMBER(G${nRiga}),G${nRiga}=0)`, 3);
     cf(`H${nRiga}`, `H${nRiga}="Da fare"`, 4);
     cf(`H${nRiga}`, `H${nRiga}="OK"`, 3);
     cf(`I${nRiga}`, `LEFT(I${nRiga},4)="Alta"`, 0);
