@@ -744,7 +744,287 @@ function useAuth() {
   };
 }
 
+const MANSIONARIO_BUCKET = 'mansionario';
+const pCard = { background: '#FFFFFF', borderRadius: 14, padding: 16, marginBottom: 14, border: '1px solid #E3DED2' };
+const pBtn = { background: '#E8E3D8', border: 'none', borderRadius: 10, padding: '9px 14px', fontWeight: 700, fontSize: 13, color: '#1F2A2E', cursor: 'pointer' };
+const pBtnPrimario = { ...pBtn, background: '#1F2A2E', color: '#FFFFFF' };
+const pBtnPericolo = { ...pBtn, background: '#FBE3E1', color: '#A3352A' };
+const pInput = { width: '100%', boxSizing: 'border-box', border: '1px solid #D8D2C4', borderRadius: 10, padding: '9px 11px', fontSize: 14, background: '#FFFFFF', marginTop: 4 };
+const pTitolo = { fontWeight: 800, fontSize: 15, marginBottom: 10, color: '#1F2A2E' };
+const lunediDi = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const isoLocale = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dataIt = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+
+function SezioneProfilo({ ctx }) {
+  const [nome, setNome] = useState(ctx.nome || '');
+  const [cognome, setCognome] = useState(ctx.cognome || '');
+  const [email, setEmail] = useState(ctx.email || '');
+  const [modifica, setModifica] = useState(false);
+  const [msg, setMsg] = useState('');
+  const conferma = async () => {
+    setMsg('');
+    const { error } = await supabase.from('profiles').update({ nome, cognome }).eq('id', ctx.userId);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    if (email && email !== ctx.email) {
+      const { error: e2 } = await supabase.auth.updateUser({ email });
+      if (e2) { setMsg('Errore email: ' + e2.message); return; }
+      setMsg('Dati salvati. Controlla la mail del nuovo indirizzo per confermare il cambio.');
+    } else {
+      setMsg('Dati salvati.');
+    }
+    setModifica(false);
+  };
+  return (
+    <div style={pCard}>
+      <div style={pTitolo}>Profilo</div>
+      {[['Nome', nome, setNome], ['Cognome', cognome, setCognome], ['Email', email, setEmail]].map(([l, v, set]) => (
+        <label key={l} style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          {l}
+          <input value={v} disabled={!modifica} onChange={e => set(e.target.value)} style={pInput} />
+        </label>
+      ))}
+      {!modifica
+        ? <button type="button" onClick={() => setModifica(true)} style={pBtn}>Modifica</button>
+        : <button type="button" onClick={conferma} style={pBtnPrimario}>Conferma modifica</button>}
+      {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
+    </div>
+  );
+}
+
+function SezioneMansionario({ userId }) {
+  const [righe, setRighe] = useState([]);
+  const [urls, setUrls] = useState({});
+  const [data, setData] = useState('');
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [occupato, setOccupato] = useState(false);
+  const lunedi = lunediDi(new Date());
+  const minimo = new Date(lunedi); minimo.setDate(minimo.getDate() - 14);
+  const carica = async () => {
+    const { data: r, error } = await supabase.from('mansionario').select('*').eq('user_id', userId).gte('data_inizio', isoLocale(minimo)).order('data_inizio', { ascending: true });
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setRighe(r || []);
+    const mappa = {};
+    for (const x of (r || [])) {
+      if (x.foto_path) {
+        const { data: s } = await supabase.storage.from(MANSIONARIO_BUCKET).createSignedUrl(x.foto_path, 3600);
+        if (s) mappa[x.id] = s.signedUrl;
+      }
+    }
+    setUrls(mappa);
+  };
+  useEffect(() => { carica(); }, [userId]);
+  const aggiungi = async () => {
+    if (!data) { setMsg('Scegli la data di inizio della settimana.'); return; }
+    if (!file) { setMsg('Scegli una foto.'); return; }
+    setOccupato(true); setMsg('');
+    const estensione = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const percorso = `${userId}/${Date.now()}.${estensione}`;
+    const { error: e1 } = await supabase.storage.from(MANSIONARIO_BUCKET).upload(percorso, file, { contentType: file.type });
+    if (e1) { setMsg('Errore caricamento: ' + e1.message); setOccupato(false); return; }
+    const { error: e2 } = await supabase.from('mansionario').insert({ user_id: userId, data_inizio: data, note, foto_path: percorso });
+    if (e2) { setMsg('Errore salvataggio: ' + e2.message); setOccupato(false); return; }
+    setData(''); setNote(''); setFile(null); setOccupato(false); setMsg('Settimana aggiunta.');
+    carica();
+  };
+  const salvaNote = async (id, testo) => { await supabase.from('mansionario').update({ note: testo }).eq('id', id); };
+  const elimina = async (x) => {
+    if (!window.confirm('Eliminare questa settimana?')) return;
+    if (x.foto_path) await supabase.storage.from(MANSIONARIO_BUCKET).remove([x.foto_path]);
+    await supabase.from('mansionario').delete().eq('id', x.id);
+    carica();
+  };
+  const oggiIso = isoLocale(lunedi);
+  const future = righe.filter(x => x.data_inizio >= oggiIso);
+  const passate = righe.filter(x => x.data_inizio < oggiIso);
+  const scheda = (x) => (
+    <div key={x.id} style={{ ...pCard, padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontWeight: 800 }}>Settimana dal {dataIt(x.data_inizio)}{x.data_inizio === oggiIso ? ' · attuale' : ''}</div>
+        <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>
+      </div>
+      {urls[x.id] && <img src={urls[x.id]} alt="" style={{ width: '100%', borderRadius: 10, marginBottom: 8 }} />}
+      <textarea defaultValue={x.note || ''} onBlur={e => salvaNote(x.id, e.target.value)} placeholder="Note" rows={2} style={{ ...pInput, resize: 'vertical' }} />
+    </div>
+  );
+  return (
+    <div>
+      <div style={pCard}>
+        <div style={pTitolo}>Aggiungi settimana</div>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Data di inizio
+          <input type="date" value={data} onChange={e => setData(e.target.value)} style={pInput} />
+        </label>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Foto della mansione
+          <input type="file" accept="image/*" onChange={e => setFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)} style={{ ...pInput, padding: 7 }} />
+        </label>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Note
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} style={{ ...pInput, resize: 'vertical' }} />
+        </label>
+        <button type="button" onClick={aggiungi} disabled={occupato} style={pBtnPrimario}>{occupato ? 'Caricamento…' : 'Aggiungi'}</button>
+        {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
+      </div>
+      <div style={pTitolo}>Settimane da fare</div>
+      {future.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna settimana in programma.</div>}
+      {future.map(scheda)}
+      <div style={{ ...pTitolo, marginTop: 10 }}>Storico (ultime 2 settimane)</div>
+      {passate.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessuno storico recente.</div>}
+      {passate.map(scheda)}
+    </div>
+  );
+}
+
+function SezioneCodici({ userId }) {
+  const [lista, setLista] = useState([]);
+  const [etichetta, setEtichetta] = useState('');
+  const [codice, setCodice] = useState('');
+  const [msg, setMsg] = useState('');
+  const carica = async () => {
+    const { data, error } = await supabase.from('codici_accesso').select('*').eq('user_id', userId).order('created_at', { ascending: true });
+    if (error) setMsg('Errore: ' + error.message); else setLista(data || []);
+  };
+  useEffect(() => { carica(); }, [userId]);
+  const aggiungi = async () => {
+    if (!etichetta.trim() || !codice.trim()) { setMsg('Inserisci etichetta e codice.'); return; }
+    const { error } = await supabase.from('codici_accesso').insert({ user_id: userId, etichetta: etichetta.trim(), codice: codice.trim() });
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setEtichetta(''); setCodice(''); setMsg(''); carica();
+  };
+  const elimina = async (id) => {
+    if (!window.confirm('Eliminare il codice?')) return;
+    await supabase.from('codici_accesso').delete().eq('id', id);
+    carica();
+  };
+  return (
+    <div>
+      <div style={pTitolo}>Codici di accesso</div>
+      {lista.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun codice salvato.</div>}
+      {lista.map(x => (
+        <div key={x.id} style={{ ...pCard, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, color: '#6B6B66' }}>{x.etichetta}</div>
+            <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: 1, fontFamily: 'monospace' }}>{x.codice}</div>
+          </div>
+          <button type="button" onClick={() => elimina(x.id)} style={pBtnPericolo}>Elimina</button>
+        </div>
+      ))}
+      <div style={pCard}>
+        <div style={pTitolo}>Nuovo codice</div>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Etichetta
+          <input value={etichetta} onChange={e => setEtichetta(e.target.value)} placeholder="Es. Armadio chiavi" style={pInput} />
+        </label>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Codice
+          <input value={codice} onChange={e => setCodice(e.target.value)} style={pInput} />
+        </label>
+        <button type="button" onClick={aggiungi} style={pBtnPrimario}>Aggiungi</button>
+        {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SezioneNumeri({ userId }) {
+  const [numeri, setNumeri] = useState([]);
+  const [preferiti, setPreferiti] = useState(new Set());
+  const [mostraTutti, setMostraTutti] = useState(false);
+  const [nome, setNome] = useState('');
+  const [interno, setInterno] = useState('');
+  const [msg, setMsg] = useState('');
+  const carica = async () => {
+    const { data: n } = await supabase.from('numeri_importanti').select('*').order('nome', { ascending: true });
+    setNumeri(n || []);
+    const { data: p } = await supabase.from('numeri_preferiti').select('numero_id').eq('user_id', userId);
+    setPreferiti(new Set((p || []).map(x => x.numero_id)));
+  };
+  useEffect(() => { carica(); }, [userId]);
+  const togglePreferito = async (id) => {
+    if (preferiti.has(id)) await supabase.from('numeri_preferiti').delete().eq('user_id', userId).eq('numero_id', id);
+    else await supabase.from('numeri_preferiti').insert({ user_id: userId, numero_id: id });
+    carica();
+  };
+  const aggiungi = async () => {
+    if (!nome.trim()) { setMsg('Inserisci il nome.'); return; }
+    if (!/^\d{3}$/.test(interno)) { setMsg('Il numero interno deve avere 3 cifre.'); return; }
+    const { error } = await supabase.from('numeri_importanti').insert({ nome: nome.trim(), interno, created_by: userId });
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setNome(''); setInterno(''); setMsg(''); carica();
+  };
+  const elimina = async (x) => {
+    if (x.created_by !== userId) return;
+    if (!window.confirm('Eliminare il numero?')) return;
+    await supabase.from('numeri_importanti').delete().eq('id', x.id);
+    carica();
+  };
+  const visibili = mostraTutti ? numeri : numeri.filter(x => preferiti.has(x.id));
+  return (
+    <div>
+      <div style={pTitolo}>{mostraTutti ? 'Tutti i numeri' : 'Preferiti'}</div>
+      {visibili.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>{mostraTutti ? 'Nessun numero in elenco.' : 'Nessun preferito: usa ☆ per aggiungerne.'}</div>}
+      {visibili.map(x => (
+        <div key={x.id} style={{ ...pCard, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>{x.nome}</div>
+            <div style={{ fontSize: 13, color: '#6B6B66' }}>Interno {x.interno}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button type="button" onClick={() => togglePreferito(x.id)} title="Preferito" style={{ ...pBtn, fontSize: 18, padding: '4px 10px' }}>{preferiti.has(x.id) ? '★' : '☆'}</button>
+            {x.created_by === userId && <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>}
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={() => setMostraTutti(!mostraTutti)} style={{ ...pBtn, width: '100%', marginBottom: 14 }}>
+        {mostraTutti ? 'Mostra solo i preferiti' : 'Visualizza altri numeri'}
+      </button>
+      <div style={pCard}>
+        <div style={pTitolo}>Nuovo numero</div>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Nome
+          <input value={nome} onChange={e => setNome(e.target.value)} style={pInput} />
+        </label>
+        <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+          Numero interno (3 cifre)
+          <input value={interno} maxLength={3} inputMode="numeric" onChange={e => setInterno(e.target.value.replace(/\D/g, ''))} style={pInput} />
+        </label>
+        <button type="button" onClick={aggiungi} style={pBtnPrimario}>Aggiungi</button>
+        {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
+function PannelloUtente({ onClose }) {
+  const ctx = useContext(RoleContext);
+  const [tab, setTab] = useState('profilo');
+  const tabs = [['profilo', 'Profilo'], ['mansionario', 'Mansionario'], ['codici', 'Codici accesso'], ['numeri', 'Numeri importanti']];
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#F4F1EA', zIndex: 60, overflowY: 'auto', fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
+      <div style={{ background: '#1F2A2E', color: '#FFFFFF', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontWeight: 800, fontSize: 20 }}>Pannello utente</div>
+        <button type="button" onClick={onClose} style={{ background: 'rgba(255,255,255,0.14)', border: 'none', color: '#FFFFFF', borderRadius: 10, padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>Chiudi</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, padding: '12px 16px', overflowX: 'auto' }}>
+        {tabs.map(([k, l]) => (
+          <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ padding: '4px 16px 40px', maxWidth: 640, margin: '0 auto' }}>
+        {tab === 'profilo' && <SezioneProfilo ctx={ctx} />}
+        {tab === 'mansionario' && <SezioneMansionario userId={ctx.userId} />}
+        {tab === 'codici' && <SezioneCodici userId={ctx.userId} />}
+        {tab === 'numeri' && <SezioneNumeri userId={ctx.userId} />}
+      </div>
+    </div>
+  );
+}
+
+
 function AuthScreen() {
+  const [pannelloAperto, setPannelloAperto] = useState(false);
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -2580,7 +2860,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
       ut && ut.data ? dX(aggiungiMesi(ut.data, 3)) : null, mts.filter(x => x.targa === v.targa && x.appuntamento && STATI_PROGRAMMATI.includes(x.stato)).length, tagliandiDi(v, ric).some(t => ricorrenzaDi(t.data) === ricorrenzaCorrente && t.data >= aggiungiMesi(todayISO(), -6)) ? 1 : 0];
   });
   const regoleRiep = [
-    ['Stato scadenze', [['{c}2="Fuori termine"', 0], ['{c}2="In scadenza"', 1], ['{c}2="OK"', 3]]],
+    ['Stato scadenze', [['{c}2="Fuori termine"', 0], [`AND({c}2="In scadenza",ISNUMBER(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2>=TODAY(),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2<=TODAY()+30)`, 5], [`AND({c}2="In scadenza",ISNUMBER(${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2),${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2>TODAY()+30,${colonnaExcel(colRiep.findIndex(c => c[0] === 'Scadenza più vicina (data · nome)'))}2<=TODAY()+45)`, 4], ['{c}2="OK"', 3]]],
     ['Scadenza più vicina (data · nome)', [['AND(ISNUMBER({c}2),{c}2<TODAY())', 0], ['AND(ISNUMBER({c}2),{c}2>=TODAY(),{c}2<=TODAY()+30)', 5], ['AND(ISNUMBER({c}2),{c}2>TODAY()+30,{c}2<=TODAY()+45)', 4]]],
     ['Stato gomme', [['{c}2="OK"', 3]]],
     ['Interventi da realizzare', [['AND(ISNUMBER({c}2),{c}2>0)', 1]]],
@@ -10767,6 +11047,7 @@ const MODULES = [
   },
 ];
 function HubScreen({ onOpen, counts, alertCounts, agendaStats, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
+  const [pannelloAperto, setPannelloAperto] = useState(false);
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
@@ -10837,8 +11118,16 @@ return (
             </button>
           </div>
         </div>
-        <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 26 }}>Manutenzione</div>
-        <div style={{ fontSize: 13.5, opacity: 0.7, marginTop: 4 }}>Scegli un modulo per iniziare</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 26 }}>Manutenzione</div>
+            <div style={{ fontSize: 13.5, opacity: 0.7, marginTop: 4 }}>Scegli un modulo per iniziare</div>
+          </div>
+          <button type="button" onClick={() => setPannelloAperto(true)} title="Pannello utente" aria-label="Pannello utente" style={{ width: 66, height: 66, borderRadius: 18, border: '2px solid rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.2)', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <UserCog size={32} />
+          </button>
+        </div>
+        {pannelloAperto && <PannelloUtente onClose={() => setPannelloAperto(false)} />}
         <button
           onClick={onOpenProfilo}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.08)', padding: '4px 10px 4px 8px', borderRadius: 999, border: 'none', color: '#fff', cursor: 'pointer' }}
