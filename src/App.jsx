@@ -3350,6 +3350,8 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
     if (!fatte[0]) return true;
     return calcProssima(fatte[0], r.frequenza) <= oggiISO;
   });
+  const adb = adblueAvviso(v);
+  if (adb) out.push({ tipo: 'intervento', testo: `Controlla livello AdBlue: ${adb.km.toLocaleString('it-IT')} km dall'ultimo rifornimento`, colore: adb.colore });
   return { problemi: out.map(p => ({ tipo: 'scadenza', ...p })), lavaggio };
 }
 // Mini cruscotto del mezzo nell'elenco: scadenze (calendario), attività da fare (triangolo), lavaggio (goccia) e stato.
@@ -4337,6 +4339,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
         </Card>
         {sostOpen && <SostituzioneForm vehicle={vehicle} onCancel={() => setSostOpen(false)} onSave={(r) => { setSostOpen(false); onSaveGomme && onSaveGomme(vehicle, r.patch, r.manutenzione); }} />}
         <GommeExtraCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(patch) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), ...patch } })} />
+<AdBlueCard vehicle={vehicle} puoModificare={puoScrivereGomme} onSave={(nuovo) => onSaveGomme && onSaveGomme(vehicle, { gomme: { ...(vehicle.gomme || {}), adblue: nuovo } })} />
         {editGomme && <GommeForm vehicle={vehicle} onCancel={() => setEditGomme(false)} onSave={(patch) => { setEditGomme(false); onSaveGomme && onSaveGomme(vehicle, patch); }} />}
 
         {deadlines.length > 0 && (
@@ -4402,6 +4405,80 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
 }
 
 /* ---------- Vehicle form ---------- */
+const ADBLUE_ARANCIO_KM = 5000;
+const ADBLUE_ROSSO_KM = 8000;
+function adblueDi(v) {
+  const a = (v.gomme && v.gomme.adblue) || {};
+  const rifornimenti = (a.rifornimenti || []).slice().sort((x, y) => (y.data || '').localeCompare(x.data || '') || Number(y.km || 0) - Number(x.km || 0));
+  return { attivo: !!a.attivo, rifornimenti };
+}
+function adblueAvviso(v) {
+  const { attivo, rifornimenti } = adblueDi(v);
+  if (!attivo || !rifornimenti.length) return null;
+  const dist = Number(v.km || 0) - Number(rifornimenti[0].km || 0);
+  if (dist >= ADBLUE_ROSSO_KM) return { colore: 'rosso', km: dist };
+  if (dist >= ADBLUE_ARANCIO_KM) return { colore: 'arancio', km: dist };
+  return null;
+}
+function AdBlueCard({ vehicle, puoModificare, onSave }) {
+  const { attivo, rifornimenti } = adblueDi(vehicle);
+  const [aperto, setAperto] = useState(false);
+  const [data, setData] = useState(todayISO());
+  const [km, setKm] = useState('');
+  const [litri, setLitri] = useState('');
+  const bottone = { background: '#E8E3D8', border: 'none', borderRadius: 10, padding: '9px 14px', fontWeight: 700, fontSize: 13, color: '#1F2A2E', cursor: 'pointer' };
+  if (!attivo) {
+    return puoModificare ? (
+      <div style={{ marginTop: 12 }}>
+        <button type="button" onClick={() => onSave({ attivo: true, rifornimenti: [] })} style={bottone}>Aggiungi AdBlue a questo mezzo</button>
+      </div>
+    ) : null;
+  }
+  const ultimo = rifornimenti[0];
+  const avviso = adblueAvviso(vehicle);
+  const registra = () => {
+    if (!km) return;
+    const nuovo = { id: uid(), data, km: Number(km), litri: litri === '' ? null : Number(litri) };
+    onSave({ attivo: true, rifornimenti: [nuovo, ...rifornimenti] });
+    setKm(''); setLitri(''); setAperto(false);
+  };
+  const elimina = (id) => {
+    if (!window.confirm('Eliminare il rifornimento?')) return;
+    onSave({ attivo: true, rifornimenti: rifornimenti.filter(x => x.id !== id) });
+  };
+  return (
+    <div style={{ marginTop: 14, background: '#FFFFFF', border: '1px solid #E3DED2', borderRadius: 14, padding: 14 }}>
+      <div style={{ fontWeight: 800, marginBottom: 8 }}>AdBlue</div>
+      {ultimo
+        ? <div style={{ fontSize: 13, marginBottom: 6 }}>Ultimo rifornimento: {dataIt(ultimo.data)} · {Number(ultimo.km).toLocaleString('it-IT')} km{ultimo.litri != null ? ` · ${ultimo.litri} litri` : ''}</div>
+        : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 6 }}>Nessun rifornimento registrato.</div>}
+      {avviso && <div style={{ fontSize: 13, fontWeight: 700, color: avviso.colore === 'rosso' ? '#A3352A' : '#B35400', marginBottom: 8 }}>Controlla livello AdBlue: {avviso.km.toLocaleString('it-IT')} km dall'ultimo rifornimento</div>}
+      {puoModificare && !aperto && <button type="button" onClick={() => setAperto(true)} style={bottone}>Registra rifornimento</button>}
+      {puoModificare && aperto && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 6 }}>
+          <label style={{ fontSize: 12 }}>Data<input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, width: '100%' }} /></label>
+          <label style={{ fontSize: 12 }}>Km<input type="number" value={km} onChange={e => setKm(e.target.value)} style={{ ...inputStyle, width: '100%' }} /></label>
+          <label style={{ fontSize: 12 }}>Litri<input type="number" step="0.1" value={litri} onChange={e => setLitri(e.target.value)} style={{ ...inputStyle, width: '100%' }} /></label>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 12 }}>
+            <button type="button" onClick={registra} style={{ ...bottone, background: '#1F2A2E', color: '#FFFFFF' }}>Conferma rifornimento</button>
+            <button type="button" onClick={() => setAperto(false)} style={{ ...bottone, background: 'none' }}>Annulla</button>
+          </div>
+        </div>
+      )}
+      {rifornimenti.length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12.5 }}>
+          {rifornimenti.map(x => (
+            <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #EEE9DD', padding: '6px 0' }}>
+              <span>{dataIt(x.data)} · {Number(x.km).toLocaleString('it-IT')} km{x.litri != null ? ` · ${x.litri} l` : ''}</span>
+              {puoModificare && <button type="button" onClick={() => elimina(x.id)} style={{ background: 'none', border: 'none', color: '#A3352A', fontSize: 12, cursor: 'pointer' }}>Elimina</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VehicleForm({ initial, onSave, onCancel }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
