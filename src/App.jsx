@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
-import { Car, Wrench, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility, Droplet } from 'lucide-react';
+import { Car, Wrench, UserRound, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility, Droplet } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
    e' sostituito con un piccolo wrapper sopra il localStorage del browser,
@@ -799,7 +799,10 @@ function SezioneMansionario({ userId }) {
   const [file, setFile] = useState(null);
   const [msg, setMsg] = useState('');
   const [occupato, setOccupato] = useState(false);
+  const [selezionato, setSelezionato] = useState(null);
+  const [noteLocali, setNoteLocali] = useState({});
   const lunedi = lunediDi(new Date());
+  const oggiIso = isoLocale(lunedi);
   const minimo = new Date(lunedi); minimo.setDate(minimo.getDate() - 14);
   const carica = async () => {
     const { data: r, error } = await supabase.from('mansionario').select('*').eq('user_id', userId).gte('data_inizio', isoLocale(minimo)).order('data_inizio', { ascending: true });
@@ -828,24 +831,41 @@ function SezioneMansionario({ userId }) {
     setData(''); setNote(''); setFile(null); setOccupato(false); setMsg('Settimana aggiunta.');
     carica();
   };
-  const salvaNote = async (id, testo) => { await supabase.from('mansionario').update({ note: testo }).eq('id', id); };
+  const salvaNote = async (x) => {
+    const testo = noteLocali[x.id] !== undefined ? noteLocali[x.id] : (x.note || '');
+    const { error } = await supabase.from('mansionario').update({ note: testo }).eq('id', x.id);
+    setMsg(error ? 'Errore salvataggio nota: ' + error.message : 'Nota salvata nel mansionario.');
+    carica();
+  };
   const elimina = async (x) => {
     if (!window.confirm('Eliminare questa settimana?')) return;
     if (x.foto_path) await supabase.storage.from(MANSIONARIO_BUCKET).remove([x.foto_path]);
     await supabase.from('mansionario').delete().eq('id', x.id);
+    if (selezionato === x.id) setSelezionato(null);
     carica();
   };
-  const oggiIso = isoLocale(lunedi);
   const future = righe.filter(x => x.data_inizio >= oggiIso);
   const passate = righe.filter(x => x.data_inizio < oggiIso);
-  const scheda = (x) => (
-    <div key={x.id} style={{ ...pCard, padding: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontWeight: 800 }}>Settimana dal {dataIt(x.data_inizio)}{x.data_inizio === oggiIso ? ' · attuale' : ''}</div>
+  const attuale = future.find(x => x.data_inizio === oggiIso) || null;
+  const altreFuture = future.filter(x => x !== attuale);
+  const grande = righe.find(x => x.id === selezionato) || attuale || future[0] || null;
+  const miniatura = (x) => (
+    <button key={x.id} type="button" onClick={() => setSelezionato(x.id)} style={{ flex: '0 0 auto', width: 108, border: grande && grande.id === x.id ? '2px solid #1F2A2E' : '1px solid #D8D2C4', background: '#FFFFFF', borderRadius: 10, padding: 5, cursor: 'pointer', textAlign: 'center' }}>
+      {urls[x.id]
+        ? <img src={urls[x.id]} alt="" style={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+        : <div style={{ height: 72, background: '#EEE9DD', borderRadius: 6 }} />}
+      <div style={{ fontSize: 11, fontWeight: 700, marginTop: 4, color: '#1F2A2E' }}>{dataIt(x.data_inizio)}</div>
+    </button>
+  );
+  const dettaglio = (x) => (
+    <div style={pCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+        <div style={{ fontWeight: 800 }}>Settimana dal {dataIt(x.data_inizio)}{x.data_inizio === oggiIso ? ' · in corso' : ''}</div>
         <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>
       </div>
-      {urls[x.id] && <img src={urls[x.id]} alt="" style={{ width: '100%', borderRadius: 10, marginBottom: 8 }} />}
-      <textarea defaultValue={x.note || ''} onBlur={e => salvaNote(x.id, e.target.value)} placeholder="Note" rows={2} style={{ ...pInput, resize: 'vertical' }} />
+      {urls[x.id] && <img src={urls[x.id]} alt="" style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />}
+      <textarea value={noteLocali[x.id] !== undefined ? noteLocali[x.id] : (x.note || '')} onChange={e => setNoteLocali({ ...noteLocali, [x.id]: e.target.value })} rows={3} placeholder="Note" style={{ ...pInput, resize: 'vertical' }} />
+      <button type="button" onClick={() => salvaNote(x)} style={{ ...pBtnPrimario, marginTop: 8 }}>Salva nel mansionario</button>
     </div>
   );
   return (
@@ -865,14 +885,22 @@ function SezioneMansionario({ userId }) {
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} style={{ ...pInput, resize: 'vertical' }} />
         </label>
         <button type="button" onClick={aggiungi} disabled={occupato} style={pBtnPrimario}>{occupato ? 'Caricamento…' : 'Aggiungi'}</button>
-        {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
       </div>
-      <div style={pTitolo}>Settimane da fare</div>
-      {future.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna settimana in programma.</div>}
-      {future.map(scheda)}
-      <div style={{ ...pTitolo, marginTop: 10 }}>Storico (ultime 2 settimane)</div>
-      {passate.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessuno storico recente.</div>}
-      {passate.map(scheda)}
+      {msg && <div style={{ marginBottom: 12, fontSize: 13 }}>{msg}</div>}
+      <div style={pTitolo}>{grande && grande.data_inizio === oggiIso ? 'Settimana in corso' : 'Settimana selezionata'}</div>
+      {grande ? dettaglio(grande) : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna settimana programmata per la settimana in corso.</div>}
+      {altreFuture.length > 0 && (
+        <div>
+          <div style={pTitolo}>Settimane future</div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8 }}>{altreFuture.map(miniatura)}</div>
+        </div>
+      )}
+      {passate.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={pTitolo}>Storico (ultime 2 settimane)</div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8 }}>{passate.map(miniatura)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2846,7 +2874,7 @@ function generaFlottaXlsx(vehicles, maints, ricorrenti) {
 
   // Foglio Riepilogo: una riga per mezzo, con lo stato delle scadenze
   const colRiep = [
-    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 'i', 'mezzo'], ['Km', 'i', 'mezzo'],
+    ['Veicolo', 's', 'mezzo'], ['Targa', 's', 'mezzo'], ['Marca', 's', 'mezzo'], ['Modello', 's', 'mezzo'], ['Anno', 's', 'mezzo'], ['Km', 'i', 'mezzo'],
     ['Km aggiornati il', 'd', 'mezzo'], ['Carburante', 's', 'mezzo'],
     ['Stato scadenze', 's', 'scadenze'], ['Scadenza più vicina (data · nome)', 'd', 'scadenze'], ['Stato gomme', 's', 'gomme'], ['Pneumatici da acquistare', 's', 'gomme'],
     ['Interventi da realizzare', 'i', 'interventi'], ['Lavaggio', 's', 'interventi'], ['Prossimo check trimestrale', 'd', 'tagliandi'], ['Appuntamenti fissati', 'i', 'interventi'], ['Check eseguito', 'i', 'tagliandi'],
@@ -11123,8 +11151,8 @@ return (
             <div style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 800, fontSize: 26 }}>Manutenzione</div>
             <div style={{ fontSize: 13.5, opacity: 0.7, marginTop: 4 }}>Scegli un modulo per iniziare</div>
           </div>
-          <button type="button" onClick={() => setPannelloAperto(true)} title="Pannello utente" aria-label="Pannello utente" style={{ width: 66, height: 66, borderRadius: 18, border: '2px solid rgba(255,255,255,0.55)', background: 'rgba(255,255,255,0.2)', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-            <UserCog size={32} />
+          <button type="button" onClick={() => setPannelloAperto(true)} title="Pannello utente" aria-label="Pannello utente" style={{ width: 66, height: 66, borderRadius: 18, border: 'none', background: '#F2B233', color: '#1F2A2E', boxShadow: '0 4px 12px rgba(242,178,51,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <UserRound size={34} />
           </button>
         </div>
         {pannelloAperto && <PannelloUtente onClose={() => setPannelloAperto(false)} />}
