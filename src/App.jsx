@@ -801,11 +801,11 @@ function SezioneMansionario({ userId }) {
   const [occupato, setOccupato] = useState(false);
   const [selezionato, setSelezionato] = useState(null);
   const [noteLocali, setNoteLocali] = useState({});
-  const lunedi = lunediDi(new Date());
-  const oggiIso = isoLocale(lunedi);
-  const minimo = new Date(lunedi); minimo.setDate(minimo.getDate() - 14);
+  const oggiIso = isoLocale(new Date());
+  const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoLocale(d); };
+  const minimoIso = addGiorni(oggiIso, -21);
   const carica = async () => {
-    const { data: r, error } = await supabase.from('mansionario').select('*').eq('user_id', userId).gte('data_inizio', isoLocale(minimo)).order('data_inizio', { ascending: true });
+    const { data: r, error } = await supabase.from('mansionario').select('*').eq('user_id', userId).gte('data_inizio', minimoIso).order('data_inizio', { ascending: true });
     if (error) { setMsg('Errore: ' + error.message); return; }
     setRighe(r || []);
     const mappa = {};
@@ -844,11 +844,10 @@ function SezioneMansionario({ userId }) {
     if (selezionato === x.id) setSelezionato(null);
     carica();
   };
-  const future = righe.filter(x => x.data_inizio >= oggiIso);
-  const passate = righe.filter(x => x.data_inizio < oggiIso);
-  const attuale = future.find(x => x.data_inizio === oggiIso) || null;
-  const altreFuture = future.filter(x => x !== attuale);
-  const grande = righe.find(x => x.id === selezionato) || attuale || future[0] || null;
+  const attuale = righe.filter(x => x.data_inizio <= oggiIso && addGiorni(x.data_inizio, 7) > oggiIso).pop() || null;
+  const altreFuture = righe.filter(x => x.data_inizio > oggiIso);
+  const passate = righe.filter(x => x !== attuale && addGiorni(x.data_inizio, 7) <= oggiIso && x.data_inizio >= addGiorni(oggiIso, -14));
+  const grande = righe.find(x => x.id === selezionato) || attuale || altreFuture[0] || null;
   const miniatura = (x) => (
     <button key={x.id} type="button" onClick={() => setSelezionato(x.id)} style={{ flex: '0 0 auto', width: 108, border: grande && grande.id === x.id ? '2px solid #1F2A2E' : '1px solid #D8D2C4', background: '#FFFFFF', borderRadius: 10, padding: 5, cursor: 'pointer', textAlign: 'center' }}>
       {urls[x.id]
@@ -860,7 +859,7 @@ function SezioneMansionario({ userId }) {
   const dettaglio = (x) => (
     <div style={pCard}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-        <div style={{ fontWeight: 800 }}>Settimana dal {dataIt(x.data_inizio)}{x.data_inizio === oggiIso ? ' · in corso' : ''}</div>
+        <div style={{ fontWeight: 800 }}>Settimana dal {dataIt(x.data_inizio)}{x === attuale ? ' · in corso' : ''}</div>
         <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>
       </div>
       {urls[x.id] && <img src={urls[x.id]} alt="" style={{ width: '100%', borderRadius: 10, marginBottom: 10 }} />}
@@ -887,7 +886,7 @@ function SezioneMansionario({ userId }) {
         <button type="button" onClick={aggiungi} disabled={occupato} style={pBtnPrimario}>{occupato ? 'Caricamento…' : 'Aggiungi'}</button>
       </div>
       {msg && <div style={{ marginBottom: 12, fontSize: 13 }}>{msg}</div>}
-      <div style={pTitolo}>{grande && grande.data_inizio === oggiIso ? 'Settimana in corso' : 'Settimana selezionata'}</div>
+      <div style={pTitolo}>{grande && grande === attuale ? 'Settimana in corso' : 'Settimana selezionata'}</div>
       {grande ? dettaglio(grande) : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna settimana programmata per la settimana in corso.</div>}
       {altreFuture.length > 0 && (
         <div>
