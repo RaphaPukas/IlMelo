@@ -988,7 +988,7 @@ function SezioneNumeri({ userId, isAdmin }) {
     setNome(''); setInterno(''); setImportante(false); setMsg(''); carica();
   };
   const elimina = async (x) => {
-    if (x.created_by !== userId) return;
+    if (!isAdmin) return;
     if (!window.confirm('Eliminare il numero?')) return;
     await supabase.from('numeri_importanti').delete().eq('id', x.id);
     carica();
@@ -1006,7 +1006,7 @@ function SezioneNumeri({ userId, isAdmin }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <button type="button" onClick={() => togglePreferito(x.id)} title="Preferito" style={{ ...pBtn, fontSize: 18, padding: '4px 10px' }}>{preferiti.has(x.id) ? '★' : '☆'}</button>
         {isAdmin && <button type="button" onClick={() => toggleImportante(x)} style={pBtn}>{x.importante ? 'Togli da importanti' : 'Metti tra importanti'}</button>}
-        {x.created_by === userId && <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>}
+        {isAdmin && <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>}
       </div>
     </div>
   );
@@ -1028,7 +1028,7 @@ function SezioneNumeri({ userId, isAdmin }) {
           {altri.map(riga)}
         </div>
       )}
-      <div style={pCard}>
+      {isAdmin && <div style={pCard}>
         <div style={pTitolo}>Nuovo numero</div>
         <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
           Nome
@@ -1046,7 +1046,7 @@ function SezioneNumeri({ userId, isAdmin }) {
         )}
         <button type="button" onClick={aggiungi} style={pBtnPrimario}>Aggiungi</button>
         {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
-      </div>
+      </div>}
     </div>
   );
 }
