@@ -955,12 +955,13 @@ function SezioneCodici({ userId }) {
   );
 }
 
-function SezioneNumeri({ userId }) {
+function SezioneNumeri({ userId, isAdmin }) {
   const [numeri, setNumeri] = useState([]);
   const [preferiti, setPreferiti] = useState(new Set());
-  const [mostraTutti, setMostraTutti] = useState(false);
+  const [mostraAltri, setMostraAltri] = useState(false);
   const [nome, setNome] = useState('');
   const [interno, setInterno] = useState('');
+  const [importante, setImportante] = useState(false);
   const [msg, setMsg] = useState('');
   const carica = async () => {
     const { data: n } = await supabase.from('numeri_importanti').select('*').order('nome', { ascending: true });
@@ -974,12 +975,17 @@ function SezioneNumeri({ userId }) {
     else await supabase.from('numeri_preferiti').insert({ user_id: userId, numero_id: id });
     carica();
   };
+  const toggleImportante = async (x) => {
+    const { error } = await supabase.from('numeri_importanti').update({ importante: !x.importante }).eq('id', x.id);
+    setMsg(error ? 'Errore: ' + error.message : '');
+    carica();
+  };
   const aggiungi = async () => {
     if (!nome.trim()) { setMsg('Inserisci il nome.'); return; }
     if (!/^\d{3}$/.test(interno)) { setMsg('Il numero interno deve avere 3 cifre.'); return; }
-    const { error } = await supabase.from('numeri_importanti').insert({ nome: nome.trim(), interno, created_by: userId });
+    const { error } = await supabase.from('numeri_importanti').insert({ nome: nome.trim(), interno, created_by: userId, importante: isAdmin && importante });
     if (error) { setMsg('Errore: ' + error.message); return; }
-    setNome(''); setInterno(''); setMsg(''); carica();
+    setNome(''); setInterno(''); setImportante(false); setMsg(''); carica();
   };
   const elimina = async (x) => {
     if (x.created_by !== userId) return;
@@ -987,26 +993,41 @@ function SezioneNumeri({ userId }) {
     await supabase.from('numeri_importanti').delete().eq('id', x.id);
     carica();
   };
-  const visibili = mostraTutti ? numeri : numeri.filter(x => preferiti.has(x.id));
+  const importanti = numeri.filter(x => x.importante);
+  const idImportanti = new Set(importanti.map(x => x.id));
+  const preferitiVis = numeri.filter(x => preferiti.has(x.id) && !idImportanti.has(x.id));
+  const altri = numeri.filter(x => !idImportanti.has(x.id) && !preferiti.has(x.id));
+  const riga = (x) => (
+    <div key={x.id} style={{ ...pCard, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+      <div>
+        <div style={{ fontWeight: 700 }}>{x.nome}</div>
+        <div style={{ fontSize: 13, color: '#6B6B66' }}>Interno {x.interno}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button type="button" onClick={() => togglePreferito(x.id)} title="Preferito" style={{ ...pBtn, fontSize: 18, padding: '4px 10px' }}>{preferiti.has(x.id) ? '★' : '☆'}</button>
+        {isAdmin && <button type="button" onClick={() => toggleImportante(x)} style={pBtn}>{x.importante ? 'Togli da importanti' : 'Metti tra importanti'}</button>}
+        {x.created_by === userId && <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>}
+      </div>
+    </div>
+  );
   return (
     <div>
-      <div style={pTitolo}>{mostraTutti ? 'Tutti i numeri' : 'Preferiti'}</div>
-      {visibili.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>{mostraTutti ? 'Nessun numero in elenco.' : 'Nessun preferito: usa ☆ per aggiungerne.'}</div>}
-      {visibili.map(x => (
-        <div key={x.id} style={{ ...pCard, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div>
-            <div style={{ fontWeight: 700 }}>{x.nome}</div>
-            <div style={{ fontSize: 13, color: '#6B6B66' }}>Interno {x.interno}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button type="button" onClick={() => togglePreferito(x.id)} title="Preferito" style={{ ...pBtn, fontSize: 18, padding: '4px 10px' }}>{preferiti.has(x.id) ? '★' : '☆'}</button>
-            {x.created_by === userId && <button type="button" onClick={() => elimina(x)} style={pBtnPericolo}>Elimina</button>}
-          </div>
-        </div>
-      ))}
-      <button type="button" onClick={() => setMostraTutti(!mostraTutti)} style={{ ...pBtn, width: '100%', marginBottom: 14 }}>
-        {mostraTutti ? 'Mostra solo i preferiti' : 'Visualizza altri numeri'}
+      <div style={pTitolo}>Numeri importanti</div>
+      {importanti.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun numero importante.</div>}
+      {importanti.map(riga)}
+      <div style={{ ...pTitolo, marginTop: 10 }}>Preferiti</div>
+      {preferitiVis.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun preferito: usa ☆ per aggiungerne.</div>}
+      {preferitiVis.map(riga)}
+      <button type="button" onClick={() => setMostraAltri(!mostraAltri)} style={{ ...pBtn, width: '100%', marginBottom: 14 }}>
+        {mostraAltri ? 'Nascondi gli altri numeri' : 'Visualizza altri numeri'}
       </button>
+      {mostraAltri && (
+        <div>
+          <div style={pTitolo}>Altri numeri</div>
+          {altri.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun altro numero.</div>}
+          {altri.map(riga)}
+        </div>
+      )}
       <div style={pCard}>
         <div style={pTitolo}>Nuovo numero</div>
         <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
@@ -1017,6 +1038,12 @@ function SezioneNumeri({ userId }) {
           Numero interno (3 cifre)
           <input value={interno} maxLength={3} inputMode="numeric" onChange={e => setInterno(e.target.value.replace(/\D/g, ''))} style={pInput} />
         </label>
+        {isAdmin && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}>
+            <input type="checkbox" checked={importante} onChange={e => setImportante(e.target.checked)} />
+            Numero importante per tutti
+          </label>
+        )}
         <button type="button" onClick={aggiungi} style={pBtnPrimario}>Aggiungi</button>
         {msg && <div style={{ marginTop: 10, fontSize: 13 }}>{msg}</div>}
       </div>
@@ -1043,7 +1070,7 @@ function PannelloUtente({ onClose }) {
         {tab === 'profilo' && <SezioneProfilo ctx={ctx} />}
         {tab === 'mansionario' && <SezioneMansionario userId={ctx.userId} />}
         {tab === 'codici' && <SezioneCodici userId={ctx.userId} />}
-        {tab === 'numeri' && <SezioneNumeri userId={ctx.userId} />}
+        {tab === 'numeri' && <SezioneNumeri userId={ctx.userId} isAdmin={ctx.role === 'admin'} />}
       </div>
     </div>
   );
