@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
-import { Car, Wrench, UserRound, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Footprints, Accessibility, Droplet } from 'lucide-react';
+import { Car, Wrench, UserRound, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Droplet } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
    e' sostituito con un piccolo wrapper sopra il localStorage del browser,
@@ -635,8 +635,6 @@ function GestioneNotificheScreen({ onHome, myUserId }) {
 }
 
 const RoleContext = createContext({ role: 'lettore', email: '', nome: '', cognome: '', userId: null, permessi: new Set(), gruppoIds: [] });
-function useRole() { return useContext(RoleContext).role; }
-function useUserEmail() { return useContext(RoleContext).email; }
 function nomeVisualizzato({ nome, cognome, email }) {
   const n = `${nome || ''} ${cognome || ''}`.trim();
   return n || email;
@@ -794,8 +792,8 @@ function SezioneProfilo({ ctx }) {
 function SezioneMansionario({ userId }) {
   const [righe, setRighe] = useState([]);
   const [urls, setUrls] = useState({});
-  const [data, setData] = useState('');
-  const [note, setNote] = useState('');
+  const [data, setData] = useBozza('mansionario-data', '');
+  const [note, setNote] = useBozza('mansionario-note', '');
   const [file, setFile] = useState(null);
   const [msg, setMsg] = useState('');
   const [occupato, setOccupato] = useState(false);
@@ -805,6 +803,13 @@ function SezioneMansionario({ userId }) {
   const addGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoLocale(d); };
   const minimoIso = addGiorni(oggiIso, -21);
   const carica = async () => {
+    // Pulizia: le settimane finite da oltre 2 settimane (inizio + 7 + 14 giorni) vengono eliminate, insieme alla foto.
+    const { data: vecchie } = await supabase.from('mansionario').select('id, foto_path').eq('user_id', userId).lt('data_inizio', minimoIso);
+    if (vecchie && vecchie.length) {
+      const percorsi = vecchie.map(x => x.foto_path).filter(Boolean);
+      if (percorsi.length) await supabase.storage.from(MANSIONARIO_BUCKET).remove(percorsi);
+      await supabase.from('mansionario').delete().in('id', vecchie.map(x => x.id));
+    }
     const { data: r, error } = await supabase.from('mansionario').select('*').eq('user_id', userId).gte('data_inizio', minimoIso).order('data_inizio', { ascending: true });
     if (error) { setMsg('Errore: ' + error.message); return; }
     setRighe(r || []);
@@ -906,8 +911,8 @@ function SezioneMansionario({ userId }) {
 
 function SezioneCodici({ userId }) {
   const [lista, setLista] = useState([]);
-  const [etichetta, setEtichetta] = useState('');
-  const [codice, setCodice] = useState('');
+  const [etichetta, setEtichetta] = useBozza('codici-etichetta', '');
+  const [codice, setCodice] = useBozza('codici-codice', '');
   const [msg, setMsg] = useState('');
   const carica = async () => {
     const { data, error } = await supabase.from('codici_accesso').select('*').eq('user_id', userId).order('created_at', { ascending: true });
@@ -959,8 +964,8 @@ function SezioneNumeri({ userId, isAdmin }) {
   const [numeri, setNumeri] = useState([]);
   const [preferiti, setPreferiti] = useState(new Set());
   const [mostraAltri, setMostraAltri] = useState(false);
-  const [nome, setNome] = useState('');
-  const [interno, setInterno] = useState('');
+  const [nome, setNome] = useBozza('numeri-nome', '');
+  const [interno, setInterno] = useBozza('numeri-interno', '');
   const [importante, setImportante] = useState(false);
   const [msg, setMsg] = useState('');
   const carica = async () => {
@@ -1051,6 +1056,191 @@ function SezioneNumeri({ userId, isAdmin }) {
   );
 }
 
+const RIFIUTI_GIORNI_LIMITE = 10;
+const rGiornoDiScheda = (iso) => { if (!iso) return 1; const d = new Date(iso + 'T00:00:00'); const o = new Date(); o.setHours(0, 0, 0, 0); return Math.floor((o - d) / 864e5) + 1; };
+const rStatoScheda = (s) => {
+  const giorno = rGiornoDiScheda(s.data_apertura);
+  const rimanenti = RIFIUTI_GIORNI_LIMITE - giorno;
+  const testoGiorno = `Giorno ${giorno} di ${RIFIUTI_GIORNI_LIMITE}`;
+  if (rimanenti < 0) return { testo: `${testoGiorno} · fuori norma`, sfondo: '#E53935', colore: '#FFFFFF' };
+  if (rimanenti <= 2) return { testo: `${testoGiorno} · carico entro ${rimanenti === 0 ? 'oggi' : rimanenti + ' giorni'}`, sfondo: '#F57C00', colore: '#1F2A2E' };
+  return { testo: `${testoGiorno} · carico entro ${rimanenti} giorni`, sfondo: '#FFFF66', colore: '#1F2A2E' };
+};
+const rInput = { ...pInput, marginTop: 4 };
+
+function RifiutiModulo({ onClose }) {
+  const [tab, setTab] = useState('schede');
+  const [prodotti, setProdotti] = useState([]);
+  const [schede, setSchede] = useState([]);
+  const [msg, setMsg] = useState('');
+  const [modifiche, setModifiche] = useState({});
+  const [ricerca, setRicerca] = useState('');
+  const [nuovaScheda, setNuovaScheda] = useState({ prodotto_id: '', data_apertura: todayISO(), quantita: '', note: '' });
+  const [nuovoProdotto, setNuovoProdotto] = useState({ nome: '', tipologia: '', codice_eer: '', pericoloso: false });
+  const carica = async () => {
+    const { data: p, error: e1 } = await supabase.from('rifiuti_prodotti').select('*').order('nome', { ascending: true });
+    const { data: s, error: e2 } = await supabase.from('rifiuti_schede').select('*').order('data_apertura', { ascending: true });
+    setMsg(e1 || e2 ? 'Errore: ' + (e1 || e2).message : '');
+    setProdotti(p || []);
+    setSchede(s || []);
+  };
+  useEffect(() => { carica(); }, []);
+  const nomeProdotto = (id) => { const p = prodotti.find(x => x.id === id); return p ? p.nome : '—'; };
+  const codiceProdotto = (id) => { const p = prodotti.find(x => x.id === id); return p ? p.codice_eer : ''; };
+  const valore = (s, k) => (modifiche[s.id] && modifiche[s.id][k] !== undefined ? modifiche[s.id][k] : (s[k] || ''));
+  const cambia = (id, k, v) => setModifiche({ ...modifiche, [id]: { ...(modifiche[id] || {}), [k]: v } });
+  const salvaScheda = async (s) => {
+    const { error } = await supabase.from('rifiuti_schede').update({
+      data_apertura: valore(s, 'data_apertura') || s.data_apertura,
+      data_carico: valore(s, 'data_carico') || null,
+      data_smaltimento_prevista: valore(s, 'data_smaltimento_prevista') || null,
+      quantita: valore(s, 'quantita') || null,
+      note: valore(s, 'note') || null,
+    }).eq('id', s.id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    const nuove = { ...modifiche }; delete nuove[s.id]; setModifiche(nuove);
+    setMsg('Scheda salvata.'); carica();
+  };
+  const apriScheda = async () => {
+    if (!nuovaScheda.prodotto_id) { setMsg('Scegli il prodotto.'); return; }
+    const { error } = await supabase.from('rifiuti_schede').insert({ prodotto_id: nuovaScheda.prodotto_id, data_apertura: nuovaScheda.data_apertura || todayISO(), quantita: nuovaScheda.quantita || null, note: nuovaScheda.note || null });
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setNuovaScheda({ prodotto_id: '', data_apertura: todayISO(), quantita: '', note: '' });
+    setMsg('Scheda aperta.'); carica();
+  };
+  const eliminaScheda = async (s) => {
+    if (!window.confirm('Eliminare questa scheda?')) return;
+    await supabase.from('rifiuti_schede').delete().eq('id', s.id);
+    carica();
+  };
+  const aggiungiProdotto = async () => {
+    if (!nuovoProdotto.nome.trim() || !nuovoProdotto.codice_eer.trim()) { setMsg('Inserisci nome e codice.'); return; }
+    const { error } = await supabase.from('rifiuti_prodotti').insert({ nome: nuovoProdotto.nome.trim(), tipologia: nuovoProdotto.tipologia.trim() || null, codice_eer: nuovoProdotto.codice_eer.trim(), pericoloso: nuovoProdotto.pericoloso });
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setNuovoProdotto({ nome: '', tipologia: '', codice_eer: '', pericoloso: false });
+    setMsg('Prodotto aggiunto.'); carica();
+  };
+  const eliminaProdotto = async (p) => {
+    if (!window.confirm('Eliminare il prodotto? Eliminerà anche le sue schede.')) return;
+    await supabase.from('rifiuti_prodotti').delete().eq('id', p.id);
+    carica();
+  };
+  const daCaricare = schede.filter(s => !s.data_carico);
+  const caricate = schede.filter(s => s.data_carico).slice().reverse();
+  const q = ricerca.trim().toLowerCase();
+  const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.tipologia, p.codice_eer].filter(Boolean).some(x => x.toLowerCase().includes(q)));
+  const campoScheda = (s, k, etichetta, tipo) => (
+    <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+      {etichetta}
+      <input type={tipo || 'text'} value={valore(s, k)} onChange={e => cambia(s.id, k, e.target.value)} style={rInput} />
+    </label>
+  );
+  const schedaCard = (s) => {
+    const stato = rStatoScheda(s);
+    return (
+      <div key={s.id} style={{ ...pCard, padding: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+          <div>
+            <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}</div>
+            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}</div>
+          </div>
+          {!s.data_carico && <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{stato.testo}</span>}
+        </div>
+        {campoScheda(s, 'data_apertura', 'Data apertura del collo', 'date')}
+        {campoScheda(s, 'data_carico', 'Data di carico nel registro', 'date')}
+        {campoScheda(s, 'data_smaltimento_prevista', 'Smaltimento programmato', 'date')}
+        {campoScheda(s, 'quantita', 'Quantità (es. 2 batterie, 1 scatola)')}
+        {campoScheda(s, 'note', 'Note')}
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button type="button" onClick={() => salvaScheda(s)} style={pBtnPrimario}>Salva scheda</button>
+          <button type="button" onClick={() => eliminaScheda(s)} style={pBtnPericolo}>Elimina</button>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: '#F4F1EA', zIndex: 60, overflowY: 'auto', fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
+      <div style={{ background: '#1F2A2E', color: '#FFFFFF', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontWeight: 800, fontSize: 20 }}>Rifiuti</div>
+        <button type="button" onClick={onClose} style={{ background: 'rgba(255,255,255,0.14)', border: 'none', color: '#FFFFFF', borderRadius: 10, padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>Chiudi</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, padding: '12px 16px' }}>
+        {[['schede', 'Schede'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ padding: '4px 16px 40px', maxWidth: 640, margin: '0 auto' }}>
+        {msg && <div style={{ marginBottom: 12, fontSize: 13 }}>{msg}</div>}
+        {tab === 'schede' && (
+          <div>
+            <div style={pTitolo}>Da caricare</div>
+            {daCaricare.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna scheda aperta.</div>}
+            {daCaricare.map(schedaCard)}
+            <div style={{ ...pCard, marginTop: 10 }}>
+              <div style={pTitolo}>Apri nuova scheda</div>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+                Prodotto
+                <select value={nuovaScheda.prodotto_id} onChange={e => setNuovaScheda({ ...nuovaScheda, prodotto_id: e.target.value })} style={rInput}>
+                  <option value="">Scegli…</option>
+                  {prodotti.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+                Data apertura del collo
+                <input type="date" value={nuovaScheda.data_apertura} onChange={e => setNuovaScheda({ ...nuovaScheda, data_apertura: e.target.value })} style={rInput} />
+              </label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+                Quantità
+                <input value={nuovaScheda.quantita} onChange={e => setNuovaScheda({ ...nuovaScheda, quantita: e.target.value })} style={rInput} />
+              </label>
+              <button type="button" onClick={apriScheda} style={pBtnPrimario}>Apri scheda</button>
+            </div>
+            {caricate.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={pTitolo}>Caricate</div>
+                {caricate.map(s => (
+                  <div key={s.id} style={{ ...pCard, padding: 10, fontSize: 13 }}>
+                    <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}</div>
+                    <div>Apertura {dataIt(s.data_apertura)} · carico {dataIt(s.data_carico)}{s.data_smaltimento_prevista ? ` · smaltimento ${dataIt(s.data_smaltimento_prevista)}` : ''}</div>
+                    {s.quantita && <div>{s.quantita}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {tab === 'prodotti' && (
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
+              Cerca per nome, tipologia o codice
+              <input value={ricerca} onChange={e => setRicerca(e.target.value)} style={rInput} />
+            </label>
+            {prodottiFiltrati.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun prodotto.</div>}
+            {prodottiFiltrati.map(p => (
+              <div key={p.id} style={{ ...pCard, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
+                  <div style={{ fontSize: 12, color: '#6B6B66' }}>{p.tipologia || '—'}</div>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
+                </div>
+                <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
+              </div>
+            ))}
+            <div style={{ ...pCard, marginTop: 10 }}>
+              <div style={pTitolo}>Nuovo prodotto</div>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Nome del prodotto<input value={nuovoProdotto.nome} onChange={e => setNuovoProdotto({ ...nuovoProdotto, nome: e.target.value })} style={rInput} /></label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Tipologia<input value={nuovoProdotto.tipologia} onChange={e => setNuovoProdotto({ ...nuovoProdotto, tipologia: e.target.value })} placeholder="Es. batterie, neon, apparecchiature" style={rInput} /></label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Codice EER<input value={nuovoProdotto.codice_eer} onChange={e => setNuovoProdotto({ ...nuovoProdotto, codice_eer: e.target.value })} placeholder="es. 6 cifre" style={rInput} /></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}><input type="checkbox" checked={nuovoProdotto.pericoloso} onChange={e => setNuovoProdotto({ ...nuovoProdotto, pericoloso: e.target.checked })} />Rifiuto pericoloso</label>
+              <button type="button" onClick={aggiungiProdotto} style={pBtnPrimario}>Aggiungi prodotto</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PannelloUtente({ onClose }) {
   const ctx = useContext(RoleContext);
   const [tab, setTab] = useState('profilo');
@@ -1078,7 +1268,6 @@ function PannelloUtente({ onClose }) {
 
 
 function AuthScreen() {
-  const [pannelloAperto, setPannelloAperto] = useState(false);
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -2552,10 +2741,6 @@ async function caricaFotoMezzi(recordId, file) {
   if (error) throw error;
   return path;
 }
-async function eliminaFotoMezzi(paths) {
-  if (!paths?.length) return;
-  try { await supabase.storage.from(MEZZI_FOTO_BUCKET).remove(paths); } catch {}
-}
 async function urlFirmateMezzi(paths) {
   if (!paths?.length) return {};
   const { data } = await supabase.storage.from(MEZZI_FOTO_BUCKET).createSignedUrls(paths, 3600);
@@ -2830,12 +3015,6 @@ function cellaXlsx(ref, val, stile) {
   return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(val)}</t></is></c>`;
 }
 function dataSeriale(iso) { const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; }
-function dataDaDot(dot) {
-  const mm = String(dot || '').match(/^(\d{2})(\d{2})$/);
-  if (!mm) return null;
-  const ww = Number(mm[1]); if (ww < 1 || ww > 53) return null;
-  return new Date(2000 + Number(mm[2]), 0, 1 + (ww - 1) * 7).toISOString().slice(0, 10);
-}
 // Stato delle gomme: lo stesso avviso che compare nella scheda del mezzo (alertGomme).
 function statoGommeMezzo(v) {
   const av = alertGomme(v.gomme?.montati?.tipo);
@@ -3281,56 +3460,6 @@ function scaricaXlsx(bytes, nomeFile) {
 }
 
 // Esportazione della flotta in Excel: una riga per mezzo, celle colorate secondo gli avvisi (rosso, giallo, arancione, verde).
-function generaFlottaExcelHtml(vehicles, maints, params) {
-  const e = (x) => escapeHtml(x == null ? '' : String(x));
-  const COL = { verde: ['#E7F3EC', '#1F6B45'], giallo: ['#FBF1DC', '#8A5A00'], arancione: ['#FBE3C7', '#B15C00'], rosso: ['#FDECEA', '#B71C1C'] };
-  const colUrg = (u) => (u === 'urgent' ? COL.rosso : u === 'medium' ? COL.giallo : u === 'ok' ? COL.verde : null);
-  const colBat = (b) => (b ? COL[b.livello] : null);
-  const colEta = (x) => (x ? COL[x.livello] : null);
-  const scad = (d) => {
-    if (!d) return ['—', null];
-    const g = daysUntil(d);
-    return [`${fmtDate(d)}${g < 0 ? ' (scaduta)' : ' (tra ' + g + ' gg)'}`, colUrg(urgencyOf(g, params))];
-  };
-  const cella = ([testo, col]) => `<td style="background:${col ? col[0] : '#FFFFFF'};color:${col ? col[1] : '#1B2A2E'};border:1px solid #bbbbbb">${e(testo)}</td>`;
-  const semplice = (t) => [t, null];
-  const intestazioni = ['Targa', 'Marca', 'Modello', 'Anno', 'Km', 'Carburante', 'Colore', 'Misura pneumatici', 'Olio motore', 'Assicurazione', 'Revisione', 'Tagliando', 'Tergicristalli anteriore', 'Tergicristalli posteriore', 'Pneumatici montati', 'Marca e modello montati', 'Battistrada montati', 'DOT montati', 'Età montati', 'Treno non uniforme', 'Pneumatici di scorta', 'Appuntamento cambio gomme', 'Interventi da realizzare', 'Chilometri aggiornati il'];
-  const righe = (vehicles || []).map(v => {
-    const g = v.gomme || {};
-    const m = g.montati || {};
-    const bat = livelloBattistrada(m.battistrada, m.tipo);
-    const eta = etaPneumatico(m.dot);
-    const tergi = (lato) => (g.tergicristalli?.[lato]?.data ? scad(aggiungiMesi(g.tergicristalli[lato].data, 12)) : ['—', null]);
-    const app = (maints || []).find(x => x.targa === v.targa && (x.descrizione || '').startsWith('Cambio gomme') && x.stato === 'Programmato');
-    const daFare = (maints || []).filter(x => x.targa === v.targa && x.stato === 'Programmato').length;
-    const kmColore = (!v.km_aggiornato || (new Date() - new Date(v.km_aggiornato + 'T00:00:00')) / 864e5 > KM_PROMEMORIA_GIORNI) ? COL.giallo : COL.verde;
-    const scorta = (g.scorta || []).map(x => [x.tipo, x.marca, x.modello].filter(Boolean).join(' ')).join('; ') || 'nessuna';
-    return [
-      semplice(v.targa), semplice(v.marca), semplice(v.modello), semplice(v.anno || '—'), semplice(v.km != null ? Number(v.km).toLocaleString('it-IT') : '—'),
-      semplice(v.carburante || '—'), semplice(v.colore || '—'), semplice(g.misura || '—'), semplice(v.olio_motore || '—'),
-      scad(v.assicurazione), scad(v.revisione), scad(v.tagliando),
-      tergi('anteriore'), tergi('posteriore'),
-      semplice(m.tipo || '—'), semplice([m.marca, m.modello].filter(Boolean).join(' ') || '—'),
-      [bat ? bat.mm.toFixed(1).replace('.', ',') + ' mm · ' + bat.livello : '—', colBat(bat)],
-      semplice(m.dot || '—'),
-      [eta ? eta.anni.toFixed(1).replace('.', ',') + ' anni' : '—', colEta(eta)],
-      [m.misto ? 'SÌ' + (m.notaMisto ? ' · ' + m.notaMisto : '') : 'no', m.misto ? COL.rosso : null],
-      semplice(scorta),
-      app ? [`${fmtDate(app.appuntamento)}${app.appuntamento_ora ? ' ore ' + app.appuntamento_ora : ''}`, COL.giallo] : ['—', null],
-      [String(daFare), daFare ? COL.giallo : null],
-      [v.km_aggiornato ? fmtDate(v.km_aggiornato) : 'mai', kmColore],
-    ];
-  });
-  return `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"></head><body><table border="1" style="border-collapse:collapse;font-family:Arial;font-size:10pt"><tr>${intestazioni.map(h => `<th style="background:#25454F;color:#FFFFFF;border:1px solid #bbbbbb">${e(h)}</th>`).join('')}</tr>${righe.map(r => `<tr>${r.map(cella).join('')}</tr>`).join('')}</table></body></html>`;
-}
-function scaricaExcelHtml(html, nomeFile) {
-  const blob = new Blob(['\ufeff' + html], { type: 'application/vnd.ms-excel' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = nomeFile;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 // Cose da fare per un mezzo: scadenze, cambio gomme stagionale, acquisti, check trimestrale, interventi.
 // Il lavaggio non è un problema: se è dovuto, viene segnalato a parte con la goccia.
@@ -3632,21 +3761,6 @@ function livelloBattistrada(mm, tipo) {
   const livello = n >= consigliato + 1 ? 'verde' : n >= consigliato ? 'giallo' : n >= 2 ? 'arancione' : 'rosso';
   return { livello, color: COLORI_VITA[livello], mm: n, consigliato };
 }
-function BarraBattistrada({ mm, tipo }) {
-  const b = livelloBattistrada(mm, tipo);
-  if (!b) return null;
-  return (
-    <div style={{ marginTop:6 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11.5, color: MEZZI_COLORS.muted }}>
-        <span>Battistrada {b.mm.toFixed(1).replace('.', ',')} mm · consigliato {b.consigliato} mm · limite di legge 1,6 mm</span>
-        <span style={{ color: b.color, fontWeight:700 }}>{b.livello}</span>
-      </div>
-      <div style={{ height:7, borderRadius:999, background:'#EAE7DC', overflow:'hidden', marginTop:3 }}>
-        <div style={{ width: `${Math.min(b.mm / 9, 1) * 100}%`, height:'100%', background: b.color }} />
-      </div>
-    </div>
-  );
-}
 // Storico unico del mezzo: interventi, cambi gomme e tagliandi eseguiti, dal piu' recente.
 function eventiStorico(vehicle, maints, ricorrenti) {
   const interventi = (maints || []).filter(m => m.targa === vehicle.targa).map(m => ({
@@ -3772,8 +3886,8 @@ function tipoVoceChecklist(testo) {
 function suggerimentoValore(testo) {
   return /olio.*motore|paraflu/i.test(testo || '') ? '(ml rabboccati)' : 'Valore (es. 1,5 L, 2,2 bar)';
 }
-function ValoreVoce({ valore, onSalva, theme, placeholder }) {
-  const [v, setV] = useState(valore || '');
+function ValoreVoce({ valore, onSalva, theme, placeholder, chiave }) {
+  const [v, setV] = useBozza(chiave || 'valore-generico', valore || '');
   return (
     <input value={v} onChange={e => setV(e.target.value)} onBlur={() => { if (v.trim() !== (valore || '')) onSalva(v.trim()); }}
       placeholder={placeholder || 'Valore (es. 1,5 L, 2,2 bar)'}
@@ -4013,11 +4127,6 @@ function PannelloTagliando({ vehicle, prenotato, onPrenota, onCancella, onEsegui
 
 // Pneumatici: tipo, marca, modello, battistrada (mm) e se sono montati su cerchio.
 const TIPI_PNEUMATICI = ['Invernali', 'Estive', 'Quattro stagioni', 'All season'];
-function colorUsura(p) {
-  const n = Number(p);
-  if (p === '' || p == null || !Number.isFinite(n)) return '#79715F';
-  return n <= 30 ? '#B71C1C' : n <= 50 ? '#B15C00' : '#1F6B45';
-}
 function GommeForm({ vehicle, onSave, onCancel }) {
   const g = vehicle.gomme || {};
   const [montati, setMontati] = useState({ tipo: 'Estive', marca: '', modello: '', battistrada: '', cerchio: 'si', ...(g.montati || {}) });
@@ -4458,9 +4567,9 @@ function adblueAvviso(v) {
 function AdBlueCard({ vehicle, puoModificare, onSave }) {
   const { attivo, rifornimenti } = adblueDi(vehicle);
   const [aperto, setAperto] = useState(false);
-  const [data, setData] = useState(todayISO());
-  const [km, setKm] = useState('');
-  const [litri, setLitri] = useState('');
+  const [data, setData] = useBozza('adblue-data', todayISO());
+  const [km, setKm] = useBozza('adblue-km', '');
+  const [litri, setLitri] = useBozza('adblue-litri', '');
   const bottone = { background: '#E8E3D8', border: 'none', borderRadius: 10, padding: '9px 14px', fontWeight: 700, fontSize: 13, color: '#1F2A2E', cursor: 'pointer' };
   if (!attivo) {
     return puoModificare ? (
@@ -4514,6 +4623,18 @@ function AdBlueCard({ vehicle, puoModificare, onSave }) {
   );
 }
 
+// Bozze: il testo in corso resta nel browser se la pagina viene ricaricata; si cancella quando il modulo si chiude.
+function useBozza(chiave, valoreIniziale) {
+  const [valore, setValore] = useState(() => {
+    try { const salvato = localStorage.getItem('bozza:' + chiave); return salvato !== null ? JSON.parse(salvato) : valoreIniziale; } catch (e) { return valoreIniziale; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('bozza:' + chiave, JSON.stringify(valore)); } catch (e) { /* memoria piena o modalità privata: nessuna bozza */ }
+  }, [chiave, valore]);
+  useEffect(() => () => { try { localStorage.removeItem('bozza:' + chiave); } catch (e) { /* nulla da cancellare */ } }, [chiave]);
+  return [valore, setValore];
+}
+
 function VehicleForm({ initial, onSave, onCancel }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
@@ -4521,7 +4642,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
   const [scad, setScad] = useState(initial?.gomme?.scadenzeExtra || []);
   const [nominativo, setNominativo] = useState(initial?.gomme?.nominativo || '');
   const [dist, setDist] = useState(initial?.gomme?.distribuzione || {});
-  const [f, setF] = useState(initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', modelloGomme: '', tipologiaGomme: '', note: '' });
+  const [f, setF] = useBozza(`veicolo-${initial?.id || 'nuovo'}`, initial || { targa: '', marca: '', modello: '', tipo: 'Auto', anno: '', km: '', carburante: '', colore: '', assicurazione: '', revisione: '', modelloGomme: '', tipologiaGomme: '', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.marca.trim() && f.modello.trim();
 
@@ -7353,13 +7474,6 @@ function STR_NucleoTag({ nucleo }) {
     </span>
   );
 }
-function STR_Row({ label, value, bold }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: bold ? 700 : 500, fontSize: bold ? 14 : 13 }}>
-      <span style={{ color: bold ? STR_COLORS.ink : STR_COLORS.muted }}>{label}</span><span>{value}</span>
-    </div>
-  );
-}
 
 /* ---------- dati di esempio (dal registro reale della struttura) ---------- */
 const S_CAMERE = [{"codice": "001", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "002", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "003", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "004", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "005", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "006", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "007", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "008", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "009", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "010", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "011", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "012", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "013", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "014", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "015", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "016", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "017", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "018", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "019", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "020", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "021", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "022", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "023", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "024", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "025", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "026", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "027", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "028", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "029", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "030", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "101", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "102", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "103", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "104", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "105", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "106", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "107", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "108", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "109", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "110", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "111", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "112", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "113", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "114", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "115", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "116", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "117", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "118", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "119", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "120", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "121", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "122", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "123", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "124", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "125", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "126", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "127", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "128", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "129", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "130", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "201", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "202", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "203", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "204", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "205", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "206", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "207", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "208", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "209", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "210", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "211", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "212", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "213", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "214", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "215", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "216", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "217", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "218", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "219", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "220", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "221", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "222", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "223", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "224", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "225", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "226", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "227", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "228", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "229", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "230", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}];
@@ -9463,8 +9577,8 @@ function applicaSpuntaEsecuzione(esecuzioni, i, nome, totale, extra = {}) {
   return lista.map(e => (e.id === aperta.id ? nuova : e));
 }
 
-function CampoEsecuzione({ etichetta, tipo, valore, onSalva, theme }) {
-  const [v, setV] = useState(valore == null ? '' : String(valore));
+function CampoEsecuzione({ etichetta, tipo, valore, onSalva, theme, chiave }) {
+  const [v, setV] = useBozza(chiave || 'campo-generico', valore == null ? '' : String(valore));
   return (
     <div>
       <div style={{ fontSize:12, color:theme.muted, fontWeight:600, marginBottom:3 }}>{etichetta}</div>
@@ -9480,6 +9594,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehic
   if (items.length === 0) return null;
   const lista = esecuzioni || [];
   const aperta = lista.find(e => !e.completata);
+  const chkKey = `chk-${vehicle?.id || 'x'}-${aperta?.id || 'nuova'}`;
   const fatti = aperta ? aperta.passi : [];
   const valori = aperta ? (aperta.valori || {}) : {};
   const tipoDi = (testo) => (mostraDataKm ? tipoVoceChecklist(testo) : 'valore');
@@ -9501,19 +9616,19 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehic
         )}
         {mostraDataKm && (
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-            <CampoEsecuzione etichetta="Data" tipo="date" valore={aperta?.data || ''} theme={PROC_COLORS}
+            <CampoEsecuzione chiave={chkKey + '-c1'} etichetta="Data" tipo="date" valore={aperta?.data || ''} theme={PROC_COLORS}
               onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { data: val }, nomeVisualizzato, items.length, extra || {}))} />
-            <CampoEsecuzione etichetta="Km" tipo="number" valore={aperta?.km ?? ''} theme={PROC_COLORS}
+            <CampoEsecuzione chiave={chkKey + '-c2'} etichetta="Km" tipo="number" valore={aperta?.km ?? ''} theme={PROC_COLORS}
               onSalva={(val) => { onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { km: val === '' ? null : Number(val) }, nomeVisualizzato, items.length, extra || {})); if (val !== '' && onSalvaCampoVeicolo && vehicle) onSalvaCampoVeicolo({ km: Math.max(Number(vehicle.km || 0), Number(val) || 0), km_aggiornato: todayISO() }); }} />
           </div>
         )}
         {mostraDataKm && (
           <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
-            <CampoEsecuzione etichetta="Problemi rilevati" tipo="text" valore={aperta?.problemi || ''} theme={PROC_COLORS}
+            <CampoEsecuzione chiave={chkKey + '-c3'} etichetta="Problemi rilevati" tipo="text" valore={aperta?.problemi || ''} theme={PROC_COLORS}
               onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { problemi: val || null }, nomeVisualizzato, items.length, extra || {}))} />
-            <CampoEsecuzione etichetta="Riparazioni effettuate" tipo="text" valore={aperta?.riparazioni || ''} theme={PROC_COLORS}
+            <CampoEsecuzione chiave={chkKey + '-c4'} etichetta="Riparazioni effettuate" tipo="text" valore={aperta?.riparazioni || ''} theme={PROC_COLORS}
               onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { riparazioni: val || null }, nomeVisualizzato, items.length, extra || {}))} />
-            <CampoEsecuzione etichetta="Note" tipo="text" valore={aperta?.note || ''} theme={PROC_COLORS}
+            <CampoEsecuzione chiave={chkKey + '-c5'} etichetta="Note" tipo="text" valore={aperta?.note || ''} theme={PROC_COLORS}
               onSalva={(val) => onSalva && onSalva(applicaCampiEsecuzione(esecuzioni, { note: val || null }, nomeVisualizzato, items.length, extra || {}))} />
           </div>
         )}
@@ -9525,10 +9640,10 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehic
             </label>
             {/paraflu/i.test(testo) && vehicle && vehicle.paraflu && <span style={{ background: vehicle.paraflu === 'Blu' ? '#1565C0' : '#E53935', color: '#FFFFFF', borderRadius: 6, padding: '1px 8px', fontWeight: 700, fontSize: 12 }}>{vehicle.paraflu}</span>}
             {/olio.*motore/i.test(testo) && vehicle && vehicle.olio_motore && <span style={{ background: '#E8E3D8', color: '#1F2A2E', borderRadius: 6, padding: '1px 8px', fontWeight: 700, fontSize: 12 }}>Olio {vehicle.olio_motore}</span>}
-            {tipoDi(testo) === 'valore' && <ValoreVoce placeholder={suggerimentoValore(testo)} valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />}
+            {tipoDi(testo) === 'valore' && <ValoreVoce chiave={chkKey + '-v' + i} placeholder={suggerimentoValore(testo)} valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />}
             {(tipoDi(testo) === 'revisione' || tipoDi(testo) === 'assicurazione') && vehicle && (() => {
               const campo = tipoDi(testo) === 'revisione' ? 'revisione' : 'assicurazione';
-              return <div style={{ marginLeft:30, marginTop:6 }}><CampoEsecuzione etichetta={campo === 'revisione' ? 'Scadenza revisione' : 'Scadenza assicurazione'} tipo="date" valore={vehicle[campo] || ''} theme={PROC_COLORS} onSalva={(val) => onSalvaCampoVeicolo && onSalvaCampoVeicolo({ [campo]: val || null })} /></div>;
+              return <div style={{ marginLeft:30, marginTop:6 }}><CampoEsecuzione chiave={chkKey + '-c6'} etichetta={campo === 'revisione' ? 'Scadenza revisione' : 'Scadenza assicurazione'} tipo="date" valore={vehicle[campo] || ''} theme={PROC_COLORS} onSalva={(val) => onSalvaCampoVeicolo && onSalvaCampoVeicolo({ [campo]: val || null })} /></div>;
             })()}
           </div>
         ))}
@@ -11194,6 +11309,7 @@ const MODULES = [
 ];
 function HubScreen({ onOpen, counts, alertCounts, agendaStats, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const [pannelloAperto, setPannelloAperto] = useState(false);
+  const [rifiutiAperto, setRifiutiAperto] = useState(false);
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
@@ -11273,6 +11389,8 @@ return (
             <UserRound size={34} />
           </button>
         </div>
+        <button type="button" onClick={() => setRifiutiAperto(true)} style={{ marginTop: 10, background: '#E8E3D8', border: 'none', borderRadius: 10, padding: '8px 14px', fontWeight: 700, color: '#1F2A2E', cursor: 'pointer' }}>Rifiuti</button>
+        {rifiutiAperto && <RifiutiModulo onClose={() => setRifiutiAperto(false)} />}
         {pannelloAperto && <PannelloUtente onClose={() => setPannelloAperto(false)} />}
         <button
           onClick={onOpenProfilo}
