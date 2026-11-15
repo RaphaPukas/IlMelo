@@ -1068,7 +1068,7 @@ const rStatoScheda = (s) => {
 };
 const rInput = { ...pInput, marginTop: 4 };
 
-function RifiutiModulo({ onClose }) {
+function RifiutiModule() {
   const [tab, setTab] = useState('schede');
   const [prodotti, setProdotti] = useState([]);
   const [schede, setSchede] = useState([]);
@@ -1159,11 +1159,8 @@ function RifiutiModulo({ onClose }) {
     );
   };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#F4F1EA', zIndex: 60, overflowY: 'auto', fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
-      <div style={{ background: '#1F2A2E', color: '#FFFFFF', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontWeight: 800, fontSize: 20 }}>Rifiuti</div>
-        <button type="button" onClick={onClose} style={{ background: 'rgba(255,255,255,0.14)', border: 'none', color: '#FFFFFF', borderRadius: 10, padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>Chiudi</button>
-      </div>
+    <div style={{ fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
+      <div style={{ fontWeight: 800, fontSize: 20, padding: '4px 16px 0' }}>Rifiuti</div>
       <div style={{ display: 'flex', gap: 6, padding: '12px 16px' }}>
         {[['schede', 'Schede'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
@@ -9209,6 +9206,7 @@ const PROC_NAV_ITEMS = [
   ['procedure', BookOpen, 'Procedure'],
   ['ricorrenti', RefreshCw, 'Ricorrenti'],
   ['stagionali', CalendarClock, 'Stagionali'],
+  ['rifiuti', Trash2, 'Rifiuti'],
 ];
 // Nel DB esistono solo questi due permessi per Procedure (nessun permesso
 // granulare per singola scheda procedure/ricorrenti).
@@ -10853,7 +10851,9 @@ function ProcedureModule({ onHome, initialNotification }) {
   if (!ready) return <div style={{ minHeight:'100vh', background:PROC_COLORS.bg, display:'flex', alignItems:'center', justifyContent:'center', color:PROC_COLORS.muted }}>Caricamento…</div>;
 
   let content;
-  if (tab === 'procedure') {
+  if (tab === 'rifiuti') {
+    content = <RifiutiModule />;
+  } else if (tab === 'procedure') {
     if (view.name === 'detail') {
       const p = procedureVisibili.find(x => x.id === view.id) || procConGruppi.find(x => x.id === view.id);
       content = p ? <ProceduraDetail procedura={p} gruppiMap={gruppiMap} onBack={() => goBack()} onEdit={() => setView({ name:'edit', p })} onDelete={r => eliminaProcedura(r)} onSalvaEsecuzioni={(nuove) => salvaEsecuzioni(p, nuove)} /> : null;
@@ -11306,10 +11306,18 @@ const MODULES = [
     colorSoft: '#D8E2EC',
     stat: (d) => `${(d.armadi || []).length} armadi`,
   },
+  {
+    key: 'rifiuti',
+    name: 'Rifiuti',
+    desc: 'Smaltimento, codici EER e schede di carico',
+    icon: Trash2,
+    color: '#2E5A3C',
+    colorSoft: '#E1EFE4',
+    stat: () => 'Codici EER e schede',
+  },
 ];
 function HubScreen({ onOpen, counts, alertCounts, agendaStats, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const [pannelloAperto, setPannelloAperto] = useState(false);
-  const [rifiutiAperto, setRifiutiAperto] = useState(false);
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
@@ -11389,8 +11397,6 @@ return (
             <UserRound size={34} />
           </button>
         </div>
-        <button type="button" onClick={() => setRifiutiAperto(true)} style={{ marginTop: 10, background: '#E8E3D8', border: 'none', borderRadius: 10, padding: '8px 14px', fontWeight: 700, color: '#1F2A2E', cursor: 'pointer' }}>Rifiuti</button>
-        {rifiutiAperto && <RifiutiModulo onClose={() => setRifiutiAperto(false)} />}
         {pannelloAperto && <PannelloUtente onClose={() => setPannelloAperto(false)} />}
         <button
           onClick={onOpenProfilo}
@@ -11740,6 +11746,7 @@ setAlertCounts({
       {screen === 'struttura' && <StrutturaModule onHome={goHome} initialNotification={notificationTarget} onOpenModulo={(modulo, target) => { setNotificationTarget(target); setScreen(modulo); }} />}
       {screen === 'procedure' && <ProcedureModule onHome={goHome} initialNotification={notificationTarget} />}
       {screen === 'magazzino' && <MagazzinoModule onHome={goHome} initialNotification={notificationTarget} />}
+          {screen === 'rifiuti' && <RifiutiModule onHome={goHome} />}
       {screen === 'utenti' && <UtentiScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
       {screen === 'gruppi' && <GruppiScreen onHome={() => setScreen('hub')} />}
       {screen === 'gestione-notifiche' && <GestioneNotificheScreen onHome={() => setScreen('hub')} myUserId={session.user.id} />}
