@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import { supabase, supabaseConfigured } from './supabaseClient.js';
-import { Car, Wrench, UserRound, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Droplet } from 'lucide-react';
+import { Car, Wrench, UserRound, CalendarClock, BarChart3, Plus, ChevronRight, ChevronLeft, ChevronDown, Gauge, Fuel, Palette, StickyNote, Trash2, Check, Search, MoreVertical, FileSpreadsheet, X as XIcon, Armchair, ClipboardList, Layers, AlertTriangle, MapPin, User, Calendar, Hash, Home, Wrench as WrenchHub, BedDouble, Building2, Users, Wallet, LogOut, ShieldCheck, Mail, Lock, Eye, EyeOff, UserCog, Image as ImageIcon, BookOpen, RefreshCw, Package, ExternalLink, FileText, Droplet, Menu, BellOff } from 'lucide-react';
 
 /* Adattamento per l'uso fuori da Claude: window.storage (solo per gli artifact)
    e' sostituito con un piccolo wrapper sopra il localStorage del browser,
@@ -11318,6 +11318,7 @@ const MODULES = [
 ];
 function HubScreen({ onOpen, counts, alertCounts, agendaStats, nomeVisualizzato, role, permessiUtente, onSignOut, onOpenUsers, onOpenGruppi, onOpenProfilo, onOpenNotifiche, onOpenNotification }) {
   const [pannelloAperto, setPannelloAperto] = useState(false);
+  const [menuAperto, setMenuAperto] = useState(false);
   const moduliVisibili = role === 'admin'
     ? MODULES
     : MODULES.filter(m => {
@@ -11335,58 +11336,40 @@ return (
         <div style={{ width: 46, height: 46, borderRadius: 13, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
           <WrenchHub size={24} />
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-      <NotificationBell onOpenNotification={onOpenNotification} />
-
-{role === 'admin' && (
-  <button
-    onClick={onOpenUsers}
-    title="Gestione utenti"
-    style={{
-      background: 'rgba(255,255,255,0.1)',
-      border: 'none',
-      borderRadius: 10,
-      width: 36,
-      height: 36,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#fff'
-    }}
-  >
-    <UserCog size={17} />
-  </button>
-)}
-
-{role === 'admin' && (
-  <button
-    onClick={onOpenGruppi}
-    title="Gruppi e permessi"
-    style={{
-      background: 'rgba(255,255,255,0.1)',
-      border: 'none',
-      borderRadius: 10,
-      width: 36,
-      height: 36,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#fff'
-    }}
-  >
-    <Users size={17} />
-  </button>
-)}
-
-{role === 'admin' && (
-              <button onClick={onOpenNotifiche} title="Gestione notifiche" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16 }}>
-                🔕
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', position: 'relative' }}>
+          <NotificationBell onOpenNotification={onOpenNotification} />
+          <button type="button" onClick={() => setMenuAperto(!menuAperto)} title="Menu" aria-label="Menu" style={{ background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 12, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', cursor: 'pointer' }}>
+            <Menu size={20} />
+          </button>
+          {menuAperto && (
+            <>
+              <div onClick={() => setMenuAperto(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+              <div style={{ position: 'absolute', top: 48, right: 0, zIndex: 50, background: '#FFFFFF', borderRadius: 14, boxShadow: '0 12px 30px rgba(0,0,0,0.25)', padding: 6, minWidth: 230 }}>
+              {role === 'admin' && (
+                <>
+              <button type="button" onClick={() => { setMenuAperto(false); onOpenUsers(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 'none', background: 'transparent', padding: '10px 12px', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#1F2A2E', cursor: 'pointer', textAlign: 'left' }}>
+                <UserCog size={18} color="#1F6B45" />
+                Gestione utenti
               </button>
-            )}
-            <button onClick={onSignOut} title="Esci" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-              <LogOut size={16} />
-            </button>
-          </div>
+              <button type="button" onClick={() => { setMenuAperto(false); onOpenGruppi(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 'none', background: 'transparent', padding: '10px 12px', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#1F2A2E', cursor: 'pointer', textAlign: 'left' }}>
+                <Users size={18} color="#1F6B45" />
+                Gruppi e permessi
+              </button>
+              <button type="button" onClick={() => { setMenuAperto(false); onOpenNotifiche(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 'none', background: 'transparent', padding: '10px 12px', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#1F2A2E', cursor: 'pointer', textAlign: 'left' }}>
+                <BellOff size={18} color="#8A6000" />
+                Gestione notifiche
+              </button>
+                  <div style={{ height: 1, background: '#EEE9DD', margin: '6px 8px' }} />
+                </>
+              )}
+              <button type="button" onClick={() => { setMenuAperto(false); onSignOut(); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 'none', background: 'transparent', padding: '10px 12px', borderRadius: 10, fontSize: 14, fontWeight: 600, color: '#A3352A', cursor: 'pointer', textAlign: 'left' }}>
+                <LogOut size={18} color="#A3352A" />
+                Esci
+              </button>
+              </div>
+            </>
+          )}
+        </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
@@ -11398,13 +11381,7 @@ return (
           </button>
         </div>
         {pannelloAperto && <PannelloUtente onClose={() => setPannelloAperto(false)} />}
-        <button
-          onClick={onOpenProfilo}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.08)', padding: '4px 10px 4px 8px', borderRadius: 999, border: 'none', color: '#fff', cursor: 'pointer' }}
-        >
-          <ShieldCheck size={13} />
-          <span style={{ fontSize: 11.5, opacity: 0.85 }}>{nomeVisualizzato} · {RUOLO_LABEL[role] || role}</span>
-        </button>
+        <div style={{ fontSize: 13.5, opacity: 0.85, marginTop: 12 }}>{nomeVisualizzato}</div>
       </div>
 
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
