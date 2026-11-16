@@ -1063,10 +1063,14 @@ const rStatoScheda = (s) => {
   const rimanenti = RIFIUTI_GIORNI_LIMITE - giorno;
   const testoGiorno = `Giorno ${giorno} di ${RIFIUTI_GIORNI_LIMITE}`;
   if (rimanenti < 0) return { testo: `${testoGiorno} · fuori norma`, sfondo: '#E53935', colore: '#FFFFFF' };
-  if (rimanenti <= 2) return { testo: `${testoGiorno} · carico entro ${rimanenti === 0 ? 'oggi' : rimanenti + ' giorni'}`, sfondo: '#F57C00', colore: '#1F2A2E' };
+  if (rimanenti === 0) return { testo: `${testoGiorno} · ultimo giorno per il carico`, sfondo: '#F57C00', colore: '#1F2A2E' };
+  if (rimanenti === 1) return { testo: `${testoGiorno} · manca 1 giorno al carico`, sfondo: '#F57C00', colore: '#1F2A2E' };
   return { testo: `${testoGiorno} · carico entro ${rimanenti} giorni`, sfondo: '#FFFF66', colore: '#1F2A2E' };
 };
 const rInput = { ...pInput, marginTop: 4 };
+
+const rAddGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const rLettera = (colli) => { const ult = (colli || []).slice(-1)[0]; if (!ult || ult.length !== 1) return 'A'; return String.fromCharCode(ult.charCodeAt(0) + 1); };
 
 function RifiutiModule() {
   const [tab, setTab] = useState('schede');
@@ -1074,9 +1078,12 @@ function RifiutiModule() {
   const [schede, setSchede] = useState([]);
   const [msg, setMsg] = useState('');
   const [modifiche, setModifiche] = useState({});
+  const [aperte, setAperte] = useState({});
   const [ricerca, setRicerca] = useState('');
-  const [nuovaScheda, setNuovaScheda] = useState({ prodotto_id: '', data_apertura: todayISO(), quantita: '', note: '' });
-  const [nuovoProdotto, setNuovoProdotto] = useState({ nome: '', tipologia: '', codice_eer: '', pericoloso: false });
+  const [nuovaScheda, setNuovaScheda] = useState({ prodotto_id: '', tipologia: '', data_apertura: todayISO(), note: '' });
+  const [nuovoProdotto, setNuovoProdotto] = useState({ nome: '', codice_eer: '', pericoloso: false });
+  const [nuovaTipologia, setNuovaTipologia] = useState({});
+  const [dataUnica, setDataUnica] = useState('');
   const carica = async () => {
     const { data: p, error: e1 } = await supabase.from('rifiuti_prodotti').select('*').order('nome', { ascending: true });
     const { data: s, error: e2 } = await supabase.from('rifiuti_schede').select('*').order('data_apertura', { ascending: true });
@@ -1085,16 +1092,20 @@ function RifiutiModule() {
     setSchede(s || []);
   };
   useEffect(() => { carica(); }, []);
-  const nomeProdotto = (id) => { const p = prodotti.find(x => x.id === id); return p ? p.nome : '—'; };
-  const codiceProdotto = (id) => { const p = prodotti.find(x => x.id === id); return p ? p.codice_eer : ''; };
+  const tipologieDi = (p) => (p && Array.isArray(p.tipologie) ? p.tipologie : []);
+  const prodottoDi = (id) => prodotti.find(x => x.id === id);
+  const nomeProdotto = (id) => (prodottoDi(id) ? prodottoDi(id).nome : '—');
+  const codiceProdotto = (id) => (prodottoDi(id) ? prodottoDi(id).codice_eer : '');
   const valore = (s, k) => (modifiche[s.id] && modifiche[s.id][k] !== undefined ? modifiche[s.id][k] : (s[k] || ''));
+  const colliDi = (s) => (modifiche[s.id] && modifiche[s.id].colli !== undefined ? modifiche[s.id].colli : (Array.isArray(s.colli) ? s.colli : []));
   const cambia = (id, k, v) => setModifiche({ ...modifiche, [id]: { ...(modifiche[id] || {}), [k]: v } });
   const salvaScheda = async (s) => {
     const { error } = await supabase.from('rifiuti_schede').update({
       data_apertura: valore(s, 'data_apertura') || s.data_apertura,
       data_carico: valore(s, 'data_carico') || null,
       data_smaltimento_prevista: valore(s, 'data_smaltimento_prevista') || null,
-      quantita: valore(s, 'quantita') || null,
+      tipologia: valore(s, 'tipologia') || null,
+      colli: colliDi(s).filter(x => String(x).trim() !== ''),
       note: valore(s, 'note') || null,
     }).eq('id', s.id);
     if (error) { setMsg('Errore: ' + error.message); return; }
@@ -1103,9 +1114,9 @@ function RifiutiModule() {
   };
   const apriScheda = async () => {
     if (!nuovaScheda.prodotto_id) { setMsg('Scegli il prodotto.'); return; }
-    const { error } = await supabase.from('rifiuti_schede').insert({ prodotto_id: nuovaScheda.prodotto_id, data_apertura: nuovaScheda.data_apertura || todayISO(), quantita: nuovaScheda.quantita || null, note: nuovaScheda.note || null });
+    const { error } = await supabase.from('rifiuti_schede').insert({ prodotto_id: nuovaScheda.prodotto_id, tipologia: nuovaScheda.tipologia || null, data_apertura: nuovaScheda.data_apertura || todayISO(), colli: [], note: nuovaScheda.note || null });
     if (error) { setMsg('Errore: ' + error.message); return; }
-    setNuovaScheda({ prodotto_id: '', data_apertura: todayISO(), quantita: '', note: '' });
+    setNuovaScheda({ prodotto_id: '', tipologia: '', data_apertura: todayISO(), note: '' });
     setMsg('Scheda aperta.'); carica();
   };
   const eliminaScheda = async (s) => {
@@ -1115,9 +1126,9 @@ function RifiutiModule() {
   };
   const aggiungiProdotto = async () => {
     if (!nuovoProdotto.nome.trim() || !nuovoProdotto.codice_eer.trim()) { setMsg('Inserisci nome e codice.'); return; }
-    const { error } = await supabase.from('rifiuti_prodotti').insert({ nome: nuovoProdotto.nome.trim(), tipologia: nuovoProdotto.tipologia.trim() || null, codice_eer: nuovoProdotto.codice_eer.trim(), pericoloso: nuovoProdotto.pericoloso });
+    const { error } = await supabase.from('rifiuti_prodotti').insert({ nome: nuovoProdotto.nome.trim(), codice_eer: nuovoProdotto.codice_eer.trim(), pericoloso: nuovoProdotto.pericoloso, tipologie: [] });
     if (error) { setMsg('Errore: ' + error.message); return; }
-    setNuovoProdotto({ nome: '', tipologia: '', codice_eer: '', pericoloso: false });
+    setNuovoProdotto({ nome: '', codice_eer: '', pericoloso: false });
     setMsg('Prodotto aggiunto.'); carica();
   };
   const eliminaProdotto = async (p) => {
@@ -1125,10 +1136,29 @@ function RifiutiModule() {
     await supabase.from('rifiuti_prodotti').delete().eq('id', p.id);
     carica();
   };
+  const aggiungiTipologia = async (p) => {
+    const testo = (nuovaTipologia[p.id] || '').trim();
+    if (!testo) return;
+    const { error } = await supabase.from('rifiuti_prodotti').update({ tipologie: [...tipologieDi(p), testo] }).eq('id', p.id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setNuovaTipologia({ ...nuovaTipologia, [p.id]: '' }); carica();
+  };
+  const rimuoviTipologia = async (p, t) => {
+    const { error } = await supabase.from('rifiuti_prodotti').update({ tipologie: tipologieDi(p).filter(x => x !== t) }).eq('id', p.id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    carica();
+  };
   const daCaricare = schede.filter(s => !s.data_carico);
   const caricate = schede.filter(s => s.data_carico).slice().reverse();
+  const inScadenza = daCaricare.filter(s => RIFIUTI_GIORNI_LIMITE - rGiornoDiScheda(s.data_apertura) <= 1);
+  const aggiornaAperture = async (nuovaData) => {
+    const risultati = await Promise.all(daCaricare.map(s => supabase.from('rifiuti_schede').update({ data_apertura: nuovaData(s) }).eq('id', s.id)));
+    const errore = risultati.find(r => r.error);
+    setMsg(errore ? 'Errore: ' + errore.error.message : 'Date aggiornate.');
+    carica();
+  };
   const q = ricerca.trim().toLowerCase();
-  const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.tipologia, p.codice_eer].filter(Boolean).some(x => x.toLowerCase().includes(q)));
+  const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.codice_eer].filter(Boolean).some(x => x.toLowerCase().includes(q)) || tipologieDi(p).some(t => t.toLowerCase().includes(q)));
   const campoScheda = (s, k, etichetta, tipo) => (
     <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
       {etichetta}
@@ -1137,24 +1167,51 @@ function RifiutiModule() {
   );
   const schedaCard = (s) => {
     const stato = rStatoScheda(s);
+    const aperta = !!aperte[s.id];
+    const colli = colliDi(s);
+    const tipologie = tipologieDi(prodottoDi(s.prodotto_id));
     return (
-      <div key={s.id} style={{ ...pCard, padding: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-          <div>
-            <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}</div>
-            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}</div>
+      <div key={s.id} style={{ ...pCard, padding: 0, overflow: 'hidden' }}>
+        <button type="button" onClick={() => setAperte({ ...aperte, [s.id]: !aperta })} style={{ width: '100%', border: 'none', background: 'transparent', padding: 12, textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, color: '#1F2A2E' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
+            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}{colli.length ? ` · colli ${colli.join(', ')}` : ''}</div>
           </div>
-          {!s.data_carico && <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{stato.testo}</span>}
-        </div>
-        {campoScheda(s, 'data_apertura', 'Data apertura del collo', 'date')}
-        {campoScheda(s, 'data_carico', 'Data di carico nel registro', 'date')}
-        {campoScheda(s, 'data_smaltimento_prevista', 'Smaltimento programmato', 'date')}
-        {campoScheda(s, 'quantita', 'Quantità (es. 2 batterie, 1 scatola)')}
-        {campoScheda(s, 'note', 'Note')}
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <button type="button" onClick={() => salvaScheda(s)} style={pBtnPrimario}>Salva scheda</button>
-          <button type="button" onClick={() => eliminaScheda(s)} style={pBtnPericolo}>Elimina</button>
-        </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {!s.data_carico && <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{stato.testo}</span>}
+            <ChevronDown size={18} style={{ transform: aperta ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+          </div>
+        </button>
+        {aperta && (
+          <div style={{ padding: '0 12px 12px' }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+              Tipologia
+              <select value={valore(s, 'tipologia')} onChange={e => cambia(s.id, 'tipologia', e.target.value)} style={rInput}>
+                <option value="">—</option>
+                {tipologie.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+            {campoScheda(s, 'data_apertura', 'Data apertura del collo', 'date')}
+            {campoScheda(s, 'data_carico', 'Data di carico nel registro', 'date')}
+            {campoScheda(s, 'data_smaltimento_prevista', 'Smaltimento programmato', 'date')}
+            <div style={{ fontSize: 12, color: '#6B6B66', marginBottom: 4 }}>Colli</div>
+            {colli.map((c, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <input value={c} onChange={e => cambia(s.id, 'colli', colli.map((x, j) => (j === i ? e.target.value : x)))} style={{ ...rInput, marginTop: 0, width: 110 }} />
+                <button type="button" onClick={() => cambia(s.id, 'colli', colli.filter((_, j) => j !== i))} style={pBtnPericolo}>✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={() => cambia(s.id, 'colli', [...colli, rLettera(colli)])} style={{ ...pBtn, marginBottom: 10 }}>+ Aggiungi collo</button>
+            <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+              Note
+              <input value={valore(s, 'note')} onChange={e => cambia(s.id, 'note', e.target.value)} style={rInput} />
+            </label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => salvaScheda(s)} style={pBtnPrimario}>Salva scheda</button>
+              <button type="button" onClick={() => eliminaScheda(s)} style={pBtnPericolo}>Elimina</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1162,7 +1219,7 @@ function RifiutiModule() {
     <div style={{ fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
       <div style={{ fontWeight: 800, fontSize: 20, padding: '4px 16px 0' }}>Rifiuti</div>
       <div style={{ display: 'flex', gap: 6, padding: '12px 16px' }}>
-        {[['schede', 'Schede'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
+        {[['schede', 'Schede'], ['caricate', 'Schede caricate'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
         ))}
       </div>
@@ -1170,6 +1227,20 @@ function RifiutiModule() {
         {msg && <div style={{ marginBottom: 12, fontSize: 13 }}>{msg}</div>}
         {tab === 'schede' && (
           <div>
+            {inScadenza.length > 0 && (
+              <div style={{ background: '#F57C00', color: '#1F2A2E', borderRadius: 12, padding: '10px 12px', fontWeight: 700, fontSize: 13, marginBottom: 12 }}>
+                Attenzione: {inScadenza.length} {inScadenza.length === 1 ? 'collo richiede' : 'colli richiedono'} il carico entro domani.
+              </div>
+            )}
+            <div style={{ ...pCard, marginBottom: 12 }}>
+              <div style={pTitolo}>Date di apertura</div>
+              <div style={{ fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Valgono per tutte le {daCaricare.length} schede da caricare.</div>
+              <button type="button" onClick={() => aggiornaAperture(sc => rAddGiorni(sc.data_apertura, 10))} style={{ ...pBtn, width: '100%', marginBottom: 10 }}>Sposta tutte di 10 giorni</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="date" value={dataUnica} onChange={e => setDataUnica(e.target.value)} style={{ ...rInput, marginTop: 0, flex: 1 }} />
+                <button type="button" disabled={!dataUnica} onClick={() => aggiornaAperture(() => dataUnica)} style={pBtnPrimario}>Data unica</button>
+              </div>
+            </div>
             <div style={pTitolo}>Da caricare</div>
             {daCaricare.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessuna scheda aperta.</div>}
             {daCaricare.map(schedaCard)}
@@ -1177,33 +1248,37 @@ function RifiutiModule() {
               <div style={pTitolo}>Apri nuova scheda</div>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
                 Prodotto
-                <select value={nuovaScheda.prodotto_id} onChange={e => setNuovaScheda({ ...nuovaScheda, prodotto_id: e.target.value })} style={rInput}>
+                <select value={nuovaScheda.prodotto_id} onChange={e => setNuovaScheda({ ...nuovaScheda, prodotto_id: e.target.value, tipologia: '' })} style={rInput}>
                   <option value="">Scegli…</option>
                   {prodotti.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+                Tipologia
+                <select value={nuovaScheda.tipologia} onChange={e => setNuovaScheda({ ...nuovaScheda, tipologia: e.target.value })} style={rInput}>
+                  <option value="">—</option>
+                  {tipologieDi(prodottoDi(nuovaScheda.prodotto_id)).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </label>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
                 Data apertura del collo
                 <input type="date" value={nuovaScheda.data_apertura} onChange={e => setNuovaScheda({ ...nuovaScheda, data_apertura: e.target.value })} style={rInput} />
               </label>
-              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
-                Quantità
-                <input value={nuovaScheda.quantita} onChange={e => setNuovaScheda({ ...nuovaScheda, quantita: e.target.value })} style={rInput} />
-              </label>
               <button type="button" onClick={apriScheda} style={pBtnPrimario}>Apri scheda</button>
             </div>
-            {caricate.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={pTitolo}>Caricate</div>
-                {caricate.map(s => (
-                  <div key={s.id} style={{ ...pCard, padding: 10, fontSize: 13 }}>
-                    <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}</div>
-                    <div>Apertura {dataIt(s.data_apertura)} · carico {dataIt(s.data_carico)}{s.data_smaltimento_prevista ? ` · smaltimento ${dataIt(s.data_smaltimento_prevista)}` : ''}</div>
-                    {s.quantita && <div>{s.quantita}</div>}
-                  </div>
-                ))}
+          </div>
+        )}
+        {tab === 'caricate' && (
+          <div>
+            <div style={pTitolo}>Schede caricate</div>
+            {caricate.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessuna scheda caricata.</div>}
+            {caricate.map(s => (
+              <div key={s.id} style={{ ...pCard, padding: 10, fontSize: 13 }}>
+                <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
+                <div>Apertura {dataIt(s.data_apertura)} · carico {dataIt(s.data_carico)}{s.data_smaltimento_prevista ? ` · smaltimento ${dataIt(s.data_smaltimento_prevista)}` : ''}</div>
+                {Array.isArray(s.colli) && s.colli.length > 0 && <div>Colli {s.colli.join(', ')}</div>}
               </div>
-            )}
+            ))}
           </div>
         )}
         {tab === 'prodotti' && (
@@ -1214,19 +1289,37 @@ function RifiutiModule() {
             </label>
             {prodottiFiltrati.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun prodotto.</div>}
             {prodottiFiltrati.map(p => (
-              <div key={p.id} style={{ ...pCard, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
-                  <div style={{ fontSize: 12, color: '#6B6B66' }}>{p.tipologia || '—'}</div>
-                  <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
+              <div key={p.id} style={{ ...pCard, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
+                  </div>
+                  <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
                 </div>
-                <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
+                <div style={{ marginTop: 10 }}>
+                  <select defaultValue="" style={rInput}>
+                    <option value="" disabled>{tipologieDi(p).length ? `Tipologie (${tipologieDi(p).length})` : 'Nessuna tipologia'}</option>
+                    {tipologieDi(p).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {tipologieDi(p).map(t => (
+                    <span key={t} style={{ background: '#E8E3D8', borderRadius: 999, padding: '3px 6px 3px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {t}
+                      <button type="button" onClick={() => rimuoviTipologia(p, t)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input value={nuovaTipologia[p.id] || ''} onChange={e => setNuovaTipologia({ ...nuovaTipologia, [p.id]: e.target.value })} placeholder="Nuova tipologia" style={{ ...rInput, marginTop: 0, flex: 1 }} />
+                  <button type="button" onClick={() => aggiungiTipologia(p)} style={pBtnPrimario}>Aggiungi</button>
+                </div>
               </div>
             ))}
             <div style={{ ...pCard, marginTop: 10 }}>
               <div style={pTitolo}>Nuovo prodotto</div>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Nome del prodotto<input value={nuovoProdotto.nome} onChange={e => setNuovoProdotto({ ...nuovoProdotto, nome: e.target.value })} style={rInput} /></label>
-              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Tipologia<input value={nuovoProdotto.tipologia} onChange={e => setNuovoProdotto({ ...nuovoProdotto, tipologia: e.target.value })} placeholder="Es. batterie, neon, apparecchiature" style={rInput} /></label>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Codice EER<input value={nuovoProdotto.codice_eer} onChange={e => setNuovoProdotto({ ...nuovoProdotto, codice_eer: e.target.value })} placeholder="es. 6 cifre" style={rInput} /></label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}><input type="checkbox" checked={nuovoProdotto.pericoloso} onChange={e => setNuovoProdotto({ ...nuovoProdotto, pericoloso: e.target.checked })} />Rifiuto pericoloso</label>
               <button type="button" onClick={aggiungiProdotto} style={pBtnPrimario}>Aggiungi prodotto</button>
