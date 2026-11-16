@@ -1063,14 +1063,46 @@ const rStatoScheda = (s) => {
   const rimanenti = RIFIUTI_GIORNI_LIMITE - giorno;
   const testoGiorno = `Giorno ${giorno} di ${RIFIUTI_GIORNI_LIMITE}`;
   if (rimanenti < 0) return { testo: `${testoGiorno} · fuori norma`, sfondo: '#E53935', colore: '#FFFFFF' };
-  if (rimanenti === 0) return { testo: `${testoGiorno} · ultimo giorno per il carico`, sfondo: '#F57C00', colore: '#1F2A2E' };
-  if (rimanenti === 1) return { testo: `${testoGiorno} · manca 1 giorno al carico`, sfondo: '#F57C00', colore: '#1F2A2E' };
+  if (rimanenti === 0) return { testo: `${testoGiorno} · ultimo giorno per il carico`, sfondo: '#E53935', colore: '#FFFFFF' };
+  if (rimanenti <= 2) return { testo: `${testoGiorno} · ${rimanenti === 1 ? 'manca 1 giorno al carico' : 'carico entro 2 giorni'}`, sfondo: '#F57C00', colore: '#1F2A2E' };
   return { testo: `${testoGiorno} · carico entro ${rimanenti} giorni`, sfondo: '#FFFF66', colore: '#1F2A2E' };
 };
 const rInput = { ...pInput, marginTop: 4 };
 
 const rAddGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const rLettera = (colli) => { const ult = (colli || []).slice(-1)[0]; if (!ult || ult.length !== 1) return 'A'; return String.fromCharCode(ult.charCodeAt(0) + 1); };
+const rColloDi = (c) => (typeof c === 'string' ? { etichetta: c, peso: '' } : { etichetta: c.etichetta || '', peso: c.peso == null ? '' : c.peso });
+const rEtichette = (colli) => (colli || []).map(c => rColloDi(c).etichetta);
+const rPesoTotale = (colli) => Math.round((colli || []).reduce((t, c) => t + (Number(rColloDi(c).peso) || 0), 0) * 10) / 10;
+const rLettera = (colli) => { const ult = rEtichette(colli).slice(-1)[0]; if (!ult || ult.length !== 1) return 'A'; return String.fromCharCode(ult.charCodeAt(0) + 1); };
+
+function generaRifiutiXlsx(prodotti, schede) {
+  const intestazioni = ['Prodotto', 'Tipologia', 'Codice EER', 'Pericoloso', 'Colli', 'Peso totale (kg)', 'Data apertura', 'Data carico', 'Data smaltimento programmata', 'Eseguito'];
+  const lettera = (c) => String.fromCharCode(65 + c);
+  const cella = (c, r, v) => (v === '' || v === null || v === undefined ? '' : (typeof v === 'number' ? `<c r="${lettera(c)}${r}"><v>${v}</v></c>` : `<c r="${lettera(c)}${r}" t="inlineStr"><is><t>${xmlEsc(String(v))}</t></is></c>`));
+  const righe = (schede || []).map(s => {
+    const p = (prodotti || []).find(x => x.id === s.prodotto_id) || {};
+    const colli = Array.isArray(s.colli) ? s.colli : [];
+    return [p.nome || '', s.tipologia || '', p.codice_eer || '', p.pericoloso ? 'Sì' : 'No', rEtichette(colli).join(', '), rPesoTotale(colli) || '', s.data_apertura ? dataIt(s.data_apertura) : '', s.data_carico ? dataIt(s.data_carico) : '', s.data_smaltimento_prevista ? dataIt(s.data_smaltimento_prevista) : '', s.data_carico ? 'Sì' : 'No'];
+  });
+  const tutte = [intestazioni, ...righe];
+  const sheetRighe = tutte.map((riga, r) => `<row r="${r + 1}">${riga.map((v, c) => cella(c, r + 1, v)).join('')}</row>`).join('');
+  const enc = new TextEncoder();
+  const intro = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const xmlSheet = `${intro}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRighe}</sheetData></worksheet>`;
+  const xmlWb = `${intro}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Rifiuti" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const xmlWbRels = `${intro}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const xmlStili = `${intro}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>`;
+  const xmlTipi = `${intro}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  const xmlRels = `${intro}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  return creaZip([
+    { name: '[Content_Types].xml', data: enc.encode(xmlTipi) },
+    { name: '_rels/.rels', data: enc.encode(xmlRels) },
+    { name: 'xl/workbook.xml', data: enc.encode(xmlWb) },
+    { name: 'xl/_rels/workbook.xml.rels', data: enc.encode(xmlWbRels) },
+    { name: 'xl/worksheets/sheet1.xml', data: enc.encode(xmlSheet) },
+    { name: 'xl/styles.xml', data: enc.encode(xmlStili) },
+  ]);
+}
 
 function RifiutiModule() {
   const [tab, setTab] = useState('schede');
@@ -1105,7 +1137,7 @@ function RifiutiModule() {
       data_carico: valore(s, 'data_carico') || null,
       data_smaltimento_prevista: valore(s, 'data_smaltimento_prevista') || null,
       tipologia: valore(s, 'tipologia') || null,
-      colli: colliDi(s).filter(x => String(x).trim() !== ''),
+      colli: colliDi(s).map(rColloDi).filter(c => c.etichetta.trim() !== '').map(c => ({ etichetta: c.etichetta.trim(), peso: c.peso === '' ? null : Number(c.peso) })),
       note: valore(s, 'note') || null,
     }).eq('id', s.id);
     if (error) { setMsg('Errore: ' + error.message); return; }
@@ -1158,11 +1190,14 @@ function RifiutiModule() {
     carica();
   };
   const q = ricerca.trim().toLowerCase();
+  const testiScheda = (s) => { const p = prodottoDi(s.prodotto_id); return [p ? p.nome : '', p ? p.codice_eer : '', s.tipologia || '', ...(p ? tipologieDi(p) : []), ...rEtichette(s.colli)].map(x => String(x || '').toLowerCase()); };
+  const risultatiSchede = q ? schede.filter(s => testiScheda(s).some(t => t.includes(q))) : [];
+  const lunedi = new Date().getDay() === 1 && daCaricare.length > 0;
   const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.codice_eer].filter(Boolean).some(x => x.toLowerCase().includes(q)) || tipologieDi(p).some(t => t.toLowerCase().includes(q)));
   const campoScheda = (s, k, etichetta, tipo) => (
     <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
       {etichetta}
-      <input type={tipo || 'text'} value={valore(s, k)} onChange={e => cambia(s.id, k, e.target.value)} style={rInput} />
+      <input type={tipo || 'text'} value={valore(s, k)} onChange={e => cambia(s.id, k, e.target.value)} style={{ ...rInput, ...(k === 'data_apertura' && rStatoScheda(s).sfondo !== '#FFFF66' ? { background: rStatoScheda(s).sfondo, color: rStatoScheda(s).colore } : {}) }} />
     </label>
   );
   const schedaCard = (s) => {
@@ -1175,7 +1210,7 @@ function RifiutiModule() {
         <button type="button" onClick={() => setAperte({ ...aperte, [s.id]: !aperta })} style={{ width: '100%', border: 'none', background: 'transparent', padding: 12, textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, color: '#1F2A2E' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
-            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}{colli.length ? ` · colli ${colli.join(', ')}` : ''}</div>
+            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}{colli.length ? ` · colli ${rEtichette(colli).join(', ')}${rPesoTotale(colli) ? ` · ${rPesoTotale(colli)} kg` : ''}` : ''}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {!s.data_carico && <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{stato.testo}</span>}
@@ -1195,13 +1230,14 @@ function RifiutiModule() {
             {campoScheda(s, 'data_carico', 'Data di carico nel registro', 'date')}
             {campoScheda(s, 'data_smaltimento_prevista', 'Smaltimento programmato', 'date')}
             <div style={{ fontSize: 12, color: '#6B6B66', marginBottom: 4 }}>Colli</div>
-            {colli.map((c, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <input value={c} onChange={e => cambia(s.id, 'colli', colli.map((x, j) => (j === i ? e.target.value : x)))} style={{ ...rInput, marginTop: 0, width: 110 }} />
+            {colli.map((c, i) => { const cc = rColloDi(c); return (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input value={cc.etichetta} onChange={e => cambia(s.id, 'colli', colli.map((x, j) => (j === i ? { ...rColloDi(x), etichetta: e.target.value } : x)))} style={{ ...rInput, marginTop: 0, width: 80 }} />
+                <input type="number" step="0.1" min="0" placeholder="kg" value={cc.peso} onChange={e => cambia(s.id, 'colli', colli.map((x, j) => (j === i ? { ...rColloDi(x), peso: e.target.value } : x)))} style={{ ...rInput, marginTop: 0, width: 90 }} />
                 <button type="button" onClick={() => cambia(s.id, 'colli', colli.filter((_, j) => j !== i))} style={pBtnPericolo}>✕</button>
               </div>
-            ))}
-            <button type="button" onClick={() => cambia(s.id, 'colli', [...colli, rLettera(colli)])} style={{ ...pBtn, marginBottom: 10 }}>+ Aggiungi collo</button>
+            ); })}
+            <button type="button" onClick={() => cambia(s.id, 'colli', [...colli, { etichetta: rLettera(colli), peso: '' }])} style={{ ...pBtn, marginBottom: 10 }}>+ Aggiungi collo</button>
             <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
               Note
               <input value={valore(s, 'note')} onChange={e => cambia(s.id, 'note', e.target.value)} style={rInput} />
@@ -1218,6 +1254,31 @@ function RifiutiModule() {
   return (
     <div style={{ fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
       <div style={{ fontWeight: 800, fontSize: 20, padding: '4px 16px 0' }}>Rifiuti</div>
+      {lunedi && <div style={{ background: '#FFFF66', color: '#1F2A2E', borderRadius: 12, padding: '10px 12px', fontWeight: 700, fontSize: 13, margin: '12px 16px 0' }}>Promemoria del lunedì: controlla date rifiuti e apertura colli.</div>}
+      <div style={{ display: 'flex', gap: 8, padding: '12px 16px 0', alignItems: 'center' }}>
+        <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca: prodotto, codice, tipologia, collo" style={{ ...rInput, marginTop: 0, flex: 1 }} />
+        <button type="button" onClick={() => scaricaXlsx(generaRifiutiXlsx(prodotti, schede), 'rifiuti-' + todayISO() + '.xlsx')} style={pBtn}>Esporta Excel</button>
+      </div>
+      {q && (
+        <div style={{ ...pCard, margin: '12px 16px 0', padding: 12 }}>
+          <div style={pTitolo}>Risultati per "{ricerca.trim()}"</div>
+          {prodottiFiltrati.length === 0 && risultatiSchede.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessun risultato.</div>}
+          {prodottiFiltrati.map(p => (
+            <div key={'p' + p.id} style={{ borderTop: '1px solid #EEE9DD', padding: '8px 0', fontSize: 13 }}>
+              <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
+              <div style={{ fontFamily: 'monospace' }}>{p.codice_eer}</div>
+              {tipologieDi(p).length > 0 && <div style={{ color: '#6B6B66' }}>Tipologie: {tipologieDi(p).join(', ')}</div>}
+            </div>
+          ))}
+          {risultatiSchede.map(s => (
+            <div key={'s' + s.id} style={{ borderTop: '1px solid #EEE9DD', padding: '8px 0', fontSize: 13 }}>
+              <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
+              <div style={{ fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}</div>
+              <div style={{ color: '#6B6B66' }}>{s.data_carico ? 'Caricata' : 'Da caricare'}{Array.isArray(s.colli) && s.colli.length ? ` · colli ${rEtichette(s.colli).join(', ')}` : ''}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, padding: '12px 16px' }}>
         {[['schede', 'Schede'], ['caricate', 'Schede caricate'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
@@ -1276,17 +1337,13 @@ function RifiutiModule() {
               <div key={s.id} style={{ ...pCard, padding: 10, fontSize: 13 }}>
                 <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
                 <div>Apertura {dataIt(s.data_apertura)} · carico {dataIt(s.data_carico)}{s.data_smaltimento_prevista ? ` · smaltimento ${dataIt(s.data_smaltimento_prevista)}` : ''}</div>
-                {Array.isArray(s.colli) && s.colli.length > 0 && <div>Colli {s.colli.join(', ')}</div>}
+                {Array.isArray(s.colli) && s.colli.length > 0 && <div>Colli {rEtichette(s.colli).join(', ')}{rPesoTotale(s.colli) ? ` · ${rPesoTotale(s.colli)} kg` : ''}</div>}
               </div>
             ))}
           </div>
         )}
         {tab === 'prodotti' && (
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 10 }}>
-              Cerca per nome, tipologia o codice
-              <input value={ricerca} onChange={e => setRicerca(e.target.value)} style={rInput} />
-            </label>
             {prodottiFiltrati.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun prodotto.</div>}
             {prodottiFiltrati.map(p => (
               <div key={p.id} style={{ ...pCard, padding: 12 }}>
