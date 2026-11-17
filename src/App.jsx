@@ -1085,10 +1085,12 @@ function generaRifiutiXlsx(prodotti, schede) {
     return [p.nome || '', s.tipologia || '', p.codice_eer || '', p.pericoloso ? 'Sì' : 'No', rEtichette(colli).join(', '), rPesoTotale(colli) || '', s.data_apertura ? dataIt(s.data_apertura) : '', s.data_carico ? dataIt(s.data_carico) : '', s.data_smaltimento_prevista ? dataIt(s.data_smaltimento_prevista) : '', s.data_carico ? 'Sì' : 'No'];
   });
   const tutte = [intestazioni, ...righe];
+  const larghezze = intestazioni.map((h, c) => Math.max(10, Math.ceil(Math.max(String(h).length * 1.15, ...tutte.map(r => String(r[c] == null ? '' : r[c]).length))) + 3));
+  const colsXml = `<cols>${larghezze.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
   const sheetRighe = tutte.map((riga, r) => `<row r="${r + 1}">${riga.map((v, c) => cella(c, r + 1, v)).join('')}</row>`).join('');
   const enc = new TextEncoder();
   const intro = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
-  const xmlSheet = `${intro}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRighe}</sheetData></worksheet>`;
+  const xmlSheet = `${intro}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${sheetRighe}</sheetData></worksheet>`;
   const xmlWb = `${intro}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Rifiuti" sheetId="1" r:id="rId1"/></sheets></workbook>`;
   const xmlWbRels = `${intro}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
   const xmlStili = `${intro}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>`;
