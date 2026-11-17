@@ -1139,6 +1139,7 @@ function RifiutiModule() {
       data_apertura: valore(s, 'data_apertura') || s.data_apertura,
       data_carico: valore(s, 'data_carico') || null,
       data_smaltimento_prevista: valore(s, 'data_smaltimento_prevista') || null,
+      data_smaltito: valore(s, 'data_smaltito') || null,
       tipologia: valore(s, 'tipologia') || null,
       colli: colliDi(s).map(rColloDi).filter(c => c.etichetta.trim() !== '').map(c => ({ etichetta: c.etichetta.trim(), peso: c.peso === '' ? null : Number(c.peso) })),
       note: valore(s, 'note') || null,
@@ -1146,6 +1147,12 @@ function RifiutiModule() {
     if (error) { setMsg('Errore: ' + error.message); return; }
     const nuove = { ...modifiche }; delete nuove[s.id]; setModifiche(nuove);
     setMsg('Scheda salvata.'); carica();
+  };
+  const salvaSmaltito = async (s) => {
+    const data = valore(s, 'data_smaltito') || todayISO();
+    const { error } = await supabase.from('rifiuti_schede').update({ data_smaltito: data }).eq('id', s.id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setMsg('Collo segnato come smaltito.'); carica();
   };
   const apriScheda = async () => {
     if (!nuovaScheda.prodotto_id) { setMsg('Scegli il prodotto.'); return; }
@@ -1191,7 +1198,8 @@ function RifiutiModule() {
     carica();
   };
   const daCaricare = schede.filter(s => !s.data_carico);
-  const caricate = schede.filter(s => s.data_carico).slice().reverse();
+  const caricate = schede.filter(s => s.data_carico && !s.data_smaltito).slice().reverse();
+  const smaltite = schede.filter(s => s.data_smaltito).slice().reverse();
   const inScadenza = daCaricare.filter(s => RIFIUTI_GIORNI_LIMITE - rGiornoDiScheda(s.data_apertura) <= 1);
   const aggiornaAperture = async (nuovaData) => {
     const risultati = await Promise.all(daCaricare.map(s => supabase.from('rifiuti_schede').update({ data_apertura: nuovaData(s) }).eq('id', s.id)));
@@ -1210,7 +1218,7 @@ function RifiutiModule() {
       <input type={tipo || 'text'} value={valore(s, k)} onChange={e => cambia(s.id, k, e.target.value)} style={{ ...rInput, ...(k === 'data_apertura' && rStatoScheda(s).sfondo !== '#FFFF66' ? { background: rStatoScheda(s).sfondo, color: rStatoScheda(s).colore } : {}) }} />
     </label>
   );
-  const schedaCard = (s) => {
+  const schedaCard = (s, modo = 'aperta') => {
     const stato = rStatoScheda(s);
     const aperta = !!aperte[s.id];
     const colli = colliDi(s);
@@ -1252,9 +1260,18 @@ function RifiutiModule() {
               Note
               <input value={valore(s, 'note')} onChange={e => cambia(s.id, 'note', e.target.value)} style={rInput} />
             </label>
+            {modo === 'caricata' && (
+              <div style={{ ...pCard, background: '#F4F1EA', padding: 10, marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+                  Data di smaltimento
+                  <input type="date" value={valore(s, 'data_smaltito') || todayISO()} onChange={e => cambia(s.id, 'data_smaltito', e.target.value)} style={rInput} />
+                </label>
+                <button type="button" onClick={() => salvaSmaltito(s)} style={pBtnPrimario}>Smaltito</button>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button type="button" onClick={() => salvaScheda(s)} style={pBtnPrimario}>Salva scheda</button>
-              <button type="button" onClick={() => eliminaScheda(s)} style={pBtnPericolo}>Elimina</button>
+              {modo === 'aperta' && <button type="button" onClick={() => eliminaScheda(s)} style={pBtnPericolo}>Elimina</button>}
             </div>
           </div>
         )}
@@ -1290,7 +1307,7 @@ function RifiutiModule() {
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, padding: '12px 16px' }}>
-        {[['schede', 'Schede'], ['caricate', 'Schede caricate'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
+        {[['schede', 'Schede'], ['caricate', 'Schede caricate'], ['smaltite', 'Schede smaltite'], ['prodotti', 'Prodotti e codici']].map(([k, l]) => (
           <button key={k} type="button" onClick={() => setTab(k)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: tab === k ? '#1F2A2E' : '#E8E3D8', color: tab === k ? '#FFFFFF' : '#1F2A2E' }}>{l}</button>
         ))}
       </div>
@@ -1343,13 +1360,14 @@ function RifiutiModule() {
           <div>
             <div style={pTitolo}>Schede caricate</div>
             {caricate.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessuna scheda caricata.</div>}
-            {caricate.map(s => (
-              <div key={s.id} style={{ ...pCard, padding: 10, fontSize: 13 }}>
-                <div style={{ fontWeight: 700 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
-                <div>Apertura {dataIt(s.data_apertura)} · carico {dataIt(s.data_carico)}{s.data_smaltimento_prevista ? ` · smaltimento ${dataIt(s.data_smaltimento_prevista)}` : ''}</div>
-                {Array.isArray(s.colli) && s.colli.length > 0 && <div>Colli {rEtichette(s.colli).join(', ')}{rPesoTotale(s.colli) ? ` · ${rPesoTotale(s.colli)} kg` : ''}</div>}
-              </div>
-            ))}
+            {caricate.map(s => schedaCard(s, 'caricata'))}
+          </div>
+        )}
+        {tab === 'smaltite' && (
+          <div>
+            <div style={pTitolo}>Colli smaltiti</div>
+            {smaltite.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessun collo smaltito.</div>}
+            {smaltite.map(s => schedaCard(s, 'smaltita'))}
           </div>
         )}
         {tab === 'prodotti' && (
@@ -4598,6 +4616,7 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Anno" value={vehicle.anno || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Misura pneumatici" value={vehicle.gomme?.misura || '—'} />
             <InfoRow theme={MEZZI_COLORS} icon={Car} label="Olio motore" value={vehicle.olio_motore || '—'} />
+<InfoRow theme={MEZZI_COLORS} icon={Car} label="Dotazione di scorta" value={vehicle.dotazione_scorta || '—'} />
 <InfoRow theme={MEZZI_COLORS} icon={Droplet} label="Paraflu" value={vehicle.paraflu ? <span style={{ background: vehicle.paraflu === 'Blu' ? '#1565C0' : '#E53935', color: '#FFFFFF', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>{vehicle.paraflu}</span> : '—'} />
           </div>
           {vehicle.note && (
@@ -4846,6 +4865,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         <SectionLabel theme={MEZZI_COLORS}>Pneumatici</SectionLabel>
         <Field label="Misura pneumatici (dal libretto)"><input style={inputStyle} value={misura} onChange={e => setMisura(e.target.value)} placeholder="Es. 185/60 R15 84T" /></Field>
         <Field label="Olio motore (tipo)"><input style={inputStyle} value={f.olio_motore || ''} onChange={set('olio_motore')} placeholder="Es. 5W-30 C3" /></Field>
+<Field label="Dotazione di scorta"><select style={inputStyle} value={f.dotazione_scorta || ''} onChange={set('dotazione_scorta')}><option value="">—</option><option value="Solo kit">Solo kit</option><option value="Gomma di scorta">Gomma di scorta</option><option value="Gomma di scorta e kit">Gomma di scorta e kit</option></select></Field>
 <Field label="Tipo paraflu"><select style={inputStyle} value={f.paraflu || ''} onChange={set('paraflu')}><option value="">—</option><option value="Rosso">Rosso</option><option value="Blu">Blu</option></select></Field>
         <ScadenzePersonalizzateCard vehicle={{ gomme: { scadenzeExtra: scad } }} puoModificare={true} onSave={setScad} />
         <div style={{ fontSize:12.5, color: MEZZI_COLORS.muted, marginBottom:6 }}>Marca, modello e tipo (invernali, estive, quattro stagioni) si indicano nella sezione «Pneumatici montati e di scorta».</div>
@@ -9813,6 +9833,7 @@ function ChecklistPassi({ steps, esecuzioni, onSalva, extra, mostraDataKm, vehic
               <input type="checkbox" checked={fatti.includes(i)} onChange={() => spunta(i)} style={{ width:20, height:20, marginTop:2, accentColor:PROC_COLORS.primary, flexShrink:0 }} />
               <span style={{ fontSize:14, lineHeight:1.5, textDecoration: fatti.includes(i) ? 'line-through' : 'none', color: fatti.includes(i) ? PROC_COLORS.muted : PROC_COLORS.ink }}>{testo}</span>
             </label>
+            {/scorta/i.test(testo) && vehicle && vehicle.dotazione_scorta && <span style={{ background: '#E8E3D8', color: '#1F2A2E', borderRadius: 6, padding: '1px 8px', fontWeight: 700, fontSize: 12 }}>{vehicle.dotazione_scorta}</span>}
             {/paraflu/i.test(testo) && vehicle && vehicle.paraflu && <span style={{ background: vehicle.paraflu === 'Blu' ? '#1565C0' : '#E53935', color: '#FFFFFF', borderRadius: 6, padding: '1px 8px', fontWeight: 700, fontSize: 12 }}>{vehicle.paraflu}</span>}
             {/olio.*motore/i.test(testo) && vehicle && vehicle.olio_motore && <span style={{ background: '#E8E3D8', color: '#1F2A2E', borderRadius: 6, padding: '1px 8px', fontWeight: 700, fontSize: 12 }}>Olio {vehicle.olio_motore}</span>}
             {tipoDi(testo) === 'valore' && <ValoreVoce chiave={chkKey + '-v' + i} placeholder={suggerimentoValore(testo)} valore={valori[i] || ''} onSalva={(val) => onSalva && onSalva(applicaValoreEsecuzione(lista, i, val, nomeVisualizzato, items.length, extra || {}))} theme={PROC_COLORS} />}
