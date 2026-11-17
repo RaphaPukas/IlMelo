@@ -1115,8 +1115,9 @@ function RifiutiModule() {
   const [aperte, setAperte] = useState({});
   const [ricerca, setRicerca] = useState('');
   const [nuovaScheda, setNuovaScheda] = useState({ prodotto_id: '', tipologia: '', data_apertura: todayISO(), note: '' });
-  const [nuovoProdotto, setNuovoProdotto] = useState({ nome: '', codice_eer: '', pericoloso: false });
+  const [nuovoProdotto, setNuovoProdotto] = useState({ nome: '', codice_eer: '', pericoloso: false, definizione: '' });
   const [nuovaTipologia, setNuovaTipologia] = useState({});
+  const [modificaProdotto, setModificaProdotto] = useState(null);
   const [dataUnica, setDataUnica] = useState('');
   const carica = async () => {
     const { data: p, error: e1 } = await supabase.from('rifiuti_prodotti').select('*').order('nome', { ascending: true });
@@ -1160,15 +1161,22 @@ function RifiutiModule() {
   };
   const aggiungiProdotto = async () => {
     if (!nuovoProdotto.nome.trim() || !nuovoProdotto.codice_eer.trim()) { setMsg('Inserisci nome e codice.'); return; }
-    const { error } = await supabase.from('rifiuti_prodotti').insert({ nome: nuovoProdotto.nome.trim(), codice_eer: nuovoProdotto.codice_eer.trim(), pericoloso: nuovoProdotto.pericoloso, tipologie: [] });
+    const { error } = await supabase.from('rifiuti_prodotti').insert({ nome: nuovoProdotto.nome.trim(), codice_eer: nuovoProdotto.codice_eer.trim(), pericoloso: nuovoProdotto.pericoloso, definizione: (nuovoProdotto.definizione || '').trim() || null, tipologie: [] });
     if (error) { setMsg('Errore: ' + error.message); return; }
-    setNuovoProdotto({ nome: '', codice_eer: '', pericoloso: false });
+    setNuovoProdotto({ nome: '', codice_eer: '', pericoloso: false, definizione: '' });
     setMsg('Prodotto aggiunto.'); carica();
   };
   const eliminaProdotto = async (p) => {
     if (!window.confirm('Eliminare il prodotto? Eliminerà anche le sue schede.')) return;
     await supabase.from('rifiuti_prodotti').delete().eq('id', p.id);
     carica();
+  };
+  const salvaProdotto = async () => {
+    const m = modificaProdotto;
+    if (!m || !m.nome.trim() || !m.codice_eer.trim()) { setMsg('Inserisci nome e codice.'); return; }
+    const { error } = await supabase.from('rifiuti_prodotti').update({ nome: m.nome.trim(), codice_eer: m.codice_eer.trim(), pericoloso: !!m.pericoloso, definizione: (m.definizione || '').trim() || null }).eq('id', m.id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setModificaProdotto(null); setMsg('Prodotto salvato.'); carica();
   };
   const aggiungiTipologia = async (p) => {
     const testo = (nuovaTipologia[p.id] || '').trim();
@@ -1195,7 +1203,7 @@ function RifiutiModule() {
   const testiScheda = (s) => { const p = prodottoDi(s.prodotto_id); return [p ? p.nome : '', p ? p.codice_eer : '', s.tipologia || '', ...(p ? tipologieDi(p) : []), ...rEtichette(s.colli)].map(x => String(x || '').toLowerCase()); };
   const risultatiSchede = q ? schede.filter(s => testiScheda(s).some(t => t.includes(q))) : [];
   const lunedi = new Date().getDay() === 1 && daCaricare.length > 0;
-  const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.codice_eer].filter(Boolean).some(x => x.toLowerCase().includes(q)) || tipologieDi(p).some(t => t.toLowerCase().includes(q)));
+  const prodottiFiltrati = prodotti.filter(p => !q || [p.nome, p.codice_eer, p.definizione].filter(Boolean).some(x => x.toLowerCase().includes(q)) || tipologieDi(p).some(t => t.toLowerCase().includes(q)));
   const campoScheda = (s, k, etichetta, tipo) => (
     <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
       {etichetta}
@@ -1353,9 +1361,25 @@ function RifiutiModule() {
                   <div>
                     <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
                     <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
+                    {p.definizione && <div style={{ fontSize: 12.5, color: '#4A4A46', marginTop: 4 }}>{p.definizione}</div>}
                   </div>
-                  <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={() => setModificaProdotto({ ...p, definizione: p.definizione || '' })} style={pBtn}>Modifica</button>
+                    <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
+                  </div>
                 </div>
+                {modificaProdotto && modificaProdotto.id === p.id && (
+                  <div style={{ marginTop: 10, borderTop: '1px solid #EEE9DD', paddingTop: 10 }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Nome<input value={modificaProdotto.nome} onChange={e => setModificaProdotto({ ...modificaProdotto, nome: e.target.value })} style={rInput} /></label>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Codice EER<input value={modificaProdotto.codice_eer} onChange={e => setModificaProdotto({ ...modificaProdotto, codice_eer: e.target.value })} style={rInput} /></label>
+                    <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Definizione<textarea value={modificaProdotto.definizione || ''} onChange={e => setModificaProdotto({ ...modificaProdotto, definizione: e.target.value })} rows={3} style={{ ...rInput, resize: 'vertical' }} /></label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}><input type="checkbox" checked={!!modificaProdotto.pericoloso} onChange={e => setModificaProdotto({ ...modificaProdotto, pericoloso: e.target.checked })} />Rifiuto pericoloso</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={salvaProdotto} style={pBtnPrimario}>Salva modifica</button>
+                      <button type="button" onClick={() => setModificaProdotto(null)} style={pBtn}>Annulla</button>
+                    </div>
+                  </div>
+                )}
                 <div style={{ marginTop: 10 }}>
                   <select defaultValue="" style={rInput}>
                     <option value="" disabled>{tipologieDi(p).length ? `Tipologie (${tipologieDi(p).length})` : 'Nessuna tipologia'}</option>
@@ -1380,6 +1404,7 @@ function RifiutiModule() {
               <div style={pTitolo}>Nuovo prodotto</div>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Nome del prodotto<input value={nuovoProdotto.nome} onChange={e => setNuovoProdotto({ ...nuovoProdotto, nome: e.target.value })} style={rInput} /></label>
               <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Codice EER<input value={nuovoProdotto.codice_eer} onChange={e => setNuovoProdotto({ ...nuovoProdotto, codice_eer: e.target.value })} placeholder="es. 6 cifre" style={rInput} /></label>
+              <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Definizione<textarea value={nuovoProdotto.definizione} onChange={e => setNuovoProdotto({ ...nuovoProdotto, definizione: e.target.value })} rows={3} placeholder="Descrizione del prodotto" style={{ ...rInput, resize: 'vertical' }} /></label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}><input type="checkbox" checked={nuovoProdotto.pericoloso} onChange={e => setNuovoProdotto({ ...nuovoProdotto, pericoloso: e.target.checked })} />Rifiuto pericoloso</label>
               <button type="button" onClick={aggiungiProdotto} style={pBtnPrimario}>Aggiungi prodotto</button>
             </div>
