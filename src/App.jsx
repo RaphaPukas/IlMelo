@@ -1106,7 +1106,7 @@ function generaRifiutiXlsx(prodotti, schede) {
   ]);
 }
 
-function RifiutiModule() {
+function RifiutiModule({ onHome }) {
   const [tab, setTab] = useState('schede');
   const [prodotti, setProdotti] = useState([]);
   const [schede, setSchede] = useState([]);
@@ -1280,7 +1280,7 @@ function RifiutiModule() {
   };
   return (
     <div style={{ fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
-      <div style={{ fontWeight: 800, fontSize: 20, padding: '4px 16px 0' }}>Rifiuti</div>
+      <TopBar theme={PROC_COLORS} title="Rifiuti" subtitle="Smaltimento e codici EER" onBack={onHome} backIcon={Home} />
       {lunedi && <div style={{ background: '#FFFF66', color: '#1F2A2E', borderRadius: 12, padding: '10px 12px', fontWeight: 700, fontSize: 13, margin: '12px 16px 0' }}>Promemoria del lunedì: controlla date rifiuti e apertura colli.</div>}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px 0', alignItems: 'center' }}>
         <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca: prodotto, codice, tipologia, collo" style={{ ...rInput, marginTop: 0, flex: 1 }} />
@@ -11050,7 +11050,7 @@ function ProcedureModule({ onHome, initialNotification }) {
 
   let content;
   if (tab === 'rifiuti') {
-    content = <RifiutiModule />;
+    content = <RifiutiModule onHome={onHome} />;
   } else if (tab === 'procedure') {
     if (view.name === 'detail') {
       const p = procedureVisibili.find(x => x.id === view.id) || procConGruppi.find(x => x.id === view.id);
