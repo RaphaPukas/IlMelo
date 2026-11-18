@@ -7668,6 +7668,7 @@ function STR_NucleoTag({ nucleo }) {
 
 /* ---------- dati di esempio (dal registro reale della struttura) ---------- */
 const S_CAMERE = [{"codice": "001", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "002", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "003", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "004", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "005", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "006", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "007", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "008", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "009", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "010", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "011", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "012", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "013", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "014", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "015", "piano": "Piano Terra", "nucleo": "Ala Nord", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "016", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "017", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "018", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "019", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "020", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "021", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "022", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "023", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "024", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "025", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "026", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "027", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "028", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "029", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "030", "piano": "Piano Terra", "nucleo": "Ala Sud", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "101", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "102", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "103", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "104", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "105", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "106", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "107", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "108", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "109", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "110", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "111", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "112", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "113", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "114", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "115", "piano": "Primo Piano", "nucleo": "Bianco", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "116", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "117", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "118", "piano": "Primo Piano", "nucleo": "Blu", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "119", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "120", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "121", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "122", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "123", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "124", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "125", "piano": "Primo Piano", "nucleo": "Grigio", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "126", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "127", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "128", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "129", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "130", "piano": "Primo Piano", "nucleo": "Rosso", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "201", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "202", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "203", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "204", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "205", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "206", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "207", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "208", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "209", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "210", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "211", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "212", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "213", "piano": "Secondo Piano", "nucleo": "Giallo", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "214", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "215", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "216", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "217", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "218", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "219", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "220", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "221", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "222", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "223", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "224", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}, {"codice": "225", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "226", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "In Manutenzione", "note": ""}, {"codice": "227", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Fuori Servizio", "note": ""}, {"codice": "228", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "229", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Singola", "stato": "Attiva", "note": ""}, {"codice": "230", "piano": "Secondo Piano", "nucleo": "Verde", "tipo": "Doppia", "stato": "Attiva", "note": ""}];
+const S_CAMERE_DIGICOM = S_CAMERE.map(c => ({ ...c, codice_digicom: c.codice_digicom || c.codice }));
 const S_REPARTI = [{"codice": "Z01", "nome": "Cucina", "categoria": "Servizi", "responsabile": "Responsabile Cucina", "note": ""}, {"codice": "Z02", "nome": "Sala da Pranzo", "categoria": "Servizi", "responsabile": "Responsabile Cucina", "note": ""}, {"codice": "Z03", "nome": "Uffici Amministrativi", "categoria": "Amministrativo", "responsabile": "Responsabile Amministrativo", "note": ""}, {"codice": "Z04", "nome": "Ufficio Direzione", "categoria": "Amministrativo", "responsabile": "Direttore di Struttura", "note": ""}, {"codice": "Z05", "nome": "Ufficio Coord. Infermieristico", "categoria": "Amministrativo", "responsabile": "Coordinatore Infermieristico", "note": ""}, {"codice": "Z06", "nome": "Lavanderia", "categoria": "Servizi", "responsabile": "Responsabile Lavanderia", "note": ""}, {"codice": "Z07", "nome": "Guardaroba", "categoria": "Servizi", "responsabile": "Responsabile Lavanderia", "note": ""}, {"codice": "Z08", "nome": "Bagno Comune Piano Terra", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z09", "nome": "Bagno Comune Primo Piano", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z10", "nome": "Bagno Comune Secondo Piano", "categoria": "Assistenziale", "responsabile": "Coordinatore Assistenziale", "note": ""}, {"codice": "Z11", "nome": "Parco Giochi", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z12", "nome": "Giardino animali", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z13", "nome": "Giardino d'Inverno", "categoria": "Assistenziale", "responsabile": "Animatore/Educatore", "note": ""}, {"codice": "Z14", "nome": "Palestra / Fisioterapia", "categoria": "Assistenziale", "responsabile": "Responsabile Fisioterapia", "note": ""}, {"codice": "Z15", "nome": "Cappella", "categoria": "Servizi", "responsabile": "Responsabile Struttura", "note": ""}, {"codice": "Z16", "nome": "Ingresso / Reception", "categoria": "Amministrativo", "responsabile": "Responsabile Reception", "note": ""}, {"codice": "Z17", "nome": "Ascensore Nord", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z18", "nome": "Ascensore Sud", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z19", "nome": "Ascensore Secondario", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z20", "nome": "Scala di Sicurezza Nord", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}, {"codice": "Z21", "nome": "Scala di Sicurezza Sud", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}, {"codice": "Z22", "nome": "Magazzino Generale", "categoria": "Servizi", "responsabile": "Simone Cabrelle", "note": ""}, {"codice": "Z23", "nome": "Centrale Termica", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z24", "nome": "Locale Tecnico Impianti Elettrici", "categoria": "Servizi", "responsabile": "Responsabile Manutenzione", "note": ""}, {"codice": "Z25", "nome": "Parcheggio", "categoria": "Servizi", "responsabile": "Responsabile Sicurezza", "note": ""}];
 const S_TECNICI = [{"id": "T01", "nome": "Biagio", "tipo": "Interno", "specializzazione": "Manutentore Generico", "telefono": "329 000 0001", "email": "m.rossi@struttura-esempio.it", "note": ""}, {"id": "T02", "nome": "Simone Napolitano", "tipo": "Interno", "specializzazione": "Idraulico", "telefono": "329 000 0002", "email": "g.verdi@struttura-esempio.it", "note": ""}, {"id": "T03", "nome": "Raffaele", "tipo": "Interno", "specializzazione": "Manutentore Generico", "telefono": "329 000 0003", "email": "l.bianchi@struttura-esempio.it", "note": ""}, {"id": "T04", "nome": "ElettroService Snc", "tipo": "Esterno", "specializzazione": "Impianti Elettrici", "telefono": "0332 000 100", "email": "info@elettroservice-esempio.it", "note": ""}, {"id": "T05", "nome": "Idro Pronto Srl", "tipo": "Esterno", "specializzazione": "Impianti Idraulici", "telefono": "0332 000 101", "email": "info@idropronto-esempio.it", "note": ""}, {"id": "T06", "nome": "ClimaTech Impianti", "tipo": "Esterno", "specializzazione": "Climatizzazione / HVAC", "telefono": "0332 000 102", "email": "info@climatech-esempio.it", "note": ""}, {"id": "T07", "nome": "Ascensori Sicuri Srl", "tipo": "Esterno", "specializzazione": "Manutenzione Ascensori", "telefono": "0332 000 103", "email": "info@ascensorisicuri-esempio.it", "note": ""}, {"id": "T08", "nome": "AntincendioPiu Srl", "tipo": "Esterno", "specializzazione": "Sistemi Antincendio", "telefono": "0332 000 104", "email": "info@antincendiopiu-esempio.it", "note": ""}, {"id": "T09", "nome": "Falegnameria Colombo", "tipo": "Esterno", "specializzazione": "Falegnameria", "telefono": "0332 000 105", "email": "info@falegnameriacolombo-esempio.it", "note": ""}, {"id": "T10", "nome": "Verde Giardini Sas", "tipo": "Esterno", "specializzazione": "Manutenzione Giardino", "telefono": "0332 000 106", "email": "info@verdegiardini-esempio.it", "note": ""}, {"id": "T11", "nome": "Pulizie Splendor Srl", "tipo": "Esterno", "specializzazione": "Pulizie e Sanificazione", "telefono": "0332 000 107", "email": "info@puliziesplendor-esempio.it", "note": ""}, {"id": "T12", "nome": "DisinfestaService", "tipo": "Esterno", "specializzazione": "Disinfestazione / Derattizzazione", "telefono": "0332 000 108", "email": "info@disinfestaservice-esempio.it", "note": ""}, {"id": "T13", "nome": "InfoTech Solutions", "tipo": "Esterno", "specializzazione": "Assistenza Informatica", "telefono": "0332 000 109", "email": "info@infotech-esempio.it", "note": ""}, {"id": "T14", "nome": "Sicurtech Impianti", "tipo": "Esterno", "specializzazione": "Sicurezza / Videosorveglianza", "telefono": "0332 000 110", "email": "info@sicurtech-esempio.it", "note": ""}, {"id": "T15", "nome": "Edil Ripristino Srl", "tipo": "Esterno", "specializzazione": "Opere Edili / Muratura", "telefono": "0332 000 111", "email": "info@edilripristino-esempio.it", "note": ""}];
 const S_INTERVENTI = [{"id": "SI001", "dataSegnalazione": "2026-04-03", "cameraZona": "003", "descrizione": "Perdita rubinetto bagno camera", "priorita": "Media", "tecnico": "Biagio", "stato": "Chiuso", "dataChiusura": "2026-04-04", "costo": 45.0, "note": ""}, {"id": "SI002", "dataSegnalazione": "2026-04-10", "cameraZona": "Cucina", "descrizione": "Guasto abbattitore di temperatura", "priorita": "Alta", "tecnico": "ClimaTech Impianti", "stato": "Chiuso", "dataChiusura": "2026-04-12", "costo": 320.0, "note": ""}, {"id": "SI003", "dataSegnalazione": "2026-04-15", "cameraZona": "112", "descrizione": "Presa elettrica non funzionante", "priorita": "Media", "tecnico": "Simone Napolitano", "stato": "Chiuso", "dataChiusura": "2026-04-15", "costo": 0.0, "note": ""}, {"id": "SI004", "dataSegnalazione": "2026-04-22", "cameraZona": "Giardino", "descrizione": "Irrigazione automatica bloccata", "priorita": "Bassa", "tecnico": "Verde Giardini Sas", "stato": "Chiuso", "dataChiusura": "2026-04-28", "costo": 150.0, "note": ""}];
@@ -7781,7 +7782,7 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome, filtroStatoInizia
         {filtered.length === 0 && <Empty theme={STR_COLORS} icon={BedDouble} text="Nessuna camera trovata." />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
           {filtered.map(c => (
-            <Card theme={STR_COLORS} key={c.codice} onClick={() => onOpen(c)}>
+            <Card theme={STR_COLORS} key={c.codice_digicom} onClick={() => onOpen(c)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Camera {c.codice}</div>
@@ -7802,7 +7803,7 @@ function CamereScreen({ camere, onOpen, onAdd, onMenu, onHome, filtroStatoInizia
 function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) {
   const { isAdmin } = usePermessi();
   const puoScrivere = isAdmin;
-  const own = interventi.filter(i => i.cameraZona === camera.codice).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
+  const own = interventi.filter(i => i.cameraZona === camera.codice_digicom).sort((a, b) => (b.dataSegnalazione || '').localeCompare(a.dataSegnalazione || ''));
   return (
     <>
       <TopBar theme={STR_COLORS} title={`Camera ${camera.codice}`} subtitle={camera.piano} onBack={onBack} />
@@ -7901,7 +7902,8 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
 }
 
 /* ---------- Interventi ---------- */
-function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroStatoIniziale }) {
+const etichettaCameraZona = (zona, camere) => { const c = (camere || []).find(x => x.codice_digicom === zona); return c ? `Camera ${c.codice}` : (zona || '—'); };
+function InterventiScreen({ interventi, camere, onOpen, onAdd, onMenu, onHome, filtroStatoIniziale }) {
   const [filtro, setFiltro] = useState(filtroStatoIniziale || null);
   const [filtroTipologia, setFiltroTipologia] = useState('');
   const sorted = [...interventi]
@@ -7938,7 +7940,7 @@ function InterventiScreen({ interventi, onOpen, onAdd, onMenu, onHome, filtroSta
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 4 }}>{i.descrizione || '—'}</div>
-                  <div style={{ fontSize: 12, color: STR_COLORS.ink, marginBottom: 6 }}>{i.cameraZona} · {fmtDate(i.dataSegnalazione)}{i.tipologia ? ' · ' + i.tipologia : ''}</div>
+                  <div style={{ fontSize: 12, color: STR_COLORS.ink, marginBottom: 6 }}>{etichettaCameraZona(i.cameraZona, camere)} · {fmtDate(i.dataSegnalazione)}{i.tipologia ? ' · ' + i.tipologia : ''}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Pill style={STR_PRIORITA_STYLE[i.priorita] || {}}>{i.priorita}</Pill>
                     {i.foto?.length > 0 && (
@@ -8195,7 +8197,7 @@ function InterventoForm({ initial, luoghi, camere, reparti, tecnici, onSave, onC
                 {nucleoSel && selectPill(
                   'Camera',
                   subSel,
-                  camerePerNucleo.map(c => ({ codice: c.codice, label: `Camera ${c.codice}` })),
+                  camerePerNucleo.map(c => ({ codice: c.codice_digicom, label: `Camera ${c.codice}` })),
                   setSubSel,
                   '— seleziona camera —'
                 )}
@@ -9043,7 +9045,7 @@ function calcolaSettimanaAgenda() {
 }
 
 function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
-  const camereT = useSupaTable('camere', 'codice', S_CAMERE);
+  const camereT = useSupaTable('camere', 'codice_digicom', S_CAMERE);
   const repartiT = useSupaTable('reparti', 'codice', S_REPARTI);
   const tecniciT = useSupaTable('tecnici', 'id', S_TECNICI);
   const interventiT = useSupaTable('interventi', 'id', S_INTERVENTI, ['dataSegnalazione', 'dataChiusura']);
@@ -9122,30 +9124,25 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
-  const saveCamera = async (c, originalCodice) => {
-    const codiceNuovo = (c.codice || '').trim();
-    if (!codiceNuovo) { flash('Il codice camera non puo\' essere vuoto'); return; }
-    const matchCodice = originalCodice || c.codice;
-    const duplicato = camere.some(x => x.codice === codiceNuovo && x.codice !== matchCodice);
-    if (duplicato) { flash(`Esiste gia' una camera con codice ${codiceNuovo}`); return; }
-    const cNorm = { ...c, codice: codiceNuovo };
-
-    if (originalCodice && originalCodice !== codiceNuovo) {
-      // Rinomina vera e propria (la chiave primaria cambia): aggiorno la riga
-      // esistente e sposto i riferimenti negli interventi/scadenze collegati,
-      // cosi' non restano orfani.
-      const { data, error } = await supabase.from('camere').update(cNorm).eq('codice', originalCodice).select().single();
+  const saveCamera = async (c, originalDigicom) => {
+    const digicomNuovo = (c.codice_digicom || '').trim();
+    const numeroNuovo = (c.codice || '').trim();
+    if (!numeroNuovo) { flash('Il numero camera non puo\' essere vuoto'); return; }
+    if (!digicomNuovo) { flash('Il Codice Digicom non puo\' essere vuoto'); return; }
+    if (camere.some(x => x.codice_digicom === digicomNuovo && x.codice_digicom !== originalDigicom)) { flash(`Esiste gia' una camera con Codice Digicom ${digicomNuovo}`); return; }
+    if (camere.some(x => x.codice === numeroNuovo && x.piano === c.piano && x.nucleo === c.nucleo && x.codice_digicom !== digicomNuovo)) { flash(`Esiste gia' la camera ${numeroNuovo} su questo piano e nucleo`); return; }
+    const cNorm = { ...c, codice: numeroNuovo, codice_digicom: digicomNuovo };
+    if (originalDigicom && originalDigicom !== digicomNuovo) {
+      // Il Codice Digicom e' la chiave: aggiorno la riga e sposto i collegamenti di interventi e manutenzioni
+      const { data, error } = await supabase.from('camere').update(cNorm).eq('codice_digicom', originalDigicom).select().single();
       if (error) { flash(traduciErroreDati(error.message)); return; }
-      camereT.setRows((prev) => prev.map((x) => (x.codice === originalCodice ? data : x)));
-
-      const { error: e2 } = await supabase.from('interventi').update({ cameraZona: codiceNuovo }).eq('cameraZona', originalCodice);
-      if (!e2) interventiT.setRows((prev) => prev.map((x) => (x.cameraZona === originalCodice ? { ...x, cameraZona: codiceNuovo } : x)));
-
-      const { error: e3 } = await supabase.from('manutenzioni').update({ cameraZona: codiceNuovo }).eq('cameraZona', originalCodice);
-      if (!e3) manutenzioniT.setRows((prev) => prev.map((x) => (x.cameraZona === originalCodice ? { ...x, cameraZona: codiceNuovo } : x)));
-
-      flash(`Camera rinominata in ${codiceNuovo}`);
-      goBackMulti(1, setView, { name: 'detail', id: codiceNuovo });
+      camereT.setRows((prev) => prev.map((x) => (x.codice_digicom === originalDigicom ? data : x)));
+      const { error: e2 } = await supabase.from('interventi').update({ cameraZona: digicomNuovo }).eq('cameraZona', originalDigicom);
+      if (!e2) interventiT.setRows((prev) => prev.map((x) => (x.cameraZona === originalDigicom ? { ...x, cameraZona: digicomNuovo } : x)));
+      const { error: e3 } = await supabase.from('manutenzioni').update({ cameraZona: digicomNuovo }).eq('cameraZona', originalDigicom);
+      if (!e3) manutenzioniT.setRows((prev) => prev.map((x) => (x.cameraZona === originalDigicom ? { ...x, cameraZona: digicomNuovo } : x)));
+      flash('Camera aggiornata');
+      goBackMulti(1, setView, { name: 'detail', id: digicomNuovo });
     } else {
       const { error } = await camereT.save(cNorm);
       if (error) { flash(error.message); return; }
@@ -9211,7 +9208,7 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   };
   const deleteInterventoDaCamera = (i) => salvaOTorna(async () => { await eliminaFoto(i.foto); return interventiT.remove(i); }, 'intervento', 'Intervento eliminato');
 
-  const luoghi = useMemo(() => [...camere.map(c => c.codice), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
+  const luoghi = useMemo(() => [...camere.map(c => c.codice_digicom), ...reparti.map(r => r.nome), 'Struttura (tutti i piani)'], [camere, reparti]);
   const tecniciNomi = useMemo(() => tecnici.map(t => t.nome), [tecnici]);
   const piani = useMemo(() => [...new Set(camere.map(c => c.piano).filter(Boolean))], [camere]);
   const nuclei = useMemo(() => [...new Set(camere.map(c => c.nucleo).filter(Boolean))], [camere]);
@@ -9315,15 +9312,15 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
       </div>
     );
   } else if (tab === 'camere') {
-    if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
+    if (view.name === 'detail') content = <CameraDetail camera={camere.find(c => c.codice_digicom === view.id)} interventi={interventi} onBack={() => goBack()} onEdit={(c) => setView({ name: 'edit', c })} onOpenIntervento={(i) => setView({ name: 'intervento', i, cameraId: view.id })} />;
     else if (view.name === 'add') content = <CameraForm piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c)} onCancel={() => goBack()} />;
-    else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c, view.c.codice)} onCancel={() => goBack()} onDelete={deleteCamera} />;
+    else if (view.name === 'edit') content = <CameraForm initial={view.c} piani={piani} nuclei={nuclei} onSave={(c) => saveCamera(c, view.c.codice_digicom)} onCancel={() => goBack()} onDelete={deleteCamera} />;
     else if (view.name === 'intervento') content = <InterventoForm initial={view.i} luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveInterventoDaCamera} onCancel={() => goBack()} onDelete={deleteInterventoDaCamera} />;
-    else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'camere_stato' ? filtroRiepilogo.valore : ''} />;
+    else content = <CamereScreen camere={camere} onOpen={(c) => setView({ name: 'detail', id: c.codice_digicom })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'camere_stato' ? filtroRiepilogo.valore : ''} />;
   } else if (tab === 'interventi') {
     if (view.name === 'add') content = <InterventoForm luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <InterventoForm initial={view.i} luoghi={luoghi} camere={camere} reparti={reparti} tecnici={tecniciNomi} onSave={saveIntervento} onCancel={() => goBack()} onDelete={deleteIntervento} />;
-    else content = <InterventiScreen interventi={interventi} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'interventi_stato' ? filtroRiepilogo.valore : null} />;
+    else content = <InterventiScreen interventi={interventi} camere={camere} onOpen={(i) => setView({ name: 'edit', i })} onAdd={() => setView({ name: 'add' })} onMenu={onMenu} onHome={onHome} filtroStatoIniziale={filtroRiepilogo?.tipo === 'interventi_stato' ? filtroRiepilogo.valore : null} />;
   } else if (tab === 'scadenze') {
     if (view.name === 'add') content = <ManutenzioneForm luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <ManutenzioneForm initial={view.m} luoghi={luoghi} tecnici={tecniciNomi} onSave={saveManutenzione} onCancel={() => goBack()} onDelete={deleteManutenzione} />;
@@ -10324,7 +10321,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
   const tutteCategorie = [...new Set([...CATEGORIE_RIC_BASE, ...(categorieDisponibili || []), ...categorieLocali, ...(f.categoria ? [f.categoria] : [])])].filter(Boolean).sort();
   const [ambito, setAmbito] = useState(initial?.ambito || 'Tutti');
   // Piani e nuclei della struttura: letti dalle camere (stessa sorgente della scheda Camere).
-  const camereT = useSupaTable('camere', 'codice', [], []);
+  const camereT = useSupaTable('camere', 'codice_digicom', [], []);
   const pianiCamere = [...new Set((camereT.rows || []).map(c => c.piano).filter(Boolean))].sort();
   const nucleiCamere = [...new Set((camereT.rows || []).map(c => c.nucleo).filter(Boolean))].sort();
 
@@ -10849,7 +10846,7 @@ function MagazzinoModule({ onHome, initialNotification }) {
   const armT = useSupaTable('armadi', 'id', []);
   // Sola lettura: riuso le tabelle gia' gestite dal modulo Struttura per piano/reparto/zona,
   // senza creare un secondo elenco indipendente.
-  const camereT = useSupaTable('camere', 'codice', []);
+  const camereT = useSupaTable('camere', 'codice_digicom', []);
   const repartiT = useSupaTable('reparti', 'codice', []);
   const ready = armT.ready && camereT.ready && repartiT.ready;
   const [view, setView] = useState({ name:'list' });
@@ -11197,7 +11194,7 @@ function AgendaModule({ onHome, onOpenModule }) {
       if (error) setAvviso('Errore: ' + error.message);
     }
   };
-  const camereT = useSupaTable('camere', 'codice', [], []);
+  const camereT = useSupaTable('camere', 'codice_digicom', [], []);
   const veicoliAgendaT = useSupaTable('vehicles', 'id', [], []);
   const carrozzineAgendaT = useSupaTable('carrozzine', 'id', [], []);
   const giriAgendaT = useSupaTable('giri_manutenzione', 'id', [], []);
