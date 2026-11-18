@@ -1056,6 +1056,7 @@ function SezioneNumeri({ userId, isAdmin }) {
   );
 }
 
+const RIFIUTI_COLORS = { primary: '#33594E', primaryDeep: '#22392F', bg: '#EEF5F1', surface: '#FFFFFF', line: '#CFE0D6', ink: '#1B2A22', muted: '#5E7A6B', danger: '#C0392B', ok: '#27AE60' };
 const RIFIUTI_GIORNI_LIMITE = 10;
 const rGiornoDiScheda = (iso) => { if (!iso) return 1; const d = new Date(iso + 'T00:00:00'); const o = new Date(); o.setHours(0, 0, 0, 0); return Math.floor((o - d) / 864e5) + 1; };
 const rStatoScheda = (s) => {
@@ -1280,7 +1281,7 @@ function RifiutiModule({ onHome }) {
   };
   return (
     <div style={{ fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
-      <TopBar theme={PROC_COLORS} title="Rifiuti" subtitle="Smaltimento e codici EER" onBack={onHome} backIcon={Home} />
+      <TopBar theme={RIFIUTI_COLORS} title="Rifiuti" subtitle="Smaltimento e codici EER" onBack={onHome} backIcon={Home} />
       {lunedi && <div style={{ background: '#FFFF66', color: '#1F2A2E', borderRadius: 12, padding: '10px 12px', fontWeight: 700, fontSize: 13, margin: '12px 16px 0' }}>Promemoria del lunedì: controlla date rifiuti e apertura colli.</div>}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px 0', alignItems: 'center' }}>
         <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca: prodotto, codice, tipologia, collo" style={{ ...rInput, marginTop: 0, flex: 1 }} />
@@ -1375,17 +1376,15 @@ function RifiutiModule({ onHome }) {
             {prodottiFiltrati.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 14 }}>Nessun prodotto.</div>}
             {prodottiFiltrati.map(p => (
               <div key={p.id} style={{ ...pCard, padding: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
-                    <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
-                    {p.definizione && <div style={{ fontSize: 12.5, color: '#4A4A46', marginTop: 4 }}>{p.definizione}</div>}
-                  </div>
+                <div style={{ fontWeight: 700 }}>{p.nome}{p.pericoloso ? ' · pericoloso' : ''}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700 }}>{p.codice_eer}</div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button type="button" onClick={() => setModificaProdotto({ ...p, definizione: p.definizione || '' })} style={pBtn}>Modifica</button>
                     <button type="button" onClick={() => eliminaProdotto(p)} style={pBtnPericolo}>Elimina</button>
                   </div>
                 </div>
+                {p.definizione && <div style={{ fontSize: 12.5, color: '#4A4A46', marginTop: 6 }}>{p.definizione}</div>}
                 {modificaProdotto && modificaProdotto.id === p.id && (
                   <div style={{ marginTop: 10, borderTop: '1px solid #EEE9DD', paddingTop: 10 }}>
                     <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>Nome<input value={modificaProdotto.nome} onChange={e => setModificaProdotto({ ...modificaProdotto, nome: e.target.value })} style={rInput} /></label>
