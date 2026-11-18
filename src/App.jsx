@@ -1226,15 +1226,13 @@ function RifiutiModule({ onHome }) {
     const tipologie = tipologieDi(prodottoDi(s.prodotto_id));
     return (
       <div key={s.id} style={{ ...pCard, padding: 0, overflow: 'hidden' }}>
-        <button type="button" onClick={() => setAperte({ ...aperte, [s.id]: !aperta })} style={{ width: '100%', border: 'none', background: 'transparent', padding: 12, textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, color: '#1F2A2E' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
-            <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace' }}>{codiceProdotto(s.prodotto_id)}{colli.length ? ` · colli ${rEtichette(colli).join(', ')}${rPesoTotale(colli) ? ` · ${rPesoTotale(colli)} kg` : ''}` : ''}</div>
+        <button type="button" onClick={() => setAperte({ ...aperte, [s.id]: !aperta })} style={{ width: '100%', border: 'none', background: 'transparent', padding: 12, textAlign: 'left', cursor: 'pointer', color: '#1F2A2E' }}>
+          <div style={{ fontWeight: 800 }}>{nomeProdotto(s.prodotto_id)}{s.tipologia ? ` · ${s.tipologia}` : ''}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            {!s.data_carico ? <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12 }}>{stato.testo}</span> : <span />}
+            <ChevronDown size={18} style={{ transform: aperta ? 'rotate(180deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            {!s.data_carico && <span style={{ background: stato.sfondo, color: stato.colore, borderRadius: 6, padding: '3px 8px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{stato.testo}</span>}
-            <ChevronDown size={18} style={{ transform: aperta ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
-          </div>
+          <div style={{ fontSize: 12, color: '#6B6B66', fontFamily: 'monospace', marginTop: 6 }}>{codiceProdotto(s.prodotto_id)}{colli.length ? ` · colli ${rEtichette(colli).join(', ')}${rPesoTotale(colli) ? ` · ${rPesoTotale(colli)} kg` : ''}` : ''}</div>
         </button>
         {aperta && (
           <div style={{ padding: '0 12px 12px' }}>
@@ -7816,6 +7814,7 @@ function CameraDetail({ camera, interventi, onBack, onEdit, onOpenIntervento }) 
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <InfoRow theme={STR_COLORS} icon={Building2} label="Piano" value={camera.piano} />
+<InfoRow theme={STR_COLORS} icon={Building2} label="Codice Digicom" value={camera.codice_digicom || '—'} />
             <InfoRow theme={STR_COLORS} icon={BedDouble} label="Tipo" value={camera.tipo} />
           </div>
           {camera.note && <div style={{ marginTop: 10, fontSize: 13, color: STR_COLORS.muted }}>{camera.note}</div>}
@@ -7864,7 +7863,8 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
             Cambiando il codice, gli interventi e le scadenze gia' collegati a questa camera verranno aggiornati automaticamente.
           </div>
         )}
-        <STR_Field label="Piano"><input list="str-piani" style={strInputStyle} value={f.piano} onChange={set('piano')} />
+        <STR_Field label="Codice Digicom"><input style={strInputStyle} value={f.codice_digicom || ''} onChange={set('codice_digicom')} placeholder="Codice interno, puo' essere diverso dal numero" /></STR_Field>
+<STR_Field label="Piano"><input list="str-piani" style={strInputStyle} value={f.piano} onChange={set('piano')} />
           <datalist id="str-piani">{piani.map(p => <option key={p} value={p} />)}</datalist>
         </STR_Field>
         <STR_Field label="Nucleo"><input list="str-nuclei" style={strInputStyle} value={f.nucleo} onChange={set('nucleo')} />
