@@ -3700,7 +3700,7 @@ function problemiMezzo(v, maints, ricorrenti, params, oggi = new Date()) {
   const lavaggio = (ricorrenti || []).filter(r => r.tipo === 'Lavaggio' && r.modulo === 'Mezzi').some(r => {
     const fatte = (r.esecuzioni || []).filter(e => e.mezzo === v.id && e.completata).map(e => (e.completataIl || '').slice(0, 10)).filter(Boolean).sort().reverse();
     if (!fatte[0]) return true;
-    return calcProssima(fatte[0], r.frequenza) <= oggiISO;
+    return calcProssima(fatte[0], r.frequenza, undefined, r.modulo) <= oggiISO;
   });
   const adb = adblueAvviso(v);
   if (adb) out.push({ tipo: 'intervento', testo: `Controlla livello AdBlue: ${adb.km.toLocaleString('it-IT')} km dall'ultimo rifornimento`, colore: adb.colore });
@@ -5453,7 +5453,7 @@ function statoTagliandoAuto(r, esecuzioni, mezzoId) {
   const aperta = lista.find(e => !e.completata);
   const fatte = lista.filter(e => e.completata).sort((x, y) => (y.completataIl || '').localeCompare(x.completataIl || ''));
   const ultimaISO = fatte[0] ? (fatte[0].completataIl || '').slice(0, 10) : null;
-  const prossima = ultimaISO ? calcProssima(ultimaISO, r.frequenza) : (r.prossimaScadenza || '');
+  const prossima = ultimaISO ? calcProssima(ultimaISO, r.frequenza, undefined, r.modulo) : (r.prossimaScadenza || '');
   const g = daysUntil(prossima);
   if (aperta && aperta.passi.length > 0) return { label: 'In corso', bg: '#DCE8F0', fg: '#1E4D73', ultimaISO, prossima };
   if (ultimaISO) {
@@ -5477,7 +5477,7 @@ function datiTagliando(r, esecuzioni) {
     if (!perAuto[e.mezzo] || d > perAuto[e.mezzo]) perAuto[e.mezzo] = d;
   });
   const ultima = Object.values(perAuto).sort().pop();
-  const scadenze = Object.values(perAuto).map(d => calcProssima(d, r.frequenza)).filter(Boolean).sort();
+  const scadenze = Object.values(perAuto).map(d => calcProssima(d, r.frequenza, undefined, r.modulo)).filter(Boolean).sort();
   return { ultimaEsecuzione: ultima, prossimaScadenza: scadenze[0] || r.prossimaScadenza || '' };
 }
 
@@ -7856,7 +7856,7 @@ function CameraForm({ initial, piani, nuclei, onSave, onCancel, onDelete }) {
     <>
       <TopBar theme={STR_COLORS} title={initial ? 'Modifica camera' : 'Nuova camera'} onBack={onCancel} />
       <div style={{ padding: 16, pointerEvents: puoScrivere ? 'auto' : 'none', opacity: puoScrivere ? 1 : 0.65 }}>
-        <STR_Field label="Codice camera *">
+        <STR_Field label="Numero camera *">
           <input style={strInputStyle} value={f.codice} onChange={set('codice')} />
         </STR_Field>
         {initial && (
@@ -9217,7 +9217,7 @@ function StrutturaModule({ onHome, initialNotification, onOpenModulo }) {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new();
 
-    const wsCamere = XLSX.utils.json_to_sheet(camere.map(c => ({ 'Codice Camera': c.codice, 'Piano': c.piano, 'Nucleo': c.nucleo, 'Tipo': c.tipo, 'Stato': c.stato, 'Note': c.note })));
+    const wsCamere = XLSX.utils.json_to_sheet(camere.map(c => ({ 'Numero Camera': c.codice, 'Codice Digicom': c.codice_digicom, 'Piano': c.piano, 'Nucleo': c.nucleo, 'Tipo': c.tipo, 'Stato': c.stato, 'Note': c.note })));
     wsCamere['!cols'] = [14, 16, 14, 12, 16, 26].map(w => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, wsCamere, 'Camere');
 
@@ -9633,7 +9633,7 @@ async function urlFirmateFileProc(files) {
 // Calcola la prossima scadenza usando vera aritmetica di calendario.
 // Per frequenza Giornaliera con giorni selezionati: avanza di 1 giorno alla volta
 // finché non trova un giorno della settimana incluso in `giorni`.
-function calcProssima(ultima, frequenza, giorni) {
+function calcProssima(ultima, frequenza, giorni, modulo) {
   if (!ultima) return '';
   const d = new Date(ultima + 'T00:00:00');
   const giorniSet = giorni instanceof Set ? giorni : new Set(giorni || []);
@@ -9654,7 +9654,10 @@ function calcProssima(ultima, frequenza, giorni) {
     case 'Ogni 3 settimane': d.setDate(d.getDate() + 21);       break;
     case 'Mensile':          d.setMonth(d.getMonth() + 1);      break;
     case 'Bimestrale':       d.setMonth(d.getMonth() + 2);      break;
-    case 'Trimestrale':      d.setMonth(d.getMonth() + 3);      break;
+    case 'Trimestrale':
+      if (modulo === 'Ausili') { d.setMonth(d.getMonth() + 3, 1); d.setMonth(d.getMonth() + 1, 0); }
+      else d.setMonth(d.getMonth() + 3);
+    break;
     case 'Quadrimestrale':   d.setMonth(d.getMonth() + 4);      break;
     case 'Semestrale':       d.setMonth(d.getMonth() + 6);      break;
     case 'Annuale':          d.setFullYear(d.getFullYear() + 1); break;
@@ -10339,15 +10342,15 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
     const v = e.target.value;
     setF(prev => {
       const n = { ...prev, [k]: v };
-      if (k === 'ultimaEsecuzione' && v) n.prossimaScadenza = calcProssima(v, n.frequenza, giorni);
-      if (k === 'frequenza' && prev.ultimaEsecuzione) n.prossimaScadenza = calcProssima(prev.ultimaEsecuzione, v, giorni);
+      if (k === 'ultimaEsecuzione' && v) n.prossimaScadenza = calcProssima(v, n.frequenza, giorni, n.modulo);
+      if (k === 'frequenza' && prev.ultimaEsecuzione) n.prossimaScadenza = calcProssima(prev.ultimaEsecuzione, v, giorni, n.modulo);
       return n;
     });
   };
 
   function segnaOggi() {
     const oggi = todayISO();
-    setF(prev => ({ ...prev, ultimaEsecuzione:oggi, prossimaScadenza:calcProssima(oggi, prev.frequenza, giorni) }));
+    setF(prev => ({ ...prev, ultimaEsecuzione:oggi, prossimaScadenza:calcProssima(oggi, prev.frequenza, giorni, prev.modulo) }));
   }
 
   function handleSave() {
@@ -11011,7 +11014,7 @@ function ProcedureModule({ onHome, initialNotification }) {
     const dopo = nuove.filter(e => e.completata).length;
     const oggiLocale = todayISO();
     const date = dopo > prima
-      ? { ultimaEsecuzione: oggiLocale, prossimaScadenza: (!r.frequenza || r.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, r.frequenza, r.giorni) }
+      ? { ultimaEsecuzione: oggiLocale, prossimaScadenza: (!r.frequenza || r.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, r.frequenza, r.giorni, r.modulo) }
       : {};
     const { error } = await ricT.save({ ...r, esecuzioni: nuove, ...date });
     if (error) flash('Errore: ' + error.message);
@@ -11173,7 +11176,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   // e la prossima scadenza viene calcolata come per "Segna come eseguita".
   const segnaRicorrenteEseguita = async (rec) => {
     const oggiLocale = todayISO();
-    const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni);
+    const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni, rec.modulo);
     const { _source, _date, _kind, ...pulito } = rec;
     const { error } = await ricorrentiT.save({ ...pulito, completati: [], ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
     if (error) setAvviso('Errore: ' + error.message); else setAvviso('Procedura segnata come eseguita');
@@ -11186,7 +11189,7 @@ function AgendaModule({ onHome, onOpenModule }) {
     const tuttiFatti = ids.length > 0 && ids.every(id => fatti.has(id));
     if (tuttiFatti) {
       const oggiLocale = todayISO();
-      const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni);
+      const prossima = (!rec.frequenza || rec.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, rec.frequenza, rec.giorni, rec.modulo);
       const { error } = await ricorrentiT.save({ ...pulito, completati: [], ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
       if (error) setAvviso('Errore: ' + error.message);
     } else {
@@ -11314,7 +11317,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   // scadenza viene ricalcolata dalla frequenza. Usa il record originale in Supabase.
   const segnaManutenzioneEseguita = async (a) => {
     const oggiLocale = todayISO();
-    const prossima = (!a.frequenza || a.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, a.frequenza);
+    const prossima = (!a.frequenza || a.frequenza === 'Una Tantum') ? '' : calcProssima(oggiLocale, a.frequenza, undefined, a.modulo);
     const { _source, _date, _kind, ...pulito } = a;
     const { error } = await manutenzioniT.save({ ...pulito, ultimaEsecuzione: oggiLocale, prossimaScadenza: prossima });
     if (error) setAvviso('Errore: ' + error.message); else setAvviso('Attività segnata come eseguita');
