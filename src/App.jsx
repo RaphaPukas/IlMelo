@@ -5524,7 +5524,6 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatch
   const flaggaAuto = (t, mezzoId, spuntata) => {
     const lista = (t.esecuzioni || []).filter(e => e.mezzo === mezzoId);
     const passi = (t.passi || '').split('\n').map(l => l.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean).map((_, i) => i);
-    if (passi.length === 0) return;
     const adesso = new Date();
     if (spuntata) {
       const aperta = lista.find(e => !e.completata);
@@ -5570,8 +5569,8 @@ function TagliandoSection({ tagliandi, veicoli, onSalvaAuto, onModifica, onPatch
                       <span style={{ color: muted }}>{open ? '▲' : '▼'}</span>
                     </button>
                     <span style={{ fontSize:10.5, fontWeight:700, background:s.bg, color:s.fg, padding:'2px 8px', borderRadius:999, flexShrink:0 }}>{s.label}</span>
-                    <label title={passiN ? "Segna tutti i controlli di quest'auto" : 'Nessun controllo definito'} style={{ display:'flex', alignItems:'center', flexShrink:0, cursor: passiN ? 'pointer' : 'not-allowed' }}>
-                      <input type="checkbox" disabled={!passiN} checked={s.label === 'Fatto'} onChange={(e) => flaggaAuto(t, v.id, e.target.checked)} style={{ width:20, height:20, accentColor: theme.primary || '#33594E' }} />
+                    <label title="Segna come fatto per quest'auto" style={{ display:'flex', alignItems:'center', flexShrink:0, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={s.label === 'Fatto'} onChange={(e) => flaggaAuto(t, v.id, e.target.checked)} style={{ width:20, height:20, accentColor: theme.primary || '#33594E' }} />
                     </label>
                   </div>
                   {open && !soloMezzi && (
