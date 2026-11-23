@@ -3812,14 +3812,14 @@ function calcolaCambioGomme(vehicle, i, km, app) {
 }
 
 // Scelta dell'officina: menu con quelle gia' in memoria e voce per aggiungerne una nuova.
-function OfficinaSelect({ value, onChange, opzioni }) {
+function OfficinaSelect({ value, onChange, opzioni, onAggiungi }) {
   const [modo, setModo] = useState('select');
   const [bozza, setBozza] = useState('');
   if (modo !== 'select') return (
     <div style={{ display:'flex', gap:6, flex:1, flexDirection:'column' }}>
       <input autoFocus value={bozza} onChange={e => setBozza(e.target.value)} placeholder={modo === 'una' ? 'Nome officina (solo per questo appuntamento)' : 'Nome nuova officina'} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
       <div style={{ display:'flex', gap:6 }}>
-        <button type="button" onClick={() => { if (bozza.trim()) onChange(bozza.trim(), modo === 'una'); setModo('select'); setBozza(''); }} style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12 }}>OK</button>
+        <button type="button" onClick={() => { if (bozza.trim()) { if (modo === 'nuova' && onAggiungi) onAggiungi(bozza.trim()); onChange(bozza.trim(), modo === 'una'); } setModo('select'); setBozza(''); }} style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12 }}>OK</button>
         <button type="button" onClick={() => { setModo('select'); setBozza(''); }} style={{ padding:'7px 10px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontSize:12 }}>Annulla</button>
       </div>
     </div>
@@ -3829,7 +3829,7 @@ function OfficinaSelect({ value, onChange, opzioni }) {
       <option value="">— officina —</option>
       {(opzioni || []).map(o => <option key={o} value={o}>{o}</option>)}
       {value && !(opzioni || []).includes(value) && <option value={value}>{value}</option>}
-      <option value="__nuova__">➕ Nuova officina (in memoria)…</option>
+      <option value="__nuova__">➕ Aggiungi nuova officina…</option>
       <option value="__una__">✏️ Una volta sola…</option>
     </select>
   );
@@ -4288,7 +4288,7 @@ function TergicristalliCard({ vehicle, onSave, puoModificare }) {
 }
 
 // Prenotazione del tagliando dalla scheda Scadenze: data, ora, officina; poi si segna come eseguito.
-function PannelloTagliando({ vehicle, prenotato, onPrenota, onCancella, onEsegui }) {
+function PannelloTagliando({ vehicle, prenotato, onPrenota, onCancella, onEsegui, officine, onAggiungiOfficina }) {
   const [data, setData] = useState(prenotato?.appuntamento || '');
   const [ora, setOra] = useState(prenotato?.appuntamento_ora || '');
   const [officina, setOfficina] = useState(prenotato?.officina || '');
@@ -4300,7 +4300,7 @@ function PannelloTagliando({ vehicle, prenotato, onPrenota, onCancella, onEsegui
       <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>{prenotato ? 'Tagliando prenotato' : 'Prenota il tagliando'}</div>
       <div style={{ marginBottom:8 }}><div style={etichetta}>Data appuntamento</div><input type="date" value={data} onChange={e => setData(e.target.value)} style={campo} /></div>
       <div style={{ marginBottom:8 }}><div style={etichetta}>Ora</div><input type="time" value={ora} onChange={e => setOra(e.target.value)} style={campo} /></div>
-      <div style={{ marginBottom:8 }}><div style={etichetta}>Officina</div><input value={officina} onChange={e => setOfficina(e.target.value)} placeholder="Nome officina" style={campo} /></div>
+      <div style={{ marginBottom:8 }}><div style={etichetta}>Officina</div><SelettoreConAggiunta valore={officina} opzioni={officine || []} onChange={setOfficina} onAggiungi={onAggiungiOfficina} placeholder="Nuova officina…" /></div>
       <button type="button" disabled={!data} onClick={() => onPrenota(data, ora, officina)} style={{ width:'100%', padding:10, borderRadius:10, border:'none', background: data ? MEZZI_COLORS.primary : '#B9C4C2', color:'#fff', fontWeight:700, marginBottom:8 }}>{prenotato ? 'Salva prenotazione' : 'Prenota'}</button>
       {prenotato && (
         <div style={{ borderTop:`1px dashed ${MEZZI_COLORS.line}`, paddingTop:8 }}>
@@ -4984,7 +4984,30 @@ function ManutenzioniScreen({ maints, vehicles, onOpen, onAdd, onMenu, onHome, o
   );
 }
 
+// Selettore da elenco fisso, con la possibilita' di aggiungere una voce nuova.
+function SelettoreConAggiunta({ valore, opzioni, onChange, onAggiungi, placeholder }) {
+  const [nuovo, setNuovo] = useState(false);
+  const [testo, setTesto] = useState('');
+  const voci = [...new Set([...(opzioni || []), valore].filter(Boolean))].sort();
+  if (nuovo) return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <input autoFocus style={{ ...inputStyle, flex: 1 }} value={testo} onChange={e => setTesto(e.target.value)} placeholder={placeholder || 'Nuovo nome…'} />
+      <button type="button" onClick={async () => { const n = testo.trim(); if (!n) return; await onAggiungi(n); onChange(n); setTesto(''); setNuovo(false); }} style={{ background: '#25454F', color: '#FFFFFF', border: 'none', borderRadius: 8, padding: '10px 12px', fontWeight: 700 }}>Aggiungi</button>
+      <button type="button" onClick={() => setNuovo(false)} style={{ background: 'none', border: 'none', color: '#6B7C80' }}>Annulla</button>
+    </div>
+  );
+  return (
+    <select style={inputStyle} value={valore || ''} onChange={e => { if (e.target.value === '__nuovo__') setNuovo(true); else onChange(e.target.value); }}>
+      <option value="">—</option>
+      {voci.map(o => <option key={o} value={o}>{o}</option>)}
+      <option value="__nuovo__">➕ Aggiungi nuovo…</option>
+    </select>
+  );
+}
+
 function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDelete }) {
+  const officineT = useSupaTable('officine', 'id', [], []);
+  const tecniciMezziT = useSupaTable('tecnici', 'id', [], []);
   const { isAdmin, puoEliminare } = usePermessi();
   const puoScrivere = isAdmin;
   const [confermaElimina, setConfermaElimina] = useState(false);
@@ -5056,7 +5079,8 @@ function MaintForm({ initial, vehicles, maints, params, onSave, onCancel, onDele
         </Field>
 
         <Field label="Descrizione"><input style={inputStyle} value={f.descrizione} onChange={set('descrizione')} placeholder="Dettagli dell'intervento" /></Field>
-        <Field label="Officina / Fornitore"><input style={inputStyle} value={f.officina} onChange={set('officina')} /></Field>
+        <Field label="Officina / Fornitore"><SelettoreConAggiunta valore={f.officina} opzioni={(officineT.rows || []).map(o => o.nome)} onChange={v => setF({ ...f, officina: v })} onAggiungi={async (nome) => { await officineT.save({ id: 'of-' + Date.now(), nome }); }} placeholder="Nuova officina / fornitore…" /></Field>
+        <Field label="Tecnico"><SelettoreConAggiunta valore={f.tecnico} opzioni={(tecniciMezziT.rows || []).map(t => t.nome)} onChange={v => setF({ ...f, tecnico: v })} onAggiungi={async (nome) => { await tecniciMezziT.save({ id: 'te-' + Date.now(), nome, tipo: 'Esterno', specializzazione: '' }); }} placeholder="Nuovo tecnico…" /></Field>
         <Field label="Costo netto (€)"><input type="number" step="0.01" style={inputStyle} value={f.costo} onChange={set('costo')} placeholder="0.00" /></Field>
         {costo > 0 && (
           <div style={{ background: '#EFF3EE', borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13 }}>
@@ -5109,6 +5133,9 @@ function Row({ label, value, bold }) {
 
 /* ---------- Scadenze ---------- */
 function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officine, onAggiornaGomme, onPatchVeicolo, ricorrenti, onEseguiCambio, maints, onPrenotaTagliando, onCancellaTagliando, onEseguiTagliando }) {
+  const officineT = useSupaTable('officine', 'id', [], []);
+  const elencoOfficine = [...new Set([...(officine || []), ...(officineT.rows || []).map(o => o.nome)])].filter(Boolean).sort();
+  const aggiungiOfficina = async (nome) => { await officineT.save({ id: 'of-' + Date.now(), nome }); };
   const rows = useMemo(() => {
     const out = [];
     vehicles.forEach(v => {
@@ -5259,7 +5286,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
                     <input type="time" value={oraGomma} onChange={(e) => setOraGomma(e.target.value)} style={{ padding:'7px 9px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:13 }} />
                   </div>
                   <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:8 }}>
-                    <OfficinaSelect value={officinaGomma} onChange={(val, una) => { setOfficinaGomma(val); setUnaTantumGomma(!!una); }} opzioni={officine || []} />
+                    <OfficinaSelect value={officinaGomma} onChange={(val, una) => { setOfficinaGomma(val); setUnaTantumGomma(!!una); }} opzioni={elencoOfficine} onAggiungi={aggiungiOfficina} />
                     <button type="button" onClick={() => { onSaveGomme && onSaveGomme(r.v, dataGomma || null, oraGomma || null, officinaGomma || null, unaTantumGomma); setGommaAperta(null); }} style={{ padding:'7px 12px', borderRadius:8, border:'none', background:MEZZI_COLORS.primary, color:'#fff', fontWeight:700, fontSize:12.5 }}>Salva</button>
                   </div>
                 </div>
@@ -5283,7 +5310,7 @@ function ScadenzeScreen({ vehicles, params, onMenu, onHome, onSaveGomme, officin
             ) : null;
           })()}
           {r.label === 'Tagliando' && tagliandoAperto === r.key && (
-                <PannelloTagliando vehicle={r.v} prenotato={(maints || []).find(x => x.targa === r.v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato')}
+                <PannelloTagliando officine={elencoOfficine} onAggiungiOfficina={aggiungiOfficina} vehicle={r.v} prenotato={(maints || []).find(x => x.targa === r.v.targa && (x.descrizione || '').startsWith('Tagliando') && x.stato === 'Programmato')}
                   onPrenota={(d, o, off) => onPrenotaTagliando(r.v, d, o, off)} onCancella={() => onCancellaTagliando(r.v)} onEsegui={(km) => onEseguiTagliando(r.v, km)} />
               )}
             </Card>
@@ -5593,7 +5620,7 @@ function ListaRicorrenti({ rows, ready, modulo, theme, veicoli, onModifica }) {
       {rows.map(r => {
         const s = stato(r);
         const ambito = modulo === 'Ausili'
-          ? (r.ambito && r.ambito !== 'Tutti' ? `Nucleo ${r.ambito}` : 'Tutti gli ausili')
+          ? descrizioneAmbitoAusili(r.ambito)
           : modulo === 'Struttura'
             ? (r.ambito && r.ambito.startsWith('piano:') ? `Piano ${r.ambito.slice(6)}` : (r.ambito && r.ambito.startsWith('nucleo:') ? `Nucleo ${r.ambito.slice(7)}` : 'Tutta la struttura'))
             : modulo === 'Mezzi'
@@ -6414,6 +6441,14 @@ function CarrozzinaDetail({ w: wProp, controlli, onBack, onUpdate, onElimina }) 
               <select value={w.stato || ''} onChange={e => set({ stato: e.target.value })} style={selectStyle(STATO_STYLE[w.stato] || { bg: '#EEE', fg: CARROZZINE_COLORS.ink })}>
                 <option value="">—</option>
                 {STATI_CARROZZINA.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontSize: 10, color: CARROZZINE_COLORS.muted, textTransform: 'uppercase', marginBottom: 4 }}>Tipo di gomma</div>
+              <select value={w.tipoGomma || ''} onChange={e => set({ tipoGomma: e.target.value })} style={selectStyle({ bg: '#EEE', fg: CARROZZINE_COLORS.ink })}>
+                <option value="">—</option>
+                <option value="Camera d'aria">Camera d'aria</option>
+                <option value="Piena">Piena</option>
               </select>
             </div>
           </div>
@@ -10270,7 +10305,7 @@ const CATEGORIE_RIC_BASE = ['Impianti', 'Antincendio', 'Sicurezza', 'Gas medical
 function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
   const { isAdmin, hasPermission } = usePermessi();
   const puoModificare = isAdmin || hasPermission('procedure.modifica');
-  const ambito = !r.modulo || r.modulo === 'Generale' ? 'Generale' : `${r.modulo}${r.ambito && r.ambito !== 'Tutti' ? ' · ' + r.ambito : ''}`;
+  const ambito = !r.modulo || r.modulo === 'Generale' ? 'Generale' : `${r.modulo}${r.modulo === 'Ausili' ? ' · ' + descrizioneAmbitoAusili(r.ambito) : (r.ambito && r.ambito !== 'Tutti' ? ' · ' + r.ambito : '')}`;
   const senzaPassi = !(r.passi || '').trim();
   return (
     <>
@@ -10290,6 +10325,38 @@ function RicorrenteDetail({ r, onBack, onEdit, onSalvaEsecuzioni }) {
           <button onClick={onEdit} style={{ width:'100%', background:PROC_COLORS.primary, color:'#fff', border:'none', borderRadius:12, padding:'13px', fontWeight:700, fontSize:15, marginTop:8 }}>Modifica procedura</button>
         )}
       </div>
+    </>
+  );
+}
+
+// Ambito delle procedure del modulo Ausili: tipologia, piano e nucleo. Le procedure vecchie hanno solo il nucleo.
+const AUSILI_TIPI = ['Carrozzina', 'Deambulatore', 'Verticalizzatore', 'Sollevatore'];
+const parseAmbitoAusili = (v) => {
+  const base = { tipo: 'Tutti', piano: 'Tutti', nucleo: 'Tutti' };
+  if (!v || v === 'Tutti') return base;
+  if (v.startsWith('ausili|')) { v.slice(7).split(';').forEach(p => { const [k, val] = p.split('='); if (k && val !== undefined) base[k] = val; }); return base; }
+  return { ...base, nucleo: v };
+};
+const encodeAmbitoAusili = (o) => (o.tipo === 'Tutti' && o.piano === 'Tutti' && o.nucleo === 'Tutti' ? 'Tutti' : `ausili|tipo=${o.tipo};piano=${o.piano};nucleo=${o.nucleo}`);
+const descrizioneAmbitoAusili = (v) => { const o = parseAmbitoAusili(v); return [o.tipo !== 'Tutti' ? o.tipo : 'Tutti gli ausili', o.piano !== 'Tutti' ? o.piano : null, o.nucleo !== 'Tutti' ? 'Nucleo ' + o.nucleo : null].filter(Boolean).join(' · '); };
+const ausiliNelDAmbito = (v, ausili, camere, titolo) => {
+  const gonfiaggio = /gonfi/i.test(titolo || '');
+  const o = parseAmbitoAusili(v);
+  const pianoDelNucleo = (n) => { const c = (camere || []).find(x => x.nucleo === n); return c ? c.piano : null; };
+  return (ausili || []).filter(w => (o.tipo === 'Tutti' || w.categoria === o.tipo) && (o.nucleo === 'Tutti' || w.nucleo === o.nucleo) && (o.piano === 'Tutti' || pianoDelNucleo(w.nucleo) === o.piano) && (!gonfiaggio || w.categoria !== 'Carrozzina' || w.tipoGomma !== 'Piena'));
+};
+function AmbitoAusili({ ambito, setAmbito }) {
+  const camereA = useSupaTable('camere', 'codice_digicom', [], []);
+  const o = parseAmbitoAusili(ambito);
+  const coppie = (camereA.rows || []).filter(c => c.nucleo).map(c => ({ nucleo: c.nucleo, piano: c.piano }));
+  const piani = [...new Set(coppie.map(x => x.piano).filter(Boolean))];
+  const nuclei = [...new Set(coppie.filter(x => o.piano === 'Tutti' || x.piano === o.piano).map(x => x.nucleo))];
+  const cambia = (nuovo) => setAmbito(encodeAmbitoAusili({ ...o, ...nuovo }));
+  return (
+    <>
+      <PROC_Field label="Tipologia"><select style={procInputStyle} value={o.tipo} onChange={e => cambia({ tipo: e.target.value })}>{['Tutti', ...AUSILI_TIPI].map(t => <option key={t} value={t}>{t === 'Tutti' ? 'Tutti gli ausili' : t}</option>)}</select></PROC_Field>
+      <PROC_Field label="Piano"><select style={procInputStyle} value={o.piano} onChange={e => cambia({ piano: e.target.value, nucleo: 'Tutti' })}><option value="Tutti">Tutti i piani</option>{piani.map(p => <option key={p} value={p}>{p}</option>)}</select></PROC_Field>
+      <PROC_Field label="Nucleo"><select style={procInputStyle} value={o.nucleo} onChange={e => { const n = e.target.value; if (n === 'Tutti') { cambia({ nucleo: 'Tutti' }); return; } const p = coppie.find(x => x.nucleo === n)?.piano; cambia({ nucleo: n, piano: p || o.piano }); }}><option value="Tutti">Tutti i nuclei</option>{nuclei.map(n => <option key={n} value={n}>{n}</option>)}</select></PROC_Field>
     </>
   );
 }
@@ -10407,9 +10474,7 @@ function RicorrenteForm({ initial, onSave, onCancel, onDelete, tipoIniziale, cat
 
         <PROC_Field label="Tipo"><select style={procInputStyle} value={tipo} onChange={e => { const t = e.target.value; setTipo(t); if (t === 'Stagionale' && !['Semestrale','Annuale'].includes(f.frequenza)) setF(p => ({ ...p, frequenza: 'Semestrale' })); if (t === 'Tagliando ordinario') setF(p => ({ ...p, frequenza: 'Annuale' })); if (t === 'Tagliandino interno') setF(p => ({ ...p, frequenza: 'Trimestrale' })); }}>{['Ordinaria','Stagionale','Tagliandino interno','Lavaggio'].map(t => <option key={t}>{t}</option>)}</select></PROC_Field>
         <PROC_Field label="Modulo"><select style={procInputStyle} value={modulo} onChange={e => { setModulo(e.target.value); setAmbito('Tutti'); }}>{['Generale','Struttura','Mezzi','Ausili'].map(m => <option key={m}>{m}</option>)}</select></PROC_Field>
-        {modulo === 'Ausili' && (
-          <PROC_Field label="Ambito (nucleo)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>{['Tutti', ...NUCLEI].map(n => <option key={n} value={n}>{n === 'Tutti' ? 'Tutti gli ausili' : n}</option>)}</select></PROC_Field>
-        )}
+        {modulo === 'Ausili' && <AmbitoAusili ambito={ambito} setAmbito={setAmbito} />}
         {modulo === 'Mezzi' && !isTagliando({ tipo }) && tipo !== 'Lavaggio' && <AmbitoMezzi ambito={ambito} setAmbito={setAmbito} />}
         {modulo === 'Struttura' && (
           <PROC_Field label="Ambito (struttura)"><select style={procInputStyle} value={ambito} onChange={e => setAmbito(e.target.value)}>
@@ -11171,7 +11236,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   useEffect(() => { if (!avviso) return undefined; const t = setTimeout(() => setAvviso(''), 2600); return () => clearTimeout(t); }, [avviso]);
   const [scopeExport, setScopeExport] = useState('giorno');
   // Ausili che rientrano nell'ambito di una procedura (tutti, oppure un nucleo).
-  const ausiliDellAmbito = (rec) => (carrozzineT.rows || []).filter(w => !rec.ambito || rec.ambito === 'Tutti' || w.nucleo === rec.ambito);
+  const ausiliDellAmbito = (rec) => ausiliNelDAmbito(rec.ambito, carrozzineT.rows, camereT.rows, rec.titolo);
   // Spunta/togli un ausilio. Quando sono spuntati tutti, la procedura risulta eseguita
   // e la prossima scadenza viene calcolata come per "Segna come eseguita".
   const segnaRicorrenteEseguita = async (rec) => {
@@ -11326,7 +11391,7 @@ function AgendaModule({ onHome, onOpenModule }) {
   function ActivityCard({ a }) {
     const title = a.descrizione || a.titolo || a.tipoManutenzione || a.tipo || 'Attività';
     const ausiliN = a._kind === 'ricorrente' && a.modulo === 'Ausili'
-      ? (carrozzineT.rows || []).filter(w => !a.ambito || a.ambito === 'Tutti' || w.nucleo === a.ambito).length
+      ? ausiliDellAmbito(a).length
       : null;
     // Struttura: conteggio delle camere attive nell'ambito (tutta la struttura, un piano o un nucleo)
     const struttN = a._kind === 'ricorrente' && a.modulo === 'Struttura'
