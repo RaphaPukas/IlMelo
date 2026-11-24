@@ -1074,6 +1074,7 @@ const rAddGiorni = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDat
 const rColloDi = (c) => (typeof c === 'string' ? { etichetta: c, peso: '' } : { etichetta: c.etichetta || '', peso: c.peso == null ? '' : c.peso });
 const rEtichette = (colli) => (colli || []).map(c => rColloDi(c).etichetta);
 const rPesoTotale = (colli) => Math.round((colli || []).reduce((t, c) => t + (Number(rColloDi(c).peso) || 0), 0) * 10) / 10;
+const rDataNonFutura = (iso) => (iso && iso > todayISO() ? todayISO() : iso);
 const rLettera = (colli) => { const ult = rEtichette(colli).slice(-1)[0]; if (!ult || ult.length !== 1) return 'A'; return String.fromCharCode(ult.charCodeAt(0) + 1); };
 
 function generaRifiutiXlsx(prodotti, schede) {
@@ -1137,7 +1138,7 @@ function RifiutiModule({ onHome }) {
   const cambia = (id, k, v) => setModifiche({ ...modifiche, [id]: { ...(modifiche[id] || {}), [k]: v } });
   const salvaScheda = async (s) => {
     const { error } = await supabase.from('rifiuti_schede').update({
-      data_apertura: valore(s, 'data_apertura') || s.data_apertura,
+      data_apertura: rDataNonFutura(valore(s, 'data_apertura') || s.data_apertura),
       data_carico: valore(s, 'data_carico') || null,
       data_smaltimento_prevista: valore(s, 'data_smaltimento_prevista') || null,
       data_smaltito: valore(s, 'data_smaltito') || null,
@@ -1203,9 +1204,11 @@ function RifiutiModule({ onHome }) {
   const smaltite = schede.filter(s => s.data_smaltito).slice().reverse();
   const inScadenza = daCaricare.filter(s => RIFIUTI_GIORNI_LIMITE - rGiornoDiScheda(s.data_apertura) <= 1);
   const aggiornaAperture = async (nuovaData) => {
-    const risultati = await Promise.all(daCaricare.map(s => supabase.from('rifiuti_schede').update({ data_apertura: nuovaData(s) }).eq('id', s.id)));
+    const calcolate = daCaricare.map(s => nuovaData(s));
+    const riportate = calcolate.some(d => d && d > todayISO());
+    const risultati = await Promise.all(daCaricare.map((s, i) => supabase.from('rifiuti_schede').update({ data_apertura: rDataNonFutura(calcolate[i]) }).eq('id', s.id)));
     const errore = risultati.find(r => r.error);
-    setMsg(errore ? 'Errore: ' + errore.error.message : 'Date aggiornate.');
+    setMsg(errore ? 'Errore: ' + errore.error.message : (riportate ? 'Alcune date erano nel futuro: riportate a oggi.' : 'Date aggiornate.'));
     carica();
   };
   const q = ricerca.trim().toLowerCase();
@@ -1430,6 +1433,123 @@ function RifiutiModule({ onHome }) {
   );
 }
 
+const CARTA_BUCKET = 'documenti';
+const CONVENZIONE_VUOTA = { nome: '', categoria: '', sconto: '', indirizzo: '', telefono: '', note: '' };
+function SezioneCartaConvenzioni({ isAdmin }) {
+  const [carta, setCarta] = useState(null);
+  const [convenzioni, setConvenzioni] = useState([]);
+  const [ricerca, setRicerca] = useState('');
+  const [modifica, setModifica] = useState(null);
+  const [form, setForm] = useState(CONVENZIONE_VUOTA);
+  const [msg, setMsg] = useState('');
+  const [occupato, setOccupato] = useState(false);
+  const carica = async () => {
+    const { data: d } = await supabase.from('documenti_struttura').select('*').eq('chiave', 'carta_servizi').maybeSingle();
+    setCarta(d || null);
+    const { data: c } = await supabase.from('convenzioni_dipendenti').select('*').order('categoria', { ascending: true }).order('nome', { ascending: true });
+    setConvenzioni(c || []);
+  };
+  useEffect(() => { carica(); }, []);
+  const apriCarta = async () => {
+    if (!carta) return;
+    const { data, error } = await supabase.storage.from(CARTA_BUCKET).createSignedUrl(carta.percorso, 3600);
+    if (error || !data) { setMsg('Impossibile aprire il documento.'); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+  const caricaCarta = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf') { setMsg('Il file deve essere un PDF.'); return; }
+    setOccupato(true); setMsg('');
+    const percorso = `carta-servizi-${Date.now()}.pdf`;
+    const { error: e1 } = await supabase.storage.from(CARTA_BUCKET).upload(percorso, file, { contentType: 'application/pdf' });
+    if (e1) { setOccupato(false); setMsg('Errore: ' + e1.message); return; }
+    const vecchio = carta && carta.percorso;
+    const { error: e2 } = await supabase.from('documenti_struttura').upsert({ chiave: 'carta_servizi', nome_file: file.name, percorso, aggiornato_il: new Date().toISOString() });
+    if (e2) { setOccupato(false); setMsg('Errore: ' + e2.message); return; }
+    if (vecchio) { try { await supabase.storage.from(CARTA_BUCKET).remove([vecchio]); } catch (err) { /* non bloccante */ } }
+    setOccupato(false); setMsg('Carta dei servizi caricata.'); carica();
+  };
+  const salvaConvenzione = async () => {
+    if (!form.nome.trim()) { setMsg('Inserisci il nome dell\'esercente.'); return; }
+    const dati = { nome: form.nome.trim(), categoria: form.categoria.trim() || null, sconto: form.sconto.trim() || null, indirizzo: form.indirizzo.trim() || null, telefono: form.telefono.trim() || null, note: form.note.trim() || null };
+    const { error } = modifica ? await supabase.from('convenzioni_dipendenti').update(dati).eq('id', modifica) : await supabase.from('convenzioni_dipendenti').insert(dati);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    setForm(CONVENZIONE_VUOTA); setModifica(null); setMsg('Convenzione salvata.'); carica();
+  };
+  const eliminaConvenzione = async (id) => {
+    if (!window.confirm('Eliminare questa convenzione?')) return;
+    const { error } = await supabase.from('convenzioni_dipendenti').delete().eq('id', id);
+    if (error) { setMsg('Errore: ' + error.message); return; }
+    carica();
+  };
+  const q = ricerca.trim().toLowerCase();
+  const filtrate = convenzioni.filter(c => !q || [c.nome, c.categoria, c.indirizzo].filter(Boolean).some(x => x.toLowerCase().includes(q)));
+  const campo = (k, etichetta, tipo) => (
+    <label style={{ display: 'block', fontSize: 12, color: '#6B6B66', marginBottom: 8 }}>
+      {etichetta}
+      <input value={form[k]} onChange={e => setForm({ ...form, [k]: e.target.value })} type={tipo || 'text'} style={{ ...rInput, marginTop: 4 }} />
+    </label>
+  );
+  return (
+    <div style={{ marginTop: 16 }}>
+      {msg && <div style={{ marginBottom: 10, fontSize: 13 }}>{msg}</div>}
+      <div style={{ ...pCard, marginBottom: 12 }}>
+        <div style={pTitolo}>Carta dei servizi</div>
+        {carta ? (
+          <div style={{ fontSize: 13, marginBottom: 10 }}>
+            <div style={{ fontWeight: 700 }}>{carta.nome_file}</div>
+            <div style={{ color: '#6B6B66' }}>Aggiornata il {dataIt(carta.aggiornato_il ? carta.aggiornato_il.slice(0, 10) : '')}</div>
+          </div>
+        ) : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 10 }}>Nessuna carta caricata.</div>}
+        {carta && <button type="button" onClick={apriCarta} style={{ ...pBtn, marginRight: 8 }}>Apri PDF</button>}
+        {isAdmin && (
+          <label style={{ ...pBtnPrimario, display: 'inline-block', cursor: occupato ? 'wait' : 'pointer', opacity: occupato ? 0.6 : 1 }}>
+            {carta ? 'Sostituisci PDF' : 'Carica PDF'}
+            <input type="file" accept="application/pdf" onChange={caricaCarta} disabled={occupato} style={{ display: 'none' }} />
+          </label>
+        )}
+      </div>
+      <div style={pCard}>
+        <div style={pTitolo}>Convenzioni per i dipendenti</div>
+        <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca per nome, categoria o indirizzo" style={{ ...rInput, marginTop: 0, marginBottom: 10 }} />
+        {filtrate.length === 0 && <div style={{ fontSize: 13, color: '#6B6B66' }}>Nessuna convenzione.</div>}
+        {filtrate.map(c => (
+          <div key={c.id} style={{ borderTop: '1px solid #EEE9DD', padding: '8px 0', fontSize: 13 }}>
+            <div style={{ fontWeight: 700 }}>{c.nome}{c.sconto ? ` · ${c.sconto}` : ''}</div>
+            {c.categoria && <div style={{ color: '#6B6B66' }}>{c.categoria}</div>}
+            {c.indirizzo && <div>{c.indirizzo}</div>}
+            {c.telefono && <div>Tel. {c.telefono}</div>}
+            {c.note && <div style={{ color: '#4A4A46' }}>{c.note}</div>}
+            {isAdmin && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button type="button" onClick={() => { setModifica(c.id); setForm({ nome: c.nome || '', categoria: c.categoria || '', sconto: c.sconto || '', indirizzo: c.indirizzo || '', telefono: c.telefono || '', note: c.note || '' }); }} style={pBtn}>Modifica</button>
+                <button type="button" onClick={() => eliminaConvenzione(c.id)} style={pBtnPericolo}>Elimina</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {isAdmin && (
+          <div style={{ borderTop: '1px solid #EEE9DD', marginTop: 10, paddingTop: 10 }}>
+            <div style={pTitolo}>{modifica ? 'Modifica convenzione' : 'Nuova convenzione'}</div>
+            {campo('nome', 'Esercente')}
+            {campo('categoria', 'Categoria (es. Abbigliamento, Farmacia)')}
+            {campo('sconto', 'Sconto (es. 10%)')}
+            {campo('indirizzo', 'Indirizzo')}
+            {campo('telefono', 'Telefono', 'tel')}
+            {campo('note', 'Note')}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={salvaConvenzione} style={pBtnPrimario}>{modifica ? 'Salva modifica' : 'Aggiungi'}</button>
+              {modifica && <button type="button" onClick={() => { setModifica(null); setForm(CONVENZIONE_VUOTA); }} style={pBtn}>Annulla</button>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PannelloUtente({ onClose }) {
   const ctx = useContext(RoleContext);
   const [tab, setTab] = useState('profilo');
@@ -1446,7 +1566,7 @@ function PannelloUtente({ onClose }) {
         ))}
       </div>
       <div style={{ padding: '4px 16px 40px', maxWidth: 640, margin: '0 auto' }}>
-        {tab === 'profilo' && <SezioneProfilo ctx={ctx} />}
+        {tab === 'profilo' && (<><SezioneProfilo ctx={ctx} /><SezioneCartaConvenzioni isAdmin={ctx.role === 'admin'} /></>)}
         {tab === 'mansionario' && <SezioneMansionario userId={ctx.userId} />}
         {tab === 'codici' && <SezioneCodici userId={ctx.userId} />}
         {tab === 'numeri' && <SezioneNumeri userId={ctx.userId} isAdmin={ctx.role === 'admin'} />}
@@ -3747,7 +3867,7 @@ function VeicoliScreen({ vehicles, maints, params, onOpen, onAdd, onMenu, onHome
                     <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'nowrap', whiteSpace:'nowrap' }}>
                       <Plate targa={v.targa} size="sm" />
                       {(() => { const rm = riepilogoMezzo(v, maints, ricorrenti, params); return (<>
-                        {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" />{rm.scadute > 0 && <span style={{ color:'#E53935' }}>{rm.scadute}</span>}{rm.inScadenza > 0 && <span style={{ color:'#F57C00' }}>{rm.inScadenza}</span>}</span>}
+                        {(rm.scadute > 0 || rm.inScadenza > 0) && <span title="Scadenze: fuori termine (rosso) · entro 45 giorni (arancione)" style={{ display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontSize:12 }}><CalendarClock size={16} color="#555" /><span style={{ color: rm.scadute > 0 ? '#E53935' : '#F57C00' }}>{rm.scadute + rm.inScadenza}</span></span>}
                         {rm.interventi > 0 && <span title="Interventi da fare" style={{ display:'inline-flex', alignItems:'center', gap:3, color:'#F57C00', fontWeight:700, fontSize:12 }}><AlertTriangle size={16} />{rm.interventi}</span>}
                         {rm.lavaggio && <span title="Lavaggio da fare" style={{ display:'inline-flex', color:'#1565C0' }}><Droplet size={16} /></span>}
                       </>); })()}
