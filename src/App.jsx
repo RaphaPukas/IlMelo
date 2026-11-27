@@ -1435,44 +1435,95 @@ function RifiutiModule({ onHome }) {
 
 const CARTA_BUCKET = 'documenti';
 const CONVENZIONE_VUOTA = { nome: '', categoria: '', sconto: '', indirizzo: '', telefono: '', note: '' };
-function SezioneCartaConvenzioni({ isAdmin }) {
-  const [carta, setCarta] = useState(null);
+// Markdown minimo: titoli, elenchi, tabelle, grassetto, paragrafi. Nessun HTML grezzo.
+function renderMarkdown(testo) {
+  const inline = (t) => t.split(/(\*\*[^*]+\*\*)/g).map((p, i) => (p.startsWith('**') && p.endsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : p));
+  const righe = String(testo || '').replace(/\r/g, '').split('\n');
+  const out = []; let i = 0; let k = 0;
+  while (i < righe.length) {
+    const r = righe[i].trim();
+    if (!r) { i++; continue; }
+    if (r.startsWith('|')) {
+      const tab = [];
+      while (i < righe.length && righe[i].trim().startsWith('|')) { tab.push(righe[i].trim()); i++; }
+      const celle = (l) => l.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const corpo = tab.filter(l => !/^\|?\s*:?-{2,}/.test(l));
+      const [head, ...body] = corpo.map(celle);
+      out.push(<div key={k++} style={{ overflowX: 'auto', margin: '8px 0' }}><table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+        <thead><tr>{(head || []).map((c, j) => <th key={j} style={{ textAlign: 'left', borderBottom: '2px solid #DEDBCE', padding: '6px 8px' }}>{inline(c)}</th>)}</tr></thead>
+        <tbody>{body.map((r2, x) => <tr key={x}>{r2.map((c, j) => <td key={j} style={{ borderBottom: '1px solid #EEE9DD', padding: '6px 8px', verticalAlign: 'top' }}>{inline(c)}</td>)}</tr>)}</tbody>
+      </table></div>);
+      continue;
+    }
+    if (/^[-*]\s/.test(r)) {
+      const voci = [];
+      while (i < righe.length && /^\s*[-*]\s/.test(righe[i])) { voci.push(righe[i].trim().replace(/^[-*]\s/, '')); i++; }
+      out.push(<ul key={k++} style={{ margin: '6px 0', paddingLeft: 20 }}>{voci.map((v, j) => <li key={j} style={{ marginBottom: 4 }}>{inline(v)}</li>)}</ul>);
+      continue;
+    }
+    const h = r.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      const dim = h[1].length === 1 ? 17 : h[1].length === 2 ? 15 : 14;
+      out.push(<div key={k++} style={{ fontWeight: 800, fontSize: dim, margin: '12px 0 6px' }}>{inline(h[2])}</div>);
+      i++; continue;
+    }
+    out.push(<p key={k++} style={{ margin: '6px 0', fontSize: 13.5, lineHeight: 1.5 }}>{inline(r)}</p>);
+    i++;
+  }
+  return out;
+}
+function SezioneCarta({ isAdmin }) {
+  const [documenti, setDocumenti] = useState({});
+  const [testoCarta, setTestoCarta] = useState('');
   const [convenzioni, setConvenzioni] = useState([]);
   const [ricerca, setRicerca] = useState('');
   const [modifica, setModifica] = useState(null);
   const [form, setForm] = useState(CONVENZIONE_VUOTA);
   const [msg, setMsg] = useState('');
   const [occupato, setOccupato] = useState(false);
+  const [immagineTessera, setImmagineTessera] = useState('');
   const carica = async () => {
-    const { data: d } = await supabase.from('documenti_struttura').select('*').eq('chiave', 'carta_servizi').maybeSingle();
-    setCarta(d || null);
+    const { data: d } = await supabase.from('documenti_struttura').select('*');
+    const mappa = {};
+    (d || []).forEach(x => { mappa[x.chiave] = x; });
+    setDocumenti(mappa);
+    if (mappa.carta_testo) {
+      const { data: f } = await supabase.storage.from(CARTA_BUCKET).download(mappa.carta_testo.percorso);
+      setTestoCarta(f ? await f.text() : '');
+    } else setTestoCarta('');
+    if (mappa.tessera_foto) {
+      const { data: u } = await supabase.storage.from(CARTA_BUCKET).createSignedUrl(mappa.tessera_foto.percorso, 3600);
+      setImmagineTessera(u ? u.signedUrl : '');
+    } else setImmagineTessera('');
     const { data: c } = await supabase.from('convenzioni_dipendenti').select('*').order('categoria', { ascending: true }).order('nome', { ascending: true });
     setConvenzioni(c || []);
   };
   useEffect(() => { carica(); }, []);
-  const apriCarta = async () => {
-    if (!carta) return;
-    const { data, error } = await supabase.storage.from(CARTA_BUCKET).createSignedUrl(carta.percorso, 3600);
+  const apriDocumento = async (chiave) => {
+    const doc = documenti[chiave];
+    if (!doc) return;
+    const { data, error } = await supabase.storage.from(CARTA_BUCKET).createSignedUrl(doc.percorso, 3600);
     if (error || !data) { setMsg('Impossibile aprire il documento.'); return; }
     window.open(data.signedUrl, '_blank');
   };
-  const caricaCarta = async (e) => {
+  const caricaDocumento = async (chiave, e, accetta, estensione) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (file.type !== 'application/pdf') { setMsg('Il file deve essere un PDF.'); return; }
+    const ok = accetta.some(t => (t.endsWith('/*') ? file.type.startsWith(t.slice(0, -1)) : file.type === t)) || (estensione && file.name.toLowerCase().endsWith(estensione));
+    if (!ok) { setMsg('Tipo di file non valido per questa sezione.'); return; }
     setOccupato(true); setMsg('');
-    const percorso = `carta-servizi-${Date.now()}.pdf`;
-    const { error: e1 } = await supabase.storage.from(CARTA_BUCKET).upload(percorso, file, { contentType: 'application/pdf' });
+    const percorso = `${chiave}-${Date.now()}-${file.name.replace(/[^\w.-]/g, '_')}`;
+    const { error: e1 } = await supabase.storage.from(CARTA_BUCKET).upload(percorso, file, { contentType: file.type || 'text/markdown' });
     if (e1) { setOccupato(false); setMsg('Errore: ' + e1.message); return; }
-    const vecchio = carta && carta.percorso;
-    const { error: e2 } = await supabase.from('documenti_struttura').upsert({ chiave: 'carta_servizi', nome_file: file.name, percorso, aggiornato_il: new Date().toISOString() });
+    const vecchio = documenti[chiave] && documenti[chiave].percorso;
+    const { error: e2 } = await supabase.from('documenti_struttura').upsert({ chiave, nome_file: file.name, percorso, aggiornato_il: new Date().toISOString() });
     if (e2) { setOccupato(false); setMsg('Errore: ' + e2.message); return; }
     if (vecchio) { try { await supabase.storage.from(CARTA_BUCKET).remove([vecchio]); } catch (err) { /* non bloccante */ } }
-    setOccupato(false); setMsg('Carta dei servizi caricata.'); carica();
+    setOccupato(false); setMsg('Caricato.'); carica();
   };
   const salvaConvenzione = async () => {
-    if (!form.nome.trim()) { setMsg('Inserisci il nome dell\'esercente.'); return; }
+    if (!form.nome.trim()) { setMsg("Inserisci il nome dell'esercente."); return; }
     const dati = { nome: form.nome.trim(), categoria: form.categoria.trim() || null, sconto: form.sconto.trim() || null, indirizzo: form.indirizzo.trim() || null, telefono: form.telefono.trim() || null, note: form.note.trim() || null };
     const { error } = modifica ? await supabase.from('convenzioni_dipendenti').update(dati).eq('id', modifica) : await supabase.from('convenzioni_dipendenti').insert(dati);
     if (error) { setMsg('Errore: ' + error.message); return; }
@@ -1492,24 +1543,30 @@ function SezioneCartaConvenzioni({ isAdmin }) {
       <input value={form[k]} onChange={e => setForm({ ...form, [k]: e.target.value })} type={tipo || 'text'} style={{ ...rInput, marginTop: 4 }} />
     </label>
   );
+  const bottoneCarica = (chiave, etichetta, accetta, estensione) => isAdmin && (
+    <label style={{ ...pBtnPrimario, display: 'inline-block', cursor: occupato ? 'wait' : 'pointer', opacity: occupato ? 0.6 : 1, marginRight: 8 }}>
+      {etichetta}
+      <input type="file" accept={accetta.join(',') + (estensione ? ',' + estensione : '')} onChange={e => caricaDocumento(chiave, e, accetta, estensione)} disabled={occupato} style={{ display: 'none' }} />
+    </label>
+  );
   return (
-    <div style={{ marginTop: 16 }}>
+    <div>
       {msg && <div style={{ marginBottom: 10, fontSize: 13 }}>{msg}</div>}
       <div style={{ ...pCard, marginBottom: 12 }}>
-        <div style={pTitolo}>Carta dei servizi</div>
-        {carta ? (
-          <div style={{ fontSize: 13, marginBottom: 10 }}>
-            <div style={{ fontWeight: 700 }}>{carta.nome_file}</div>
-            <div style={{ color: '#6B6B66' }}>Aggiornata il {dataIt(carta.aggiornato_il ? carta.aggiornato_il.slice(0, 10) : '')}</div>
-          </div>
-        ) : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 10 }}>Nessuna carta caricata.</div>}
-        {carta && <button type="button" onClick={apriCarta} style={{ ...pBtn, marginRight: 8 }}>Apri PDF</button>}
-        {isAdmin && (
-          <label style={{ ...pBtnPrimario, display: 'inline-block', cursor: occupato ? 'wait' : 'pointer', opacity: occupato ? 0.6 : 1 }}>
-            {carta ? 'Sostituisci PDF' : 'Carica PDF'}
-            <input type="file" accept="application/pdf" onChange={caricaCarta} disabled={occupato} style={{ display: 'none' }} />
-          </label>
-        )}
+        <div style={pTitolo}>PDF della carta dei servizi</div>
+        {documenti.carta_servizi ? <div style={{ fontSize: 13, marginBottom: 8 }}><div style={{ fontWeight: 700 }}>{documenti.carta_servizi.nome_file}</div></div> : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 8 }}>Nessun PDF caricato.</div>}
+        {documenti.carta_servizi && <button type="button" onClick={() => apriDocumento('carta_servizi')} style={{ ...pBtn, marginRight: 8 }}>Apri PDF</button>}
+        {bottoneCarica('carta_servizi', documenti.carta_servizi ? 'Sostituisci PDF' : 'Carica PDF', ['application/pdf'])}
+      </div>
+      <div style={{ ...pCard, marginBottom: 12 }}>
+        <div style={pTitolo}>Foto della tessera</div>
+        {immagineTessera ? <img src={immagineTessera} alt="Tessera" style={{ maxWidth: '100%', borderRadius: 10, display: 'block', marginBottom: 8 }} /> : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 8 }}>Nessuna foto caricata.</div>}
+        {bottoneCarica('tessera_foto', immagineTessera ? 'Sostituisci foto' : 'Carica foto', ['image/*'])}
+      </div>
+      <div style={{ ...pCard, marginBottom: 12 }}>
+        <div style={pTitolo}>Testo della carta dei servizi</div>
+        {testoCarta ? <div>{renderMarkdown(testoCarta)}</div> : <div style={{ fontSize: 13, color: '#6B6B66', marginBottom: 8 }}>Nessun testo caricato.</div>}
+        {bottoneCarica('carta_testo', testoCarta ? 'Sostituisci testo' : 'Carica testo (.md)', ['text/markdown', 'text/plain'], '.md')}
       </div>
       <div style={pCard}>
         <div style={pTitolo}>Convenzioni per i dipendenti</div>
@@ -1553,7 +1610,7 @@ function SezioneCartaConvenzioni({ isAdmin }) {
 function PannelloUtente({ onClose }) {
   const ctx = useContext(RoleContext);
   const [tab, setTab] = useState('profilo');
-  const tabs = [['profilo', 'Profilo'], ['mansionario', 'Mansionario'], ['codici', 'Codici accesso'], ['numeri', 'Numeri importanti']];
+  const tabs = [['profilo', 'Profilo'], ['mansionario', 'Mansionario'], ['codici', 'Codici accesso'], ['numeri', 'Numeri importanti'], ['carta', 'Carta dei servizi']];
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#F4F1EA', zIndex: 60, overflowY: 'auto', fontFamily: "'Archivo', sans-serif", color: '#1F2A2E' }}>
       <div style={{ background: '#1F2A2E', color: '#FFFFFF', padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1566,7 +1623,8 @@ function PannelloUtente({ onClose }) {
         ))}
       </div>
       <div style={{ padding: '4px 16px 40px', maxWidth: 640, margin: '0 auto' }}>
-        {tab === 'profilo' && (<><SezioneProfilo ctx={ctx} /><SezioneCartaConvenzioni isAdmin={ctx.role === 'admin'} /></>)}
+        {tab === 'profilo' && <SezioneProfilo ctx={ctx} />}
+      {tab === 'carta' && <SezioneCarta isAdmin={ctx.role === 'admin'} />}
         {tab === 'mansionario' && <SezioneMansionario userId={ctx.userId} />}
         {tab === 'codici' && <SezioneCodici userId={ctx.userId} />}
         {tab === 'numeri' && <SezioneNumeri userId={ctx.userId} isAdmin={ctx.role === 'admin'} />}
@@ -4073,7 +4131,7 @@ function livelloBattistrada(mm, tipo) {
 // Storico unico del mezzo: interventi, cambi gomme e tagliandi eseguiti, dal piu' recente.
 function eventiStorico(vehicle, maints, ricorrenti) {
   const interventi = (maints || []).filter(m => m.targa === vehicle.targa).map(m => ({
-    data: m.data || '', tipo: m.tipo || 'Intervento',
+    id: m.id, descrizioneOriginale: m.descrizione || '', data: m.data || '', tipo: m.tipo || 'Intervento',
     descrizione: [m.descrizione || '', m.appuntamento ? `appuntamento ${fmtDate(m.appuntamento)}${m.appuntamento_ora ? ' ore ' + m.appuntamento_ora : ''}${m.appuntamento < todayISO() && m.stato === 'Programmato' ? ' · in ritardo' : ''}` : ''].filter(Boolean).join(' · '),
     officina: m.officina || '', km: m.km ?? '', costo: m.costo ?? '', stato: m.stato || '', gruppo: gruppoStato(m.stato),
   }));
@@ -4617,7 +4675,16 @@ function generaStoricoHtml(vehicle, eventi) {
   </body></html>`;
 }
 
-function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio, vociTrim, onSalvaTagliando }) {
+function VeicoloDetail({ vehicle, maints, onModificaIntervento, params, onBack, onEdit, onDelete, onSaveGomme, ricorrenti, apriCambio, vociTrim, onSalvaTagliando }) {
+  const [modifica, setModifica] = useState(null);
+  const [bozza, setBozza] = useState({});
+  const apriModifica = (m) => { setModifica(m); setBozza({ data: m.data || '', km: m.km ?? '', costo: m.costo ?? '', officina: m.officina || '', descrizione: m.descrizioneOriginale || '' }); };
+  const salvaModifica = async () => {
+    const patch = { data: bozza.data || modifica.data, km: bozza.km === '' || bozza.km == null ? null : Number(bozza.km), costo: bozza.costo === '' || bozza.costo == null ? null : Number(bozza.costo), officina: bozza.officina || '', descrizione: bozza.descrizione || '' };
+    const errore = await onModificaIntervento(modifica.id, patch);
+    if (errore) { alert(errore); return; }
+    setModifica(null);
+  };
   const [editGomme, setEditGomme] = useState(false);
   const [sostOpen, setSostOpen] = useState(false);
   // Smaltisce un set (montato o di scorta): data di oggi, 4 gomme, dati copiati dal set; il set esce dalla scheda.
@@ -4832,10 +4899,24 @@ function VeicoloDetail({ vehicle, maints, params, onBack, onEdit, onDelete, onSa
           <button type="button" onClick={esportaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E7F4EC', color:'#1F6B45', fontWeight:700, fontSize:12.5 }}>Esporta Excel</button>
           <button type="button" onClick={stampaStorico} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#E8EEF5', color:'#1E4D73', fontWeight:700, fontSize:12.5 }}>Stampa</button>
         </div>
+        {modifica && (
+          <Card theme={MEZZI_COLORS}>
+            <div style={{ fontWeight:700, marginBottom:8 }}>Modifica intervento</div>
+            {[['data','Data','date'],['km','Chilometri','number'],['costo','Costo (€, IVA esclusa)','number'],['officina','Officina','text'],['descrizione','Descrizione','text']].map(([k,l,t]) => (
+              <label key={k} style={{ display:'block', fontSize:12, color: MEZZI_COLORS.muted, marginBottom:8 }}>{l}
+                <input type={t} value={bozza[k] ?? ''} onChange={e => setBozza({ ...bozza, [k]: e.target.value })} style={{ width:'100%', marginTop:4, padding:'8px 10px', borderRadius:8, border:`1.5px solid ${MEZZI_COLORS.line}`, fontSize:14, boxSizing:'border-box' }} />
+              </label>
+            ))}
+            <div style={{ display:'flex', gap:8 }}>
+              <button type="button" onClick={salvaModifica} style={{ flex:1, padding:9, borderRadius:10, border:'none', background:'#1F6B45', color:'#fff', fontWeight:700 }}>Salva modifiche</button>
+              <button type="button" onClick={() => setModifica(null)} style={{ flex:1, padding:9, borderRadius:10, border:`1.5px solid ${MEZZI_COLORS.line}`, background:'#fff', fontWeight:600 }}>Annulla</button>
+            </div>
+          </Card>
+        )}
         {storico.length === 0 && <Empty theme={MEZZI_COLORS} icon={Wrench} text="Nessun intervento in questa scheda." />}
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {storico.map((m, i) => (
-            <Card theme={MEZZI_COLORS} key={i}>
+            <Card theme={MEZZI_COLORS} key={i} onClick={m.id && onModificaIntervento ? () => apriModifica(m) : undefined}>
               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
                 <span style={{ fontWeight:700, fontSize:14 }}>{m.tipo}</span>
                 <span style={{ fontSize:13, color: MEZZI_COLORS.muted }}>{fmtDate(m.data)}</span>
@@ -5808,6 +5889,7 @@ function aggiornamentoDaChecklist(raw, t, nuovaLista) {
 function MezziModule({ onHome, initialNotification }) {
   const vehiclesT = useSupaTable('vehicles', 'id', SEED_VEHICLES, ['assicurazione', 'revisione', 'bollo', 'tagliando']);
   const maintsT = useSupaTable('maints', 'id', SEED_MAINTS, ['data']);
+  const modificaIntervento = async (id, patch) => { const orig = (maintsT.rows || []).find(x => x.id === id); if (!orig) return 'Intervento non trovato.'; const { error } = await maintsT.save({ ...orig, ...patch }); return error ? ('Errore: ' + error.message) : null; };
   const ricT = useSupaTable('manutenzioni_ricorrenti', 'id', [], ['ultimaEsecuzione', 'prossimaScadenza']);
   const tecniciT = useSupaTable('tecnici', 'id', [], []);
   // Appuntamento del cambio gomme di ogni mezzo: e' un intervento programmato.
@@ -6045,7 +6127,7 @@ async function salvaTagliandoAuto(t, mezzoId, nuovaLista) {
       </div>
     );
   } else if (tab === 'veicoli') {
-    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} vociTrim={vociTrim} onSalvaTagliando={salvaTagliandoAuto} apriCambio={!!view.apriCambio} />;
+    if (view.name === 'detail') content = <VeicoloDetail vehicle={vehicles.find(v => v.id === view.id)} maints={maints} onModificaIntervento={modificaIntervento} params={params} onBack={() => goBack()} onEdit={(v) => setView({ name: 'edit', v })} onDelete={deleteVehicle} onSaveGomme={(v, patch, manutenzione) => { if (manutenzione) saveMaint(manutenzione); salvaVeicoloNoUscita({ ...v, ...patch }); }} ricorrenti={ricT.rows} vociTrim={vociTrim} onSalvaTagliando={salvaTagliandoAuto} apriCambio={!!view.apriCambio} />;
     else if (view.name === 'add') content = <VehicleForm onSave={saveVehicle} onCancel={() => goBack()} />;
     else if (view.name === 'edit') content = <VehicleForm initial={view.v} onSave={saveVehicle} onCancel={() => goBack()} />;
     else content = <VeicoliScreen vehicles={vehicles} ricorrenti={ricT.rows} onEsporta={() => scaricaXlsx(generaFlottaXlsx(vehicles, maintsT.rows, ricT.rows), 'Flotta mezzi.xlsx')} maints={maints} params={params} onOpen={(v) => setView({ name: 'detail', id: v.id })} onAdd={() => setView({ name: 'add' })} onMenu={() => setShowMenu(true)} onHome={onHome} />;
